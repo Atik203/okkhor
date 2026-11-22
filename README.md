@@ -6,9 +6,9 @@ transliteration and suggestions, personalization that learns on the device, and
 AI features that never sit in the keystroke path.
 
 > Status: **0.1 scaffold + early 0.2 input layer**. The workspace, learning
-> core, storage, Win32 hook, Unicode injector, single-instance guard, and
-> capture pause state exist. Tray, clipboard fallback, focus/caret placement,
-> UI, speech, and AI workers are roadmap items, not shipped features.
+> core, storage, Win32 hook, Unicode injector, single-instance guard, capture
+> pause state, and pause hotkey exist. Tray, clipboard fallback, focus/caret
+> placement, UI, speech, and AI workers are roadmap items, not shipped features.
 
 ## Why Rust
 

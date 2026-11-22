@@ -13,6 +13,8 @@ pub mod inject;
 pub mod input;
 
 #[cfg(windows)]
+mod hotkey;
+#[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]
 mod win32;
@@ -20,6 +22,8 @@ mod win32;
 pub use inject::{InjectError, InjectionMethod, TextInjector};
 pub use input::{KeyEvent, KeyPhase, KeyboardHook};
 
+#[cfg(windows)]
+pub use hotkey::{HotkeyError, PauseHotkey};
 #[cfg(windows)]
 pub use single_instance::{SingleInstance, SingleInstanceError};
 #[cfg(windows)]

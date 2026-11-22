@@ -15,11 +15,12 @@ Versioning once it reaches 1.0.
 - Per-user single-instance guard (`SingleInstance`) with a named mutex.
 - Capture pause state (`set_capture_enabled`, `toggle_capture`) that preserves
   pass-through and stops enqueueing without uninstalling the hook.
+- Global `Ctrl+Alt+Shift+P` pause hotkey registered on a dedicated message-loop
+  thread, with `hook-demo` wiring.
 - Hook cleanup on drop and a single-instance guard around `hook-demo`.
 
 ### Not yet
 
-- pause hotkey UI and kill-switch wiring;
 - tray, autostart, and redacted logging;
 - clipboard fallback and focus/caret-aware popup placement;
 - benchmark harness, Windows integration matrix, signing.
