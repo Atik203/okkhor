@@ -4,6 +4,7 @@
 //! surface small and document every block.
 
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 
@@ -25,6 +26,26 @@ use crate::input::{KeyEvent, KeyPhase, KeyboardHook};
 /// One process-wide hook queue. The daemon starts the hook once for its
 /// lifetime; restart requires a new process.
 static HOOK_TX: OnceLock<SyncSender<KeyEvent>> = OnceLock::new();
+
+/// Whether the hook forwards events to the consumer. Pass-through is always
+/// preserved; disabling capture only stops enqueueing.
+static CAPTURE_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Enable or disable event capture without uninstalling the hook.
+pub fn set_capture_enabled(enabled: bool) {
+    CAPTURE_ENABLED.store(enabled, Ordering::Release);
+}
+
+/// Whether the hook currently forwards events.
+pub fn capture_enabled() -> bool {
+    CAPTURE_ENABLED.load(Ordering::Acquire)
+}
+
+/// Toggle capture and return the new state.
+pub fn toggle_capture() -> bool {
+    let previous = CAPTURE_ENABLED.fetch_xor(true, Ordering::AcqRel);
+    !previous
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum HookError {
@@ -68,6 +89,21 @@ impl WindowsKeyboardHook {
             .as_ref()
             .is_some_and(|thread| !thread.is_finished())
     }
+
+    /// Stop forwarding events while keeping the hook installed and pass-through.
+    pub fn set_capture_enabled(&self, enabled: bool) {
+        set_capture_enabled(enabled);
+    }
+
+    /// Whether capture is currently enabled.
+    pub fn capture_enabled(&self) -> bool {
+        capture_enabled()
+    }
+
+    /// Toggle capture and return the new state.
+    pub fn toggle_capture(&self) -> bool {
+        toggle_capture()
+    }
 }
 
 impl KeyboardHook for WindowsKeyboardHook {
@@ -78,6 +114,7 @@ impl KeyboardHook for WindowsKeyboardHook {
             return Err(HookError::AlreadyStarted);
         }
 
+        set_capture_enabled(true);
         let (event_tx, event_rx) = mpsc::sync_channel(4096);
         HOOK_TX
             .set(event_tx)
@@ -117,6 +154,13 @@ impl KeyboardHook for WindowsKeyboardHook {
             let _ = thread.join();
         }
         self.events = None;
+    }
+}
+
+impl Drop for WindowsKeyboardHook {
+    fn drop(&mut self) {
+        // Ensure the hook thread is stopped and unhooked even on early exit.
+        <Self as KeyboardHook>::stop(self);
     }
 }
 
@@ -183,12 +227,14 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         };
 
         if let (Some(queue), Some(phase)) = (HOOK_TX.get(), phase) {
-            let _ = queue.try_send(KeyEvent {
-                virtual_key: data.vkCode as u16,
-                scan_code: data.scanCode as u16,
-                phase,
-                timestamp_ms: u64::from(data.time),
-            });
+            if CAPTURE_ENABLED.load(Ordering::Relaxed) {
+                let _ = queue.try_send(KeyEvent {
+                    virtual_key: data.vkCode as u16,
+                    scan_code: data.scanCode as u16,
+                    phase,
+                    timestamp_ms: u64::from(data.time),
+                });
+            }
         }
     }
 
@@ -285,5 +331,15 @@ mod tests {
     fn each_code_unit_has_down_and_up_events() {
         let inputs = unicode_inputs(&[0x09, 0x3F]);
         assert_eq!(inputs.len(), 4);
+    }
+
+    #[test]
+    fn capture_toggle_round_trips() {
+        super::set_capture_enabled(true);
+        assert!(super::capture_enabled());
+        assert!(!super::toggle_capture());
+        assert!(!super::capture_enabled());
+        assert!(super::toggle_capture());
+        assert!(super::capture_enabled());
     }
 }

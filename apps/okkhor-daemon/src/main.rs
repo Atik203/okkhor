@@ -51,8 +51,17 @@ fn print_help() {
 
 #[cfg(windows)]
 fn hook_demo() -> Result<(), Box<dyn Error>> {
-    use okkhor_win::{KeyboardHook, WindowsKeyboardHook};
+    use okkhor_win::{KeyboardHook, SingleInstance, SingleInstanceError, WindowsKeyboardHook};
     use std::time::{Duration, Instant};
+
+    let _single_instance = match SingleInstance::acquire("Local\\Okkhor.HookDemo") {
+        Ok(guard) => guard,
+        Err(SingleInstanceError::AlreadyRunning) => {
+            println!("hook-demo: another demo instance is already running");
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
 
     let mut hook = WindowsKeyboardHook::new();
     hook.start()?;
