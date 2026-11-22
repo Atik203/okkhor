@@ -13,9 +13,13 @@ pub mod inject;
 pub mod input;
 
 #[cfg(windows)]
+mod caret;
+#[cfg(windows)]
 mod clipboard;
 #[cfg(windows)]
 mod hotkey;
+#[cfg(windows)]
+mod popup;
 #[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]
@@ -25,7 +29,14 @@ pub use inject::{InjectError, InjectionMethod, TextInjector};
 pub use input::{KeyEvent, KeyPhase, KeyboardHook};
 
 #[cfg(windows)]
+pub use caret::{
+    CaretAnchor, DpiError, PopupPlacement, caret_anchor, enable_per_monitor_dpi_awareness,
+    place_popup,
+};
+#[cfg(windows)]
 pub use hotkey::{HotkeyError, PauseHotkey};
+#[cfg(windows)]
+pub use popup::{PopupError, SuggestionPopup};
 #[cfg(windows)]
 pub use single_instance::{SingleInstance, SingleInstanceError};
 #[cfg(windows)]

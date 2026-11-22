@@ -13,6 +13,9 @@ use okkhor_learn::{CommitSource, LearningEvent, Smriti, SmritiConfig};
 use okkhor_storage::JsonFileRepository;
 
 fn main() {
+    #[cfg(windows)]
+    let _ = okkhor_win::enable_per_monitor_dpi_awareness();
+
     let command = std::env::args().nth(1);
 
     match command.as_deref() {
@@ -30,6 +33,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("popup-demo") => {
+            if let Err(error) = popup_demo() {
+                eprintln!("popup-demo failed: {error}");
+                std::process::exit(1);
+            }
+        }
         Some("--help") | Some("-h") | None => print_help(),
         Some(other) => {
             eprintln!("unknown argument: {other}");
@@ -41,10 +50,11 @@ fn main() {
 
 fn print_help() {
     println!(
-        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo]\n\n\
+        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo]\n\n\
          `self-check` exercises the learning engine, ranking, and persistence.\n\
          `hook-demo` installs a global hook for 5 seconds and prints key events.\n\
-         It is a manual smoke test; run it only in a disposable session.",
+         `popup-demo` shows a non-activating popup near the caret for 3 seconds.\n\
+         Both demos are manual smoke tests; run them only in a disposable session.",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -116,6 +126,36 @@ fn hook_demo() -> Result<(), Box<dyn Error>> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "hook-demo is only available on Windows",
+    )
+    .into())
+}
+
+#[cfg(windows)]
+fn popup_demo() -> Result<(), Box<dyn Error>> {
+    use okkhor_win::{SuggestionPopup, caret_anchor, place_popup};
+    use std::time::Duration;
+
+    let Some(anchor) = caret_anchor() else {
+        println!("popup-demo: no caret anchor available");
+        return Ok(());
+    };
+    let placement = place_popup(&anchor, 360, 140);
+    let mut popup = SuggestionPopup::new()?;
+    popup.show("Okkhor suggestions\nভালো   ভাল   ভালো", placement)?;
+    println!(
+        "popup-demo: shown at ({}, {}) for 3 seconds",
+        placement.x, placement.y
+    );
+    std::thread::sleep(Duration::from_secs(3));
+    popup.hide();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn popup_demo() -> Result<(), Box<dyn Error>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "popup-demo is only available on Windows",
     )
     .into())
 }
