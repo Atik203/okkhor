@@ -94,9 +94,9 @@ Negative:
 
 ## Implementation notes
 
-- Add `akkhor-model` when phase 0.6 starts; keep it separate from `akkhor-core`
-  and `akkhor-win`.
-- Add `akkhor-train` as an offline tool, not a shipped binary.
+- Add `okkhor-model` when phase 0.6 starts; keep it separate from `okkhor-core`
+  and `okkhor-win`.
+- Add `okkhor-train` as an offline tool, not a shipped binary.
 - Define a stable feature schema before training the first model.
 - Keep the linear model pure Rust; use ONNX Runtime only for Tier 2.
 - Use `arc-swap` for atomic model replacement and a bounded inference queue.

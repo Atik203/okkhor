@@ -5,7 +5,7 @@
 
 ## Context
 
-Akkhor needs a good-looking, responsive Windows UI with Bengali shaping,
+Okkhor needs a good-looking, responsive Windows UI with Bengali shaping,
 themes, an on-screen keyboard, a word manager, and a caret-adjacent suggestion
 popup. The UI must not steal focus or add latency to typing.
 

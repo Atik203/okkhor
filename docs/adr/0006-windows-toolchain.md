@@ -5,7 +5,7 @@
 
 ## Context
 
-Akkhor is Windows-first. The current development host did not have MSVC Build
+Okkhor is Windows-first. The current development host did not have MSVC Build
 Tools or a Windows SDK linker, but it did have MSYS2 mingw64. Rust was
 bootstrapped with the user-level GNU toolchain so the workspace could be built
 and tested without an administrator prompt.
@@ -20,7 +20,7 @@ used by GitHub Actions.
   Server with the Visual Studio Build Tools and Windows SDK.
 - The local GNU toolchain (`x86_64-pc-windows-gnu` + MSYS2 mingw64) is allowed
   for early, platform-independent development and tests.
-- `akkhor-win` native code must not be considered shippable until it builds and
+- `okkhor-win` native code must not be considered shippable until it builds and
   passes integration tests with MSVC.
 - Do not mix GNU-built and MSVC-built artifacts in one installer.
 - Document the toolchain in `AGENTS.md` and keep the checks identical where

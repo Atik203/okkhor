@@ -1,6 +1,6 @@
 # Security policy
 
-Akkhor is a keyboard utility and therefore handles highly sensitive input. We
+Okkhor is a keyboard utility and therefore handles highly sensitive input. We
 take reports seriously.
 
 ## Reporting
@@ -33,7 +33,7 @@ In scope:
 Out of scope:
 
 - vulnerabilities in the legacy application (report them to its owner);
-- third-party dependencies without a concrete Akkhor exploit path;
+- third-party dependencies without a concrete Okkhor exploit path;
 - social engineering.
 
 ## Data handling

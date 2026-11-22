@@ -1,6 +1,6 @@
 # Model roadmap: hybrid global/local learning-to-rank
 
-This document is the long-term plan for Akkhor's suggestion model. It is
+This document is the long-term plan for Okkhor's suggestion model. It is
 subordinate to the hard rules in `AGENTS.md` and ADR 0007: **typing never waits
 on a model, and raw user text never leaves the device by default.**
 
@@ -173,7 +173,7 @@ sign + checksum + model manifest
 ship in beta, A/B, rollback
 ```
 
-- Training code lives in `akkhor-train` (offline, not shipped).
+- Training code lives in `okkhor-train` (offline, not shipped).
 - Start with logistic regression; compare against Smriti v1.
 - Try a small GBDT/MLP only if Tier 1 plateaus.
 - Export ONNX only for Tier 2+.
@@ -187,7 +187,7 @@ Illustrative shape:
 ```json
 {
   "schema": 1,
-  "name": "akkhor-reranker",
+  "name": "okkhor-reranker",
   "version": "1.0.0",
   "feature_schema": "v1",
   "languages": ["en", "bn"],
@@ -212,10 +212,10 @@ keep the previous model and report a non-blocking error.
 
 Planned crates:
 
-- `akkhor-model`: manifest, signature, inference adapters, deadline handling.
-- `akkhor-learn`: Smriti baseline, local adapter, feature extraction.
-- `akkhor-train`: offline training and replay (not shipped).
-- `akkhor-core`: `Ranker`/`Candidate`/`SuggestionRequest` traits and types.
+- `okkhor-model`: manifest, signature, inference adapters, deadline handling.
+- `okkhor-learn`: Smriti baseline, local adapter, feature extraction.
+- `okkhor-train`: offline training and replay (not shipped).
+- `okkhor-core`: `Ranker`/`Candidate`/`SuggestionRequest` traits and types.
 
 Runtime shape:
 

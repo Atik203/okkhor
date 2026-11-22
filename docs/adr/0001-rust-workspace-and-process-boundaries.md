@@ -10,23 +10,23 @@ hook, injection, UI, dictionaries, and cloud calls share one process. A UI or
 provider failure can affect typing, and the Python runtime makes startup and
 memory heavier than necessary.
 
-Akkhor is a ground-up Windows-first rewrite. It must remain testable and
+Okkhor is a ground-up Windows-first rewrite. It must remain testable and
 maintainable for years.
 
 ## Decision
 
 Use a Rust workspace with explicit boundaries:
 
-- `akkhor-core`: pure language and ranking primitives, no I/O, no Windows;
-- `akkhor-learn`: Smriti personalization, no I/O;
-- `akkhor-storage`: persistence boundary;
-- `akkhor-win`: all Windows input/injection/caret/focus code;
-- `akkhor-daemon`: composition and lifecycle;
-- future `akkhor-ui`, `akkhor-ipc`, `akkhor-speech`, `akkhor-ai` as separate
+- `okkhor-core`: pure language and ranking primitives, no I/O, no Windows;
+- `okkhor-learn`: Smriti personalization, no I/O;
+- `okkhor-storage`: persistence boundary;
+- `okkhor-win`: all Windows input/injection/caret/focus code;
+- `okkhor-daemon`: composition and lifecycle;
+- future `okkhor-ui`, `okkhor-ipc`, `okkhor-speech`, `okkhor-ai` as separate
   crates/processes.
 
 Run the daemon and UI as separate processes. Run speech/AI in a restartable
-worker. Keep `unsafe` confined to `akkhor-win` and reviewed FFI modules.
+worker. Keep `unsafe` confined to `okkhor-win` and reviewed FFI modules.
 
 ## Consequences
 

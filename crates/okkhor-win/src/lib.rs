@@ -12,5 +12,11 @@
 pub mod inject;
 pub mod input;
 
+#[cfg(windows)]
+mod win32;
+
 pub use inject::{InjectError, InjectionMethod, TextInjector};
 pub use input::{KeyEvent, KeyPhase, KeyboardHook};
+
+#[cfg(windows)]
+pub use win32::{HookError, WindowsInjector, WindowsKeyboardHook, utf16_units};

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use akkhor_core::{Candidate, Language, Ranker, Suggestion, SuggestionRequest, normalize_lookup};
+use okkhor_core::{Candidate, Language, Ranker, Suggestion, SuggestionRequest, normalize_lookup};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -299,7 +299,7 @@ impl Smriti {
         self.score_with(candidate, request, &inner)
     }
 
-    /// Persistable snapshot for `akkhor-storage`.
+    /// Persistable snapshot for `okkhor-storage`.
     pub fn snapshot(&self) -> LearningSnapshot {
         let inner = self
             .inner
@@ -552,7 +552,7 @@ where
 mod tests {
     use super::{LearnError, Smriti, SmritiConfig};
     use crate::event::{CommitSource, LearningEvent};
-    use akkhor_core::{
+    use okkhor_core::{
         Candidate, CandidateSource, Language, Ranker, RankingFeatures, SuggestionRequest,
     };
 

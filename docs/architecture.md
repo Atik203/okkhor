@@ -2,7 +2,7 @@
 
 ## Context
 
-Akkhor is a Windows-first Bengali/English input engine. It replaces a
+Okkhor is a Windows-first Bengali/English input engine. It replaces a
 PyInstaller/PyQt5 application with a native Rust daemon, a local learning
 engine, and a responsive UI. The legacy application is a behavioral oracle, not
 a runtime dependency.
@@ -28,7 +28,7 @@ a runtime dependency.
 ## Process model
 
 ```text
-┌──────────────────────────── akkhor.exe ────────────────────────────┐
+┌──────────────────────────── okkhor.exe ────────────────────────────┐
 │                                                                    │
 │  WH_KEYBOARD_LL thread                                             │
 │        │ bounded, lock-free queue                                  │
@@ -45,7 +45,7 @@ a runtime dependency.
                 │ authenticated named pipe      │ restartable worker
                 ▼                               ▼
 ┌───────────────────────────┐      ┌─────────────────────────────────┐
-│ akkhor-ui.exe             │      │ akkhor-worker.exe               │
+│ okkhor-ui.exe             │      │ okkhor-worker.exe               │
 │ Tauri/Slint settings,     │      │ speech + AI, bounded queues,    │
 │ on-screen keyboard,       │      │ cancellation, cache, no typing  │
 │ word manager              │      │ path involvement                │
@@ -79,15 +79,15 @@ The path never performs network I/O, disk I/O, AI calls, or UI-thread waits.
 
 | Crate | Responsibility | Must not |
 | --- | --- | --- |
-| `akkhor-core` | language, text normalization, candidate/ranking types | touch Win32, I/O, async |
-| `akkhor-learn` | Smriti statistics, scoring, snapshots | do I/O or logging |
-| `akkhor-storage` | snapshot load/save, future redb adapter | contain ranking policy |
-| `akkhor-win` | hook, injection, caret, focus, clipboard | contain language policy |
-| `akkhor-daemon` | composition, lifecycle, tray, workers | own algorithm internals |
-| `akkhor-ui` (planned) | settings, word manager, on-screen keyboard | sit on the hot path |
-| `akkhor-ipc` (planned) | authenticated local messages | expose raw text broadly |
-| `akkhor-speech` (planned) | audio capture, provider adapters | block typing |
-| `akkhor-ai` (planned) | Gemini/other providers, cache, cancellation | decide quick suggestions |
+| `okkhor-core` | language, text normalization, candidate/ranking types | touch Win32, I/O, async |
+| `okkhor-learn` | Smriti statistics, scoring, snapshots | do I/O or logging |
+| `okkhor-storage` | snapshot load/save, future redb adapter | contain ranking policy |
+| `okkhor-win` | hook, injection, caret, focus, clipboard | contain language policy |
+| `okkhor-daemon` | composition, lifecycle, tray, workers | own algorithm internals |
+| `okkhor-ui` (planned) | settings, word manager, on-screen keyboard | sit on the hot path |
+| `okkhor-ipc` (planned) | authenticated local messages | expose raw text broadly |
+| `okkhor-speech` (planned) | audio capture, provider adapters | block typing |
+| `okkhor-ai` (planned) | Gemini/other providers, cache, cancellation | decide quick suggestions |
 
 ## Data flow
 

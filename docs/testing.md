@@ -82,7 +82,7 @@ CI runs:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
-cargo run --package akkhor-daemon -- self-check
+cargo run --package okkhor-daemon -- self-check
 ```
 
 CI does not run global hooks or the legacy app. Those belong in a dedicated

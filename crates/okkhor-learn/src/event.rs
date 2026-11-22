@@ -1,4 +1,4 @@
-use akkhor_core::Language;
+use okkhor_core::Language;
 use serde::{Deserialize, Serialize};
 
 /// How a word entered the document.
@@ -56,7 +56,7 @@ pub enum LearningEvent {
 #[cfg(test)]
 mod tests {
     use super::{CommitSource, LearningEvent};
-    use akkhor_core::Language;
+    use okkhor_core::Language;
 
     #[test]
     fn events_round_trip_through_json() {

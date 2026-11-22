@@ -1,4 +1,4 @@
-//! Akkhor daemon scaffold.
+//! Okkhor daemon scaffold.
 //!
 //! Milestone 0.1 deliberately contains no keyboard hook or tray UI. It proves
 //! that the workspace, learning engine, ranking, and persistence boundary build
@@ -8,21 +8,27 @@ use std::error::Error;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use akkhor_core::{Candidate, CandidateSource, Language, Ranker, SuggestionRequest};
-use akkhor_learn::{CommitSource, LearningEvent, Smriti, SmritiConfig};
-use akkhor_storage::JsonFileRepository;
+use okkhor_core::{Candidate, CandidateSource, Language, Ranker, SuggestionRequest};
+use okkhor_learn::{CommitSource, LearningEvent, Smriti, SmritiConfig};
+use okkhor_storage::JsonFileRepository;
 
 fn main() {
     let command = std::env::args().nth(1);
 
     match command.as_deref() {
-        Some("--version") => println!("akkhor {}", env!("CARGO_PKG_VERSION")),
+        Some("--version") => println!("okkhor {}", env!("CARGO_PKG_VERSION")),
         Some("self-check") => {
             if let Err(error) = self_check() {
                 eprintln!("self-check failed: {error}");
                 std::process::exit(1);
             }
             println!("self-check: ok");
+        }
+        Some("hook-demo") => {
+            if let Err(error) = hook_demo() {
+                eprintln!("hook-demo failed: {error}");
+                std::process::exit(1);
+            }
         }
         Some("--help") | Some("-h") | None => print_help(),
         Some(other) => {
@@ -35,11 +41,50 @@ fn main() {
 
 fn print_help() {
     println!(
-        "Akkhor {}\n\nUSAGE:\n    akkhor [--help | --version | self-check]\n\n\
-         The 0.1 scaffold has no keyboard hook yet. `self-check` exercises the\n\
-         learning engine, ranking, and snapshot persistence.",
+        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo]\n\n\
+         `self-check` exercises the learning engine, ranking, and persistence.\n\
+         `hook-demo` installs a global hook for 5 seconds and prints key events.\n\
+         It is a manual smoke test; run it only in a disposable session.",
         env!("CARGO_PKG_VERSION")
     );
+}
+
+#[cfg(windows)]
+fn hook_demo() -> Result<(), Box<dyn Error>> {
+    use okkhor_win::{KeyboardHook, WindowsKeyboardHook};
+    use std::time::{Duration, Instant};
+
+    let mut hook = WindowsKeyboardHook::new();
+    hook.start()?;
+    println!("hook-demo: installed for 5 seconds; press Esc to stop early.");
+
+    let started = Instant::now();
+    let mut stop = false;
+    while started.elapsed() < Duration::from_secs(5) && !stop {
+        while let Some(event) = hook.try_next() {
+            println!(
+                "{:?} vk=0x{:02X} scan=0x{:02X}",
+                event.phase, event.virtual_key, event.scan_code
+            );
+            if event.virtual_key == 0x1B {
+                stop = true;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    hook.stop();
+    println!("hook-demo: stopped");
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn hook_demo() -> Result<(), Box<dyn Error>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "hook-demo is only available on Windows",
+    )
+    .into())
 }
 
 fn self_check() -> Result<(), Box<dyn Error>> {
@@ -147,7 +192,7 @@ fn fresh_temp_dir() -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock after epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("akkhor-self-check-{}-{unique}", std::process::id()))
+    std::env::temp_dir().join(format!("okkhor-self-check-{}-{unique}", std::process::id()))
 }
 
 #[cfg(test)]

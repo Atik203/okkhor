@@ -1,6 +1,6 @@
 # Security and privacy
 
-Akkhor is a keyboard hook, a text injector, and a local learning store. That is
+Okkhor is a keyboard hook, a text injector, and a local learning store. That is
 a high-trust combination. This document is the security contract for the
 project.
 
@@ -57,7 +57,7 @@ fields are absent.
 
 - Learning snapshots are encrypted at rest with Windows DPAPI or a key stored in
   the OS credential vault.
-- Store under `%LOCALAPPDATA%\Akkhor`, not next to the executable.
+- Store under `%LOCALAPPDATA%\Okkhor`, not next to the executable.
 - Use per-user ACLs; do not create world-readable files.
 - Provide export and delete. Delete must remove both memory and disk copies.
 - Backups must be encrypted and bounded.

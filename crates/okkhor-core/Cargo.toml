@@ -1,6 +1,6 @@
 [package]
-name = "akkhor-core"
-description = "Language, text, candidate, and ranking primitives for Akkhor."
+name = "okkhor-core"
+description = "Language, text, candidate, and ranking primitives for Okkhor."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
