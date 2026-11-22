@@ -9,6 +9,8 @@
 | [Performance](performance.md) | latency budgets and measurement protocol |
 | [Security and privacy](security-privacy.md) | threat model and data controls |
 | [Testing](testing.md) | test strategy, golden corpus, Windows matrix |
+| [QA process](qa/README.md) | manual QA setup, evidence rules, privacy constraints |
+| [0.2 Windows matrix](qa/0.2-matrix.md) | pass/fail matrix, release gate, defect template |
 | [Compatibility](compatibility.md) | legacy assets, FFI reuse, migration |
 | [Release](release.md) | versioning, signing, update and rollback |
 | [Glossary](glossary.md) | project and Bengali terms |

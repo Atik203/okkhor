@@ -74,6 +74,11 @@ Use `cargo-fuzz` for:
 | Power | balanced, battery saver |
 | Session | local, RDP, fast user switching |
 
+The table above is the coverage summary. The executable pass/fail matrix,
+evidence rules, release gate checklist, and defect template live in
+[qa/0.2-matrix.md](qa/0.2-matrix.md). Start with the
+[manual QA guide](qa/README.md) before running a row.
+
 ## CI
 
 CI runs:
