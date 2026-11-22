@@ -5,7 +5,7 @@ fixtures**, not the legacy application's proprietary payload.
 
 Do not commit:
 
-- the legacy `Kontho.exe`, installer, DLLs, Python bytecode, or extracted PYZ;
+- the legacy executable, installer, DLLs, Python bytecode, or extracted payload;
 - dictionaries, fonts, images, sounds, or themes from the legacy app unless the
   owner has confirmed redistribution rights;
 - user learning data, exports, or screenshots containing real text.

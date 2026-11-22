@@ -99,7 +99,7 @@ Deliverables:
 - transliteration candidate generation;
 - prefix, fuzzy, phonetic, and context candidate sources;
 - top-N ranking with base scores;
-- golden corpus and differential harness against Kontho;
+- golden corpus and differential harness against the legacy application;
 - optional FFI adapters for legacy `word_trie`, `translator`, `caret`, and
   `emoji_manager` DLLs.
 

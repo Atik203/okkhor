@@ -24,10 +24,10 @@ scope.
   learning-engine slice, storage, Windows-boundary types, and a daemon shell.
 - The real keyboard hook, text injection, UI, speech, and AI workers are **not
   implemented yet**. Do not pretend they are.
-- The legacy application is a read-only reference at
-  `E:\Nms_Kontho\Nms Kontho x64 8.002`. It is not part of this repository.
-- **Never run `Kontho.exe` or the installer.** Use static analysis or the
-  exported asset corpus only.
+- The legacy application is a read-only reference installation supplied by the
+  owner. It is not part of this repository; see `docs/compatibility.md`.
+- **Never run the legacy executable or its installer.** Use static analysis or
+  the exported asset corpus only.
 - **Never modify, move, rename, or delete anything under the legacy folder.**
 
 ## Non-negotiable rules
@@ -234,7 +234,7 @@ These are starting budgets. Change them only with measurements and an ADR.
 ## Agent behavior
 
 - Ask before deleting files, changing the toolchain, adding a native dependency,
-  changing licensing, or touching `E:\Nms_Kontho\Nms Kontho x64 8.002`.
+  changing licensing, or touching the owner-provided legacy installation.
 - Prefer a small, reviewable diff over a large speculative refactor.
 - Run the checks yourself; do not claim success without output.
 - If a check cannot run, say exactly what is missing and what was verified.

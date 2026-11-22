@@ -4,7 +4,7 @@ Smriti is Akkhor's on-device personalization engine. Its job is to make the
 next word, completion, and transliteration choice better for this user without
 putting the network, the UI, or a model in the typing path.
 
-The legacy Kontho app already keeps some sentence history and recent words. The
+The legacy application already keeps some sentence history and recent words. The
 new design goes further: it learns the user's English vocabulary, Bangla
 vocabulary, Romanized-English -> Bangla choices, context, and corrections as
 separate, inspectable signals.

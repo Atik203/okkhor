@@ -1,13 +1,10 @@
 # Legacy compatibility
 
-Akkhor is a clean-room Rust implementation. The legacy Kontho build is a
+Akkhor is a clean-room Rust implementation. The legacy application is a
 behavioral oracle and an asset source, not a runtime dependency.
 
-Legacy location (read-only):
-
-```text
-E:\Nms_Kontho\Nms Kontho x64 8.002
-```
+The legacy installation is owner-provided and read-only. Local harnesses may
+read it through `AKKHOR_LEGACY_HOME`; never commit that path or its contents.
 
 Never run the legacy executable or installer as part of normal development.
 
@@ -15,7 +12,7 @@ Never run the legacy executable or installer as part of normal development.
 
 | Artifact | Observation |
 | --- | --- |
-| `Kontho.exe` | 14 MB, x64 GUI, PyInstaller 2.1, Python 3.13 |
+| Main executable | 14 MB, x64 GUI, PyInstaller 2.1, Python 3.13 |
 | Embedded archive | 1,700 inventory nodes, 1,693 `.pyc` modules |
 | UI | PyQt5, 18 `.ui` screens, themes, animations, on-screen keyboard |
 | Input | `keyboard` + `pynput` hooks, AHK `globalKeys.exe` |
@@ -44,7 +41,7 @@ Never run the legacy executable or installer as part of normal development.
 
 ## FFI plan
 
-Create a `kontho-compat` crate only when phase 2 starts:
+Create a `legacy-compat` crate only when phase 2 starts:
 
 - load DLLs by absolute path, never by cwd;
 - wrap every call in a safe Rust API;

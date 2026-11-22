@@ -24,7 +24,7 @@ AI features that never sit in the keystroke path.
 3. AI is a background enhancement with cancellation and caching.
 4. Personal learning is local, encrypted, visible, and deletable.
 5. Bengali correctness is a first-class requirement, not an afterthought.
-6. The legacy Kontho app is a behavioral oracle, not a runtime dependency.
+6. The legacy application is a behavioral oracle, not a runtime dependency.
 
 ## Repository layout
 
@@ -78,10 +78,9 @@ Or:
 
 ## Legacy application
 
-The legacy Kontho build is kept read-only at
-`E:\Nms_Kontho\Nms Kontho x64 8.002` for analysis and differential testing. It is
-not part of this repository, and its binaries and assets are not redistributed
-here. See `docs/compatibility.md`.
+The legacy application is kept read-only for analysis and differential testing.
+It is not part of this repository, and its binaries and assets are not
+redistributed here. See `docs/compatibility.md`.
 
 ## License
 

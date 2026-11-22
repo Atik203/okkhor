@@ -13,7 +13,7 @@ must not inherit unsafe packaging or an opaque runtime.
 ## Decision
 
 - Reuse data assets through importers, subject to ownership/license review.
-- Reuse native DLLs only through a future `kontho-compat` crate with absolute
+- Reuse native DLLs only through a future `legacy-compat` crate with absolute
   paths, validated buffers, feature flags, and differential tests.
 - Replace each DLL with a Rust implementation when parity is proven.
 - Do not reuse Python bytecode, PyQt code, AHK hotkeys, or the PyInstaller

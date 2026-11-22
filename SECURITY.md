@@ -32,7 +32,7 @@ In scope:
 
 Out of scope:
 
-- vulnerabilities in the legacy Kontho application (report them to its owner);
+- vulnerabilities in the legacy application (report them to its owner);
 - third-party dependencies without a concrete Akkhor exploit path;
 - social engineering.
 

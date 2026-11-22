@@ -4,7 +4,7 @@
 
 Akkhor is a Windows-first Bengali/English input engine. It replaces a
 PyInstaller/PyQt5 application with a native Rust daemon, a local learning
-engine, and a responsive UI. The legacy Kontho build is a behavioral oracle, not
+engine, and a responsive UI. The legacy application is a behavioral oracle, not
 a runtime dependency.
 
 ## Goals

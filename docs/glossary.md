@@ -5,8 +5,8 @@
 | **Akkhor** | The product: a Windows-first Bengali/English input engine. |
 | **Bornomala** | The transliteration and language engine. |
 | **Smriti** | The local personalization/learning engine. |
-| **Kontho** | The legacy application used as a behavioral oracle. |
-| **Kontho Classic** | The legacy app kept side-by-side during migration. |
+| **Legacy application** | The previous product, used only as a behavioral oracle during migration. |
+| **Legacy build** | The owner-provided installation kept side-by-side during migration. |
 | **Banglish** | Romanized Bengali used for phonetic input (`bhalo`, `kemon`). |
 | **Avro** | A popular Bengali phonetic keyboard layout. |
 | **National / Jatiya** | A Bengali keyboard layout. |
