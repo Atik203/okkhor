@@ -22,9 +22,10 @@ scope.
 
 - This repository is the **0.1 scaffold plus the first 0.2 input slice**.
 - `okkhor-win` now contains a real Win32 low-level keyboard hook, a Unicode
-  `SendInput` injector, a per-user single-instance guard, and a capture pause
-  state. Tray, clipboard fallback, focus/caret placement, UI, speech, and AI
-  workers are **not implemented yet**. Do not pretend they are.
+  `SendInput` injector, a per-user single-instance guard, a capture pause state,
+  and a global pause hotkey. Tray, clipboard fallback, focus/caret placement,
+  UI, speech, and AI workers are **not implemented yet**. Do not pretend they
+  are.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - **Never run the legacy executable or its installer.** Use static analysis or
@@ -231,6 +232,19 @@ These are starting budgets. Change them only with measurements and an ADR.
 - When comparing behavior, run the comparison harness in a disposable VM or
   with explicit owner approval.
 - Record differences as compatibility issues, not as silent “improvements.”
+
+## PR and merge policy
+
+The owner's standing rule:
+
+- every change goes through a pull request;
+- when CI is green and there is no blocking review, **squash-merge into `main`**;
+- delete the remote and local branch;
+- pull `main`, then verify the resulting `main` CI run;
+- do not leave a green, reviewed PR open.
+
+If a change is intentionally draft or needs owner review, say so in the PR and
+keep it open.
 
 ## Agent behavior
 

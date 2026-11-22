@@ -43,6 +43,16 @@ Keep commits focused. Do not mix formatting-only changes with behavior changes.
 - Call out privacy, compatibility, or performance impact.
 - Do not include generated binaries, proprietary assets, secrets, or user data.
 
+## Merge policy
+
+Once CI is green and there is no blocking review:
+
+1. squash-merge the PR into `main`;
+2. delete the branch;
+3. pull `main` and verify the resulting main CI run.
+
+Do not leave a green, reviewed PR open.
+
 ## Scope
 
 This is a long project. Do not implement future phases early. Do not add a new

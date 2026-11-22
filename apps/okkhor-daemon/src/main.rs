@@ -51,7 +51,9 @@ fn print_help() {
 
 #[cfg(windows)]
 fn hook_demo() -> Result<(), Box<dyn Error>> {
-    use okkhor_win::{KeyboardHook, SingleInstance, SingleInstanceError, WindowsKeyboardHook};
+    use okkhor_win::{
+        KeyboardHook, PauseHotkey, SingleInstance, SingleInstanceError, WindowsKeyboardHook,
+    };
     use std::time::{Duration, Instant};
 
     let _single_instance = match SingleInstance::acquire("Local\\Okkhor.HookDemo") {
@@ -65,11 +67,32 @@ fn hook_demo() -> Result<(), Box<dyn Error>> {
 
     let mut hook = WindowsKeyboardHook::new();
     hook.start()?;
+
+    let mut pause_hotkey = PauseHotkey::new();
+    let hotkey_ready = match pause_hotkey.start() {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("hook-demo: pause hotkey unavailable: {error}");
+            false
+        }
+    };
+
     println!("hook-demo: installed for 5 seconds; press Esc to stop early.");
+    if hotkey_ready {
+        println!("hook-demo: Ctrl+Alt+Shift+P toggles capture.");
+    }
 
     let started = Instant::now();
     let mut stop = false;
     while started.elapsed() < Duration::from_secs(5) && !stop {
+        if hotkey_ready && pause_hotkey.try_next() {
+            let enabled = hook.toggle_capture();
+            println!(
+                "hook-demo: capture {}",
+                if enabled { "enabled" } else { "paused" }
+            );
+        }
+
         while let Some(event) = hook.try_next() {
             println!(
                 "{:?} vk=0x{:02X} scan=0x{:02X}",
@@ -83,6 +106,7 @@ fn hook_demo() -> Result<(), Box<dyn Error>> {
     }
 
     hook.stop();
+    pause_hotkey.stop();
     println!("hook-demo: stopped");
     Ok(())
 }
