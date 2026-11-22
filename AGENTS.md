@@ -239,9 +239,16 @@ These are starting budgets. Change them only with measurements and an ADR.
 The owner's standing rule:
 
 - every change goes through a pull request;
+- every PR links an existing issue (`Issue: #N`);
+- use `Refs #N` while work is partial; use `Closes #N` only when the issue's
+  acceptance criteria are met;
+- progress notes, decisions, test results, and follow-ups belong on the issue,
+  not only in the PR;
 - when CI is green and there is no blocking review, **squash-merge into `main`**;
 - delete the remote and local branch;
 - pull `main`, then verify the resulting `main` CI run;
+- close the linked issue only after merge verification and only if its criteria
+  are met;
 - do not leave a green, reviewed PR open.
 
 If a change is intentionally draft or needs owner review, say so in the PR and
