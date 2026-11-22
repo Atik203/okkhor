@@ -16,7 +16,8 @@ automated tests.
 - the `WH_KEYBOARD_LL` hook and pass-through;
 - capture pause and the global pause hotkey;
 - the per-user single-instance guard;
-- the Unicode `SendInput` injector and guarded clipboard fallback;
+- the Unicode `SendInput` injector, guarded clipboard fallback, and native
+  `WM_CHAR` fast path;
 - the caret-aware, non-activating popup scaffold.
 
 It does not cover, and a pass must not claim:
@@ -28,6 +29,16 @@ It does not cover, and a pass must not claim:
 
 If a row depends on something that is not implemented, mark it `BLOCKED` or
 `N/A` with a reason. Code inspection is not a test result.
+
+Injection rows must record which path ran:
+
+- `native_fast_path` for `Edit`, `RichEdit*`, and `Scintilla`;
+- `unicode_send_input` for the universal fallback;
+- `clipboard_paste` only after a blocked `SendInput`.
+
+The 2 ms injector-call target applies to the native fast path. The universal
+`SendInput` path is currently measured at 5.8–7.5 ms p99 on the shared desktop
+and must be recorded, not averaged into the fast-path result.
 
 ## Safety and isolation
 

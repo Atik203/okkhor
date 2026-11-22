@@ -75,7 +75,10 @@ fn run() -> Result<(), BenchError> {
         let iterations = options
             .iterations
             .unwrap_or(if options.smoke { 5 } else { 20 });
-        let report = injection::run(InjectionOptions { iterations });
+        let report = injection::run(InjectionOptions {
+            iterations,
+            force_sendinput: options.sendinput,
+        });
         print_injection(&report);
         if let Some(path) = output::write_injection(&report, format)? {
             println!("injection: wrote {}", path.display());
@@ -222,6 +225,7 @@ struct Options {
     ranking: bool,
     injection: bool,
     smoke: bool,
+    sendinput: bool,
     json: bool,
     csv: bool,
     iterations: Option<usize>,
@@ -237,6 +241,7 @@ impl Default for Options {
             ranking: false,
             injection: false,
             smoke: false,
+            sendinput: false,
             json: false,
             csv: false,
             iterations: None,
@@ -257,6 +262,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
             "--ranking" => options.ranking = true,
             "--injection" => options.injection = true,
             "--smoke" => options.smoke = true,
+            "--sendinput" => options.sendinput = true,
             "--json" => options.json = true,
             "--csv" => options.csv = true,
             "--help" | "-h" => {
@@ -363,12 +369,13 @@ fn print_help() {
         "Okkhor {} benchmark harness\n\n\
          USAGE:\n\
          \x20   okkhor-bench --ranking [--iterations N] [--warmup N] [--seed N] [--json|--csv] [--smoke]\n\
-         \x20   okkhor-bench --injection [--iterations N] [--json|--csv]\n\n\
+         \x20   okkhor-bench --injection [--iterations N] [--sendinput] [--json|--csv]\n\n\
          MODES:\n\
          \x20   --ranking      Run N Smriti::rank calls over synthetic English/Bangla cases.\n\
          \x20   --injection    Inject synthetic text into a private Win32 EDIT window and read it back.\n\
          \x20   --smoke        Short CI-friendly ranking run; validates the percentile report.\n\n\
          OPTIONS:\n\
+         \x20   --sendinput    Force the pure Unicode SendInput path instead of the native WM_CHAR fast path.\n\
          \x20   --iterations N  Measured iterations (default: 5000 ranking, 20 injection; 100/5 with --smoke).\n\
          \x20   --warmup N      Untimed ranking iterations (default: 10% of measured, clamped to 10..=500).\n\
          \x20   --seed N        Synthetic corpus seed (default: {}).\n\

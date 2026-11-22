@@ -19,6 +19,7 @@ pub const TEXTS: &[(&str, &str)] = &[("english", "keyboard"), ("bangla", "কী
 #[derive(Debug, Clone, Copy)]
 pub struct InjectionOptions {
     pub iterations: usize,
+    pub force_sendinput: bool,
 }
 
 /// Run the injection benchmark and always return a report.
@@ -112,8 +113,13 @@ mod tests {
 
     #[test]
     fn deferred_report_is_explicit_and_desktop_free() {
-        let report =
-            construction_report(InjectionOptions { iterations: 3 }, "test reason".to_owned());
+        let report = construction_report(
+            InjectionOptions {
+                iterations: 3,
+                force_sendinput: false,
+            },
+            "test reason".to_owned(),
+        );
         assert!(report.deferred);
         assert!(!report.all_correct);
         assert_eq!(report.path, "event_construction_only");
@@ -135,7 +141,7 @@ mod windows_impl {
     use std::thread::{self, JoinHandle};
     use std::time::{Duration, Instant};
 
-    use okkhor_win::{InjectionMethod, WindowsInjector};
+    use okkhor_win::{InjectionMethod, TextInjector, WindowsInjector};
     use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -175,16 +181,18 @@ mod windows_impl {
             let mut readback_samples = Vec::with_capacity(options.iterations.max(1));
             let mut correct = 0;
             let mut failed = 0;
+            let mut method = "unknown";
 
-            if let Err(error) = inject_once(&window, &injector, text) {
+            if let Err(error) = inject_once(&window, &injector, text, options.force_sendinput) {
                 failed = options.iterations;
                 reason = Some(format!("{language} warmup failed: {error}"));
             }
 
             if failed == 0 {
                 for _ in 0..options.iterations {
-                    match inject_once(&window, &injector, text) {
+                    match inject_once(&window, &injector, text, options.force_sendinput) {
                         Ok(sample) => {
+                            method = sample.method;
                             inject_samples.push(sample.inject);
                             readback_samples.push(sample.readback);
                             correct += 1;
@@ -203,7 +211,7 @@ mod windows_impl {
             languages.push(InjectionLanguageReport {
                 language,
                 text_utf16_units: units,
-                method: "unicode_send_input",
+                method,
                 correct,
                 failed,
                 inject_latency: LatencySummary::from_samples(inject_samples),
@@ -231,12 +239,14 @@ mod windows_impl {
     struct InjectionSample {
         inject: Duration,
         readback: Duration,
+        method: &'static str,
     }
 
     fn inject_once(
         window: &TestWindow,
         injector: &WindowsInjector,
         text: &str,
+        force_sendinput: bool,
     ) -> Result<InjectionSample, String> {
         window.clear()?;
         if !window.is_foreground() {
@@ -247,15 +257,23 @@ mod windows_impl {
         }
 
         let started = Instant::now();
-        let method = injector
-            .inject_unicode_only(text)
-            .map_err(|error| format!("WindowsInjector failed: {error}"))?;
-        let inject = started.elapsed();
-        if method != InjectionMethod::UnicodeSendInput {
-            return Err(format!(
-                "WindowsInjector used {method:?}; the clipboard fallback is not allowed in this benchmark"
-            ));
+        let method = if force_sendinput {
+            injector.inject_unicode_only(text)
+        } else {
+            injector.inject(text)
         }
+        .map_err(|error| format!("WindowsInjector failed: {error}"))?;
+        let inject = started.elapsed();
+        let method = match method {
+            InjectionMethod::UnicodeSendInput => "unicode_send_input",
+            InjectionMethod::WindowMessage => "window_message",
+            InjectionMethod::ClipboardPaste => {
+                return Err(
+                    "WindowsInjector used the clipboard fallback; it is not allowed in this benchmark"
+                        .to_owned(),
+                );
+            }
+        };
 
         loop {
             let current = window.text();
@@ -263,6 +281,7 @@ mod windows_impl {
                 return Ok(InjectionSample {
                     inject,
                     readback: started.elapsed(),
+                    method,
                 });
             }
             if started.elapsed() >= READBACK_TIMEOUT {

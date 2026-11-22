@@ -38,6 +38,9 @@ Versioning once it reaches 1.0.
   stderr with an allowlisted field set for startup, command, and error events.
 - Strict `WindowsInjector::inject_unicode_only` entry point for diagnostics and
   benchmarks that must never use the clipboard fallback.
+- Native-control `WM_CHAR` fast path (`Edit`, `RichEdit*`, `Scintilla`) with
+  `SendInput` as the universal fallback and measured 1.1–1.3 ms inject p99.
+- `okkhor-bench --sendinput` to measure the universal fallback separately.
 - `apps/okkhor-bench` with deterministic synthetic English/Bangla ranking
   measurements, nearest-rank p50/p95/p99/max reporting, and git-ignored
   JSON/CSV output under `bench-out/`.
