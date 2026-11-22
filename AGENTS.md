@@ -11,8 +11,9 @@ changing code, then read the documents it points to.
 3. `docs/roadmap.md`
 4. `docs/performance.md`
 5. `docs/learning.md`
-6. `docs/security-privacy.md`
-7. The ADR that covers the area you are changing (`docs/adr/`)
+6. `docs/model-roadmap.md`
+7. `docs/security-privacy.md`
+8. The ADR that covers the area you are changing (`docs/adr/`)
 
 If a request conflicts with these rules, stop and ask. Do not silently widen the
 scope.
@@ -54,6 +55,8 @@ gates on typing.
   quick suggestions.
 - AI may improve an explicit action (proofread, rewrite, translate) or a slow
   idle suggestion. It must be cancellable and cached.
+- Any learned model must have a hard inference deadline and fall back to the
+  deterministic Smriti baseline. A model miss is not a typing stall.
 - A cloud outage must not stop typing or local suggestions.
 - Never send text to a remote service without an explicit, informed user action.
 
@@ -64,6 +67,8 @@ A keyboard app sees everything. Treat that as a security boundary.
 - Do not persist raw keystrokes.
 - Do not log words, sentences, clipboard contents, or window titles.
 - Learning data is local-only by default and encrypted at rest.
+- Global model training requires explicit opt-in, aggregation, and differential
+  privacy. Never upload raw text.
 - Provide pause, export, and delete controls.
 - Do not learn from password fields where the platform can identify them; when
   uncertain, the pause control is the user's escape hatch.

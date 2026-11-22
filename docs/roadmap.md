@@ -32,6 +32,19 @@ tests, CI, and this documentation.
 Weeks are relative to project start, not calendar dates. Add 20–30% buffer for
 Windows compatibility and Bengali edge cases.
 
+### Model workstream (parallel)
+
+The learned reranker is a parallel workstream, not a replacement for the input,
+language, or UI phases. See [model-roadmap.md](model-roadmap.md) and ADR 0007.
+
+| Stage | Model work |
+| --- | --- |
+| 0.4 | Smriti v1 baseline; stable feature schema; replay harness |
+| 0.6 | Tier 1 local logistic reranker; pure Rust; A/B |
+| 1.0 | Global prior (public corpora) + local adapter; signed packages |
+| 1.x | Optional Tier 2 ONNX next-word; deadline tuning |
+| 2.0 | Federated/DP pilot; Tier 3 transformer for idle only |
+
 ## Phase 0 — Foundations (done)
 
 Deliverables:
@@ -108,7 +121,8 @@ Deliverables:
 - base + delta index and scheduled compaction;
 - import of legacy custom words and, if feasible, sentence history;
 - offline replay and evaluation harness;
-- pause, export, and clear controls.
+- pause, export, and clear controls;
+- stable feature schema for the future learned reranker.
 
 Exit criteria:
 

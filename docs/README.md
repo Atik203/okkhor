@@ -5,6 +5,7 @@
 | [Architecture](architecture.md) | system boundaries, hot path, crates, data flow |
 | [Roadmap](roadmap.md) | phased plan and release gates |
 | [Learning](learning.md) | Smriti personalization, ranking, privacy, evaluation |
+| [Model roadmap](model-roadmap.md) | hybrid global/local learning-to-rank, training and rollout |
 | [Performance](performance.md) | latency budgets and measurement protocol |
 | [Security and privacy](security-privacy.md) | threat model and data controls |
 | [Testing](testing.md) | test strategy, golden corpus, Windows matrix |

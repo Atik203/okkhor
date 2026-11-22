@@ -20,6 +20,7 @@ Versioning once it reaches 1.0.
 - Architecture, roadmap, learning, performance, security, testing,
   compatibility, release, and glossary documentation.
 - AGENTS.md engineering contract and ADRs.
+- ADR 0007 and the long-term hybrid global/local model roadmap.
 
 ### Not included
 

@@ -14,7 +14,8 @@ a runtime dependency.
 - personalization learned on the device;
 - AI and speech as background enhancements only;
 - a signed, portable Windows binary with a small installer;
-- Bengali correctness and accessibility as first-class requirements.
+- Bengali correctness and accessibility as first-class requirements;
+- a staged hybrid global/local learning-to-rank model that never blocks typing.
 
 ## Non-goals for 1.0
 

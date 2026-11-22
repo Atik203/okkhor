@@ -67,6 +67,7 @@ Or:
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Personal learning (Smriti)](docs/learning.md)
+- [Model roadmap](docs/model-roadmap.md)
 - [Performance](docs/performance.md)
 - [Security and privacy](docs/security-privacy.md)
 - [Testing](docs/testing.md)

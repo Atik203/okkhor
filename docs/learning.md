@@ -254,3 +254,6 @@ Online:
 - Is a small logistic reranker better than hand-tuned weights after 30 days of
   replay data?
 - Should the UI explain “why this suggestion?” in a diagnostics panel?
+
+The long-term plan for learned ranking is in
+[model-roadmap.md](model-roadmap.md) and ADR 0007.
