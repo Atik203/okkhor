@@ -17,6 +17,9 @@ cargo run --release -p okkhor-bench -- --ranking --iterations 5000 --json
 
 # Manual injection check against a private EDIT window
 cargo run --release -p okkhor-bench -- --injection --iterations 20 --json
+
+# Force the universal SendInput path (skip the native WM_CHAR fast path)
+cargo run --release -p okkhor-bench -- --injection --iterations 100 --sendinput --json
 ```
 
 `bench-out/` is git-ignored. Reports are named with a Unix-millisecond stamp and

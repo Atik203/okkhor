@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum InjectionMethod {
     /// Batched `SendInput` with `KEYEVENTF_UNICODE`.
     UnicodeSendInput,
+    /// `WM_CHAR` fast path for known Win32 text controls.
+    WindowMessage,
     /// Clipboard write followed by Ctrl+V.
     ClipboardPaste,
 }

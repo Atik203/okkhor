@@ -22,14 +22,14 @@ scope.
 
 - This repository is the **0.1 scaffold plus the first 0.2 input slice**.
 - `okkhor-win` now contains a real Win32 low-level keyboard hook, a Unicode
-  `SendInput` injector with a guarded clipboard fallback, a per-user
-  single-instance guard, a capture pause state, a global pause hotkey, a
-  caret-aware non-activating popup scaffold, per-user autostart, and a minimal
-  `Shell_NotifyIconW` tray. The daemon has redacted JSON-lines logging and a
-  resident `daemon` mode. `okkhor-bench` measures Smriti ranking and injector
-  latency without installing a hook. The Settings tray action, full suggestion
-  rendering, hook-level end-to-end benchmarks, UI, speech, and AI workers are
-  **not implemented yet**. Do not pretend they are.
+  `SendInput` injector with a guarded clipboard fallback and a native-control
+  `WM_CHAR` fast path, a per-user single-instance guard, a capture pause state, a
+  global pause hotkey, a caret-aware non-activating popup scaffold, per-user
+  autostart, and a minimal `Shell_NotifyIconW` tray. The daemon has redacted
+  JSON-lines logging and a resident `daemon` mode. `okkhor-bench` measures
+  Smriti ranking and both injection paths without installing a hook. The Settings
+  tray action, full suggestion rendering, hook-level end-to-end benchmarks, UI,
+  speech, and AI workers are **not implemented yet**. Do not pretend they are.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - **Never run the legacy executable or its installer.** Use static analysis or

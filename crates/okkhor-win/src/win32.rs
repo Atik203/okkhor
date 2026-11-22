@@ -16,9 +16,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT,
-    MSG, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
+    GetGUIThreadInfo, GetMessageW, GetWindowThreadProcessId, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
+    PostMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    WH_KEYBOARD_LL, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 use crate::clipboard::ClipboardGuard;
@@ -277,6 +278,18 @@ impl TextInjector for WindowsInjector {
         }
 
         let target = foreground_window()?;
+
+        // Standard Win32 text controls accept WM_CHAR directly. This avoids the
+        // per-event SendInput cost for the most common native targets.
+        match inject_wm_char(text, target) {
+            Some(Ok(())) => {
+                ensure_focus(target)?;
+                return Ok(InjectionMethod::WindowMessage);
+            }
+            Some(Err(error)) => return Err(error),
+            None => {}
+        }
+
         match inject_unicode(text) {
             Ok(()) => {
                 ensure_focus(target)?;
@@ -308,6 +321,79 @@ fn inject_unicode(text: &str) -> Result<(), InjectError> {
         }
     }
     Ok(())
+}
+
+/// Try the asynchronous `WM_CHAR` fast path for a known Win32 text control.
+///
+/// Returns `None` when the focused control is not a known text class, or when
+/// the very first character could not be queued (so the caller can safely fall
+/// back to `SendInput`). A failure after one or more characters returns an
+/// error, because retrying would duplicate text.
+fn inject_wm_char(text: &str, target: HWND) -> Option<Result<(), InjectError>> {
+    let focus = focused_window(target)?;
+    let class = class_name(focus)?;
+    if !supports_wm_char(&class) {
+        return None;
+    }
+
+    for (delivered, unit) in text.encode_utf16().enumerate() {
+        // SAFETY: focus is a live window from the foreground thread. Posting
+        // WM_CHAR keeps the injector call asynchronous for native controls; the
+        // caller verifies the readback and other targets use SendInput.
+        if let Err(error) =
+            unsafe { PostMessageW(Some(focus), WM_CHAR, WPARAM(unit as usize), LPARAM(1)) }
+        {
+            if delivered == 0 {
+                return None;
+            }
+            return Some(Err(InjectError::Win32 {
+                operation: "PostMessageW",
+                code: error.code().0 as u32,
+            }));
+        }
+    }
+
+    Some(Ok(()))
+}
+
+fn focused_window(target: HWND) -> Option<HWND> {
+    // SAFETY: GetWindowThreadProcessId only reads the window's thread id.
+    let thread_id = unsafe { GetWindowThreadProcessId(target, None) };
+    if thread_id == 0 {
+        return None;
+    }
+
+    let mut info = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..GUITHREADINFO::default()
+    };
+    // SAFETY: info is a valid GUITHREADINFO with cbSize initialized.
+    if unsafe { GetGUIThreadInfo(thread_id, &mut info) }.is_err() {
+        return None;
+    }
+    if info.hwndFocus.0.is_null() {
+        None
+    } else {
+        Some(info.hwndFocus)
+    }
+}
+
+fn class_name(window: HWND) -> Option<String> {
+    let mut buffer = [0u16; 256];
+    // SAFETY: buffer is a valid mutable slice and the window belongs to the
+    // foreground thread observed above.
+    let length = unsafe { GetClassNameW(window, &mut buffer) };
+    if length <= 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buffer[..length as usize]))
+}
+
+fn supports_wm_char(class: &str) -> bool {
+    matches!(
+        class.to_ascii_lowercase().as_str(),
+        "edit" | "richedit20a" | "richedit20w" | "richedit50w" | "richedit60w" | "scintilla"
+    )
 }
 
 fn inject_via_clipboard(text: &str, target: HWND) -> Result<InjectionMethod, InjectError> {
@@ -491,5 +577,15 @@ mod tests {
         assert!(!super::capture_enabled());
         assert!(super::toggle_capture());
         assert!(super::capture_enabled());
+    }
+
+    #[test]
+    fn wm_char_classes_are_limited_to_known_text_controls() {
+        assert!(super::supports_wm_char("Edit"));
+        assert!(super::supports_wm_char("RichEdit20W"));
+        assert!(super::supports_wm_char("RichEdit50W"));
+        assert!(super::supports_wm_char("Scintilla"));
+        assert!(!super::supports_wm_char("Chrome_WidgetWin_1"));
+        assert!(!super::supports_wm_char("Static"));
     }
 }

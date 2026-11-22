@@ -10,6 +10,7 @@
 | [0006](0006-windows-toolchain.md) | Windows toolchain and build targets | Accepted |
 | [0007](0007-hybrid-global-local-learning-to-rank.md) | Hybrid global/local learning-to-rank | Accepted |
 | [0008](0008-non-hook-benchmark-harness.md) | Non-hook benchmark harness | Accepted |
+| [0009](0009-native-control-wm-char-fast-path.md) | Native-control WM_CHAR fast path | Accepted |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.

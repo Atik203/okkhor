@@ -12,7 +12,8 @@ behavior on a normal Windows desktop under normal load.
 | Smriti rerank | < 2 ms p99 | 3 ms |
 | Top-20 UI update | < 8 ms | 16 ms |
 | Popup show | < 10 ms | 20 ms |
-| Character injection | < 2 ms p99 | 5 ms |
+| Character injection, native text control (`WM_CHAR` fast path) | < 2 ms p99 | 3 ms |
+| Character injection, universal `SendInput` | < 8 ms p99 on a shared desktop; reference target TBD | 12 ms |
 | Cold daemon start | < 300 ms | 1 s |
 | Idle working set | < 40 MB | 80 MB |
 | AI suggestion | only after 250–300 ms idle | never blocks |
@@ -34,6 +35,25 @@ separately and reported with provider and network conditions.
 - startup with warm and cold caches
 
 Report p50, p95, p99, max, and sample count. Never report only the average.
+
+## Measured 0.2 baseline
+
+Release build, shared Windows 11 desktop, 100 injection iterations:
+
+| Path | English p99 | Bangla p99 | Correctness |
+| --- | ---: | ---: | --- |
+| Adaptive native EDIT fast path | 1.23 ms | 1.14 ms | 100/100 |
+| Forced Unicode `SendInput` | 7.44 ms | 6.64 ms | 100/100 |
+| Ranking, 2,000 iterations | 209 us | 209 us | n/a |
+
+The fast path meets the 2 ms injector-call target for known native text
+controls. `SendInput` remains the universal fallback for browser, Electron,
+Office, and unknown controls; it is measured separately and does not claim the
+2 ms target on this shared desktop. Readback observation was 14–19 ms p99 and is
+a diagnostic, not a release claim.
+
+A quiet reference-machine run is still required before calling the universal
+path “2 ms.” See ADR 0009 and the 0.2 benchmark reports under `bench-out/`.
 
 ## Measurement protocol
 
