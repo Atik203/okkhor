@@ -13,6 +13,7 @@
 | [0.2 Windows matrix](qa/0.2-matrix.md) | pass/fail matrix, release gate, defect template |
 | [Compatibility](compatibility.md) | legacy assets, FFI reuse, migration |
 | [Release](release.md) | versioning, signing, update and rollback |
+| [0.2.0 release notes](releases/0.2.0.md) | what shipped, measured results, limitations |
 | [Glossary](glossary.md) | project and Bengali terms |
 | [ADRs](adr/) | accepted and proposed architecture decisions |
 

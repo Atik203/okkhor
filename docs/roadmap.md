@@ -6,14 +6,15 @@
 learning engine, snapshot persistence, the Windows boundary, the daemon shell,
 tests, CI, and this documentation.
 
-**0.2 is in progress.** The Win32 low-level hook, Unicode `SendInput`
-injector with guarded clipboard fallback and a native-control `WM_CHAR` fast
-path, single-instance guard, capture pause state, global pause hotkey,
-caret-aware non-activating popup scaffold, per-user autostart, redacted daemon
-logging, a minimal tray icon, and a non-hook benchmark harness for ranking and
-both injection paths are implemented and building with MSVC. The full
-suggestion-rendering UI, hook-level end-to-end benchmark, tray hardening
-(Settings action and Explorer restart), and the integration matrix remain.
+**0.2.0 is code-complete and tagged from the final release branch.** It includes
+the Win32 low-level hook, Unicode `SendInput` injector with guarded clipboard
+fallback and a native-control `WM_CHAR` fast path, single-instance guard,
+capture pause state, global pause hotkey, caret-aware non-activating popup
+scaffold, per-user autostart, redacted daemon logging, a minimal tray icon, and
+a non-hook benchmark harness for ranking and both injection paths.
+
+Manual Windows QA execution remains in issue #8. The full suggestion-rendering
+UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
 
 ## Planning assumptions
 
