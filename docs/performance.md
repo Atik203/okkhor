@@ -38,12 +38,13 @@ Report p50, p95, p99, max, and sample count. Never report only the average.
 
 ## Measured 0.2 baseline
 
-Release build, shared Windows 11 desktop, 100 injection iterations:
+Release build, shared Windows 11 desktop. The 100-iteration baseline and the
+10,000-iteration stress run produced the same p99 band:
 
 | Path | English p99 | Bangla p99 | Correctness |
 | --- | ---: | ---: | --- |
-| Adaptive native EDIT fast path | 1.23 ms | 1.14 ms | 100/100 |
-| Forced Unicode `SendInput` | 7.44 ms | 6.64 ms | 100/100 |
+| Adaptive native EDIT fast path | 1.23 ms | 1.11–1.14 ms | 10,000/10,000 each |
+| Forced Unicode `SendInput` | 7.44 ms | 6.64 ms | 100/100 each |
 | Ranking, 2,000 iterations | 209 us | 209 us | n/a |
 
 The fast path meets the 2 ms injector-call target for known native text

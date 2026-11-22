@@ -5,6 +5,8 @@ Versioning once it reaches 1.0.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
 ### Added
 
 - Win32 low-level keyboard hook (`WindowsKeyboardHook`) with a dedicated hook

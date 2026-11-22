@@ -5,14 +5,13 @@ utility. The goal is a fast, local-first typing experience: immediate
 transliteration and suggestions, personalization that learns on the device, and
 AI features that never sit in the keystroke path.
 
-> Status: **0.1 scaffold + early 0.2 input layer**. The workspace, learning
-> core, storage, Win32 hook, Unicode injector with guarded clipboard fallback
-> and a native-control `WM_CHAR` fast path, single-instance guard, capture pause
-> state, pause hotkey, caret-aware non-activating popup scaffold, per-user
-> autostart, redacted daemon logging, a minimal tray icon, and a non-hook
-> benchmark harness exist. The Settings tray action, full suggestion rendering,
-> hook-level end-to-end benchmarks, UI, speech, and AI workers are roadmap
-> items, not shipped features.
+> Status: **0.2.0 code-complete**. The workspace, learning core, storage, Win32
+> hook, Unicode injector with guarded clipboard fallback and native-control
+> `WM_CHAR` fast path, single-instance guard, capture pause state, pause hotkey,
+> caret-aware non-activating popup scaffold, per-user autostart, redacted daemon
+> logging, a minimal tray icon, and a non-hook benchmark harness exist. Manual
+> Windows QA is pending in issue #8; full suggestion rendering, UI, speech, and
+> AI workers are later milestones.
 
 ## Why Rust
 

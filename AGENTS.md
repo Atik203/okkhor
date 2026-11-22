@@ -20,7 +20,9 @@ scope.
 
 ## Current state
 
-- This repository is the **0.1 scaffold plus the first 0.2 input slice**.
+- This repository is **0.2.0 code-complete**. It contains the Win32 input
+  boundary, resident daemon, tray/autostart/logging, benchmark harness, and the
+  0.2 QA documentation.
 - `okkhor-win` now contains a real Win32 low-level keyboard hook, a Unicode
   `SendInput` injector with a guarded clipboard fallback and a native-control
   `WM_CHAR` fast path, a per-user single-instance guard, a capture pause state, a
