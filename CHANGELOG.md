@@ -17,12 +17,16 @@ Versioning once it reaches 1.0.
   pass-through and stops enqueueing without uninstalling the hook.
 - Global `Ctrl+Alt+Shift+P` pause hotkey registered on a dedicated message-loop
   thread, with `hook-demo` wiring.
+- Clipboard fallback with focus checks, text-only clipboard preservation,
+  Ctrl+V injection, and previous-text restore.
+- UIPI/`ERROR_ACCESS_DENIED` handling and explicit blocked/focus/clipboard
+  errors.
 - Hook cleanup on drop and a single-instance guard around `hook-demo`.
 
 ### Not yet
 
 - tray, autostart, and redacted logging;
-- clipboard fallback and focus/caret-aware popup placement;
+- caret-aware, non-activating popup placement;
 - benchmark harness, Windows integration matrix, signing.
 
 ## [0.1.0] — scaffold

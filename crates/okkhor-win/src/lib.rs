@@ -13,6 +13,8 @@ pub mod inject;
 pub mod input;
 
 #[cfg(windows)]
+mod clipboard;
+#[cfg(windows)]
 mod hotkey;
 #[cfg(windows)]
 mod single_instance;

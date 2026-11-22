@@ -18,6 +18,12 @@ pub enum InjectError {
     Unsupported,
     #[error("the target window rejected input (UIPI or focus lost)")]
     Blocked,
+    #[error("the target window changed focus before injection")]
+    FocusChanged,
+    #[error("the clipboard is busy; another application holds it")]
+    ClipboardBusy,
+    #[error("the clipboard contains non-text data and will not be overwritten")]
+    ClipboardNotEmpty,
     #[error("Win32 call {operation} failed with code {code}")]
     Win32 { operation: &'static str, code: u32 },
 }
