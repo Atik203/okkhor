@@ -7,19 +7,21 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
-use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY,
+    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
-    PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL,
-    WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT,
+    MSG, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
+use crate::clipboard::ClipboardGuard;
 use crate::inject::{InjectError, InjectionMethod, TextInjector};
 use crate::input::{KeyEvent, KeyPhase, KeyboardHook};
 
@@ -242,11 +244,11 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
-/// Unicode text injector based on `SendInput`.
+/// Text injector based on `SendInput`, with a guarded clipboard fallback.
 ///
-/// The clipboard fallback is intentionally left for the follow-up slice; this
-/// implementation returns an explicit Win32 error rather than silently
-/// switching methods.
+/// Unicode `SendInput` is tried first. If the OS rejects it (for example UIPI),
+/// the fallback writes text to the clipboard, sends Ctrl+V, and restores the
+/// previous text. The fallback refuses to overwrite non-text clipboard data.
 #[derive(Default)]
 pub struct WindowsInjector;
 
@@ -256,24 +258,148 @@ impl TextInjector for WindowsInjector {
             return Ok(InjectionMethod::UnicodeSendInput);
         }
 
-        for chunk in utf16_units(text).chunks(256) {
-            let inputs = unicode_inputs(chunk);
-            // SAFETY: inputs is a valid, fully initialized INPUT slice and the
-            // structure size is provided to SendInput.
-            let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
-            if sent as usize != inputs.len() {
-                let code = std::io::Error::last_os_error()
-                    .raw_os_error()
-                    .unwrap_or(0)
-                    .max(0) as u32;
-                return Err(InjectError::Win32 {
-                    operation: "SendInput",
-                    code,
-                });
+        let target = foreground_window()?;
+        match inject_unicode(text) {
+            Ok(()) => {
+                ensure_focus(target)?;
+                Ok(InjectionMethod::UnicodeSendInput)
+            }
+            Err(InjectError::Blocked) => inject_via_clipboard(text, target),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+fn inject_unicode(text: &str) -> Result<(), InjectError> {
+    for chunk in utf16_units(text).chunks(256) {
+        let inputs = unicode_inputs(chunk);
+        // SAFETY: inputs is a valid, fully initialized INPUT slice and the
+        // structure size is provided to SendInput.
+        let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+        if sent as usize != inputs.len() {
+            let code = last_error_code();
+            // A zero-event failure with ERROR_ACCESS_DENIED is the UIPI case
+            // where the clipboard fallback may still work in a normal target.
+            if sent == 0 && code == 5 {
+                return Err(InjectError::Blocked);
+            }
+            return Err(InjectError::Win32 {
+                operation: "SendInput",
+                code,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn inject_via_clipboard(text: &str, target: HWND) -> Result<InjectionMethod, InjectError> {
+    ensure_focus(target)?;
+
+    let clipboard = ClipboardGuard::open()?;
+    if clipboard.has_non_text_formats() {
+        return Err(InjectError::ClipboardNotEmpty);
+    }
+    let previous = clipboard.read_text()?;
+    if let Err(error) = clipboard.write_text(text) {
+        drop(clipboard);
+        restore_clipboard(previous.as_deref());
+        return Err(error);
+    }
+    drop(clipboard);
+
+    if let Err(error) = ensure_focus(target) {
+        restore_clipboard(previous.as_deref());
+        return Err(error);
+    }
+
+    if let Err(error) = send_ctrl_v() {
+        restore_clipboard(previous.as_deref());
+        return Err(error);
+    }
+
+    // Give the target a chance to consume the paste before restoring the
+    // previous clipboard. This path is only used after a failed SendInput.
+    thread::sleep(Duration::from_millis(80));
+    restore_clipboard(previous.as_deref());
+    Ok(InjectionMethod::ClipboardPaste)
+}
+
+fn send_ctrl_v() -> Result<(), InjectError> {
+    let inputs = [
+        virtual_key_input(VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
+        virtual_key_input(VIRTUAL_KEY(0x56), KEYBD_EVENT_FLAGS(0)),
+        virtual_key_input(VIRTUAL_KEY(0x56), KEYEVENTF_KEYUP),
+        virtual_key_input(VK_CONTROL, KEYEVENTF_KEYUP),
+    ];
+    // SAFETY: inputs is a valid, fully initialized INPUT array.
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent as usize == inputs.len() {
+        Ok(())
+    } else {
+        let code = last_error_code();
+        if code == 5 {
+            Err(InjectError::Blocked)
+        } else {
+            Err(InjectError::Win32 {
+                operation: "SendInput",
+                code,
+            })
+        }
+    }
+}
+
+fn restore_clipboard(previous: Option<&str>) {
+    if let Ok(clipboard) = ClipboardGuard::open() {
+        match previous {
+            Some(text) => {
+                let _ = clipboard.write_text(text);
+            }
+            None => {
+                let _ = clipboard.clear();
             }
         }
+    }
+}
 
-        Ok(InjectionMethod::UnicodeSendInput)
+fn foreground_window() -> Result<HWND, InjectError> {
+    // SAFETY: GetForegroundWindow has no pointer preconditions.
+    let window = unsafe { GetForegroundWindow() };
+    if window.0.is_null() {
+        Err(InjectError::FocusChanged)
+    } else {
+        Ok(window)
+    }
+}
+
+fn ensure_focus(target: HWND) -> Result<(), InjectError> {
+    // SAFETY: GetForegroundWindow has no pointer preconditions.
+    let current = unsafe { GetForegroundWindow() };
+    if current.0 == target.0 {
+        Ok(())
+    } else {
+        Err(InjectError::FocusChanged)
+    }
+}
+
+fn last_error_code() -> u32 {
+    std::io::Error::last_os_error()
+        .raw_os_error()
+        .unwrap_or(0)
+        .max(0) as u32
+}
+
+fn virtual_key_input(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
     }
 }
 

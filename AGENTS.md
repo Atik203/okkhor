@@ -22,10 +22,10 @@ scope.
 
 - This repository is the **0.1 scaffold plus the first 0.2 input slice**.
 - `okkhor-win` now contains a real Win32 low-level keyboard hook, a Unicode
-  `SendInput` injector, a per-user single-instance guard, a capture pause state,
-  and a global pause hotkey. Tray, clipboard fallback, focus/caret placement,
-  UI, speech, and AI workers are **not implemented yet**. Do not pretend they
-  are.
+  `SendInput` injector with a guarded clipboard fallback, a per-user
+  single-instance guard, a capture pause state, and a global pause hotkey.
+  Tray, caret-aware popup placement, UI, speech, and AI workers are **not
+  implemented yet**. Do not pretend they are.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - **Never run the legacy executable or its installer.** Use static analysis or
