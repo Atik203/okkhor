@@ -12,10 +12,15 @@ Versioning once it reaches 1.0.
 - Unicode `SendInput` text injector (`WindowsInjector`) with UTF-16 surrogate
   handling and 256-code-unit batching.
 - `okkhor hook-demo` manual smoke test for the hook.
+- Per-user single-instance guard (`SingleInstance`) with a named mutex.
+- Capture pause state (`set_capture_enabled`, `toggle_capture`) that preserves
+  pass-through and stops enqueueing without uninstalling the hook.
+- Hook cleanup on drop and a single-instance guard around `hook-demo`.
 
 ### Not yet
 
-- daemon lifecycle, tray, single instance, pause hotkey;
+- pause hotkey UI and kill-switch wiring;
+- tray, autostart, and redacted logging;
 - clipboard fallback and focus/caret-aware popup placement;
 - benchmark harness, Windows integration matrix, signing.
 

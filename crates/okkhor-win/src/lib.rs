@@ -13,10 +13,17 @@ pub mod inject;
 pub mod input;
 
 #[cfg(windows)]
+mod single_instance;
+#[cfg(windows)]
 mod win32;
 
 pub use inject::{InjectError, InjectionMethod, TextInjector};
 pub use input::{KeyEvent, KeyPhase, KeyboardHook};
 
 #[cfg(windows)]
-pub use win32::{HookError, WindowsInjector, WindowsKeyboardHook, utf16_units};
+pub use single_instance::{SingleInstance, SingleInstanceError};
+#[cfg(windows)]
+pub use win32::{
+    HookError, WindowsInjector, WindowsKeyboardHook, capture_enabled, set_capture_enabled,
+    toggle_capture, utf16_units,
+};

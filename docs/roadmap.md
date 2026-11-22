@@ -6,9 +6,10 @@
 learning engine, snapshot persistence, the Windows boundary, the daemon shell,
 tests, CI, and this documentation.
 
-**0.2 is in progress.** The Win32 low-level hook and Unicode `SendInput`
-injector are implemented and building with MSVC; daemon lifecycle, tray,
-clipboard fallback, focus/caret, benchmark, and the integration matrix remain.
+**0.2 is in progress.** The Win32 low-level hook, Unicode `SendInput`
+injector, single-instance guard, and capture pause state are implemented and
+building with MSVC; tray, clipboard fallback, focus/caret, benchmark, and the
+integration matrix remain.
 
 ## Planning assumptions
 
