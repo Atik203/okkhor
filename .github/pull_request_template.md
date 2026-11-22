@@ -1,3 +1,9 @@
+## Issue
+
+Issue: #
+
+<!-- Use `Refs #N` while the work is partial; use `Closes #N` only when every acceptance criterion in the issue is met. Progress notes belong on the issue. -->
+
 ## Problem
 
 <!-- What user-visible or engineering problem does this solve? -->
@@ -26,6 +32,8 @@
 
 - [ ] Tests added or updated
 - [ ] Docs updated in the same change
+- [ ] Linked issue updated with progress and test results
+- [ ] Linked issue closed only when acceptance criteria are met
 - [ ] No secrets, user text, or proprietary assets
 - [ ] No new `unsafe` outside `okkhor-win`/FFI
 - [ ] No new dependency without a license/reason note
