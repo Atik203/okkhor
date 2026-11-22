@@ -21,12 +21,16 @@ Versioning once it reaches 1.0.
   Ctrl+V injection, and previous-text restore.
 - UIPI/`ERROR_ACCESS_DENIED` handling and explicit blocked/focus/clipboard
   errors.
+- Caret anchoring via `GetGUIThreadInfo`/`ClientToScreen` with a mouse/screen
+  fallback, DPI-scaled placement, and work-area clamping.
+- A non-activating `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` popup scaffold and
+  `okkhor popup-demo`.
 - Hook cleanup on drop and a single-instance guard around `hook-demo`.
 
 ### Not yet
 
 - tray, autostart, and redacted logging;
-- caret-aware, non-activating popup placement;
+- full suggestion-list rendering and interaction;
 - benchmark harness, Windows integration matrix, signing.
 
 ## [0.1.0] — scaffold
