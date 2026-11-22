@@ -23,8 +23,10 @@ scope.
 - This repository is the **0.1 scaffold plus the first 0.2 input slice**.
 - `okkhor-win` now contains a real Win32 low-level keyboard hook, a Unicode
   `SendInput` injector with a guarded clipboard fallback, a per-user
-  single-instance guard, a capture pause state, a global pause hotkey, and a
-  caret-aware non-activating popup scaffold. Tray, full suggestion rendering,
+  single-instance guard, a capture pause state, a global pause hotkey, a
+  caret-aware non-activating popup scaffold, per-user autostart, and a minimal
+  `Shell_NotifyIconW` tray. The daemon has redacted JSON-lines logging and a
+  resident `daemon` mode. The Settings tray action, full suggestion rendering,
   UI, speech, and AI workers are **not implemented yet**. Do not pretend they
   are.
 - The legacy application is a read-only reference installation supplied by the
@@ -137,7 +139,7 @@ not automatically acceptable.
 ## Repository map
 
 ```text
-apps/okkhor-daemon/      daemon shell + hook demo; tray pending
+apps/okkhor-daemon/      daemon shell, logging, tray wiring, and demos
 crates/okkhor-core/      language, text, candidate, ranking primitives
 crates/okkhor-learn/     Smriti: personalization and ranking
 crates/okkhor-storage/   snapshot persistence and future redb adapter

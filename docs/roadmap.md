@@ -8,9 +8,11 @@ tests, CI, and this documentation.
 
 **0.2 is in progress.** The Win32 low-level hook, Unicode `SendInput`
 injector with guarded clipboard fallback, single-instance guard, capture pause
-state, global pause hotkey, and caret-aware non-activating popup scaffold are
-implemented and building with MSVC; tray, full suggestion rendering, benchmark,
-and the integration matrix remain.
+state, global pause hotkey, caret-aware non-activating popup scaffold, per-user
+autostart, redacted daemon logging, and a minimal tray icon are implemented and
+building with MSVC. The full suggestion-rendering UI, benchmark harness, tray
+hardening (Settings action and Explorer restart), and the integration matrix
+remain.
 
 ## Planning assumptions
 

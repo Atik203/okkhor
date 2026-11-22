@@ -93,6 +93,20 @@ cargo run --package okkhor-daemon -- self-check
 CI does not run global hooks or the legacy app. Those belong in a dedicated
 Windows test VM with explicit approval.
 
+## Tray and autostart checks
+
+Manual smoke tests in a disposable session:
+
+- `okkhor tray-demo`: right-click for Pause/Resume, disabled Settings, Exit;
+  confirm the icon disappears on exit.
+- `okkhor daemon`: confirm the tray Pause item and the pause hotkey both change
+  capture state, then exit from the tray.
+- `okkhor autostart status`: read-only check of the per-user `Run` value.
+  `enable` and `disable` change `HKCU`; do not run them in automated tests.
+- Inspect `%LOCALAPPDATA%\Okkhor\logs\okkhor.log` after a daemon start and
+  confirm it contains only `startup`, `command`, and `error` records with
+  allowlisted fields.
+
 ## Privacy tests
 
 - Assert logs never contain fixtures marked as sensitive.

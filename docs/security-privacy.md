@@ -53,6 +53,14 @@ Allowed:
 Structured logging must use a redaction layer. Tests must assert that sensitive
 fields are absent.
 
+The daemon logger is a small allowlisted JSON-lines writer, not a general
+message logger. It writes to `%LOCALAPPDATA%\Okkhor\logs\okkhor.log` and stderr,
+and only records startup, the selected command, and errors. Error records store
+a static subsystem and error kind plus an optional numeric code; the error text
+is not serialized because it can contain paths or target text. The field
+allowlist rejects keystrokes, words, clipboard contents, window titles, and
+arbitrary messages.
+
 ## Storage
 
 - Learning snapshots are encrypted at rest with Windows DPAPI or a key stored in
