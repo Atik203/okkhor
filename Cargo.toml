@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "apps/akkhor-daemon",
-    "crates/akkhor-core",
-    "crates/akkhor-learn",
-    "crates/akkhor-storage",
-    "crates/akkhor-win",
+    "apps/okkhor-daemon",
+    "crates/okkhor-core",
+    "crates/okkhor-learn",
+    "crates/okkhor-storage",
+    "crates/okkhor-win",
 ]
 
 [workspace.package]
@@ -15,9 +15,10 @@ rust-version = "1.85"
 publish = false
 
 [workspace.dependencies]
-akkhor-core = { path = "crates/akkhor-core" }
-akkhor-learn = { path = "crates/akkhor-learn" }
-akkhor-storage = { path = "crates/akkhor-storage" }
+okkhor-core = { path = "crates/okkhor-core" }
+okkhor-learn = { path = "crates/okkhor-learn" }
+okkhor-storage = { path = "crates/okkhor-storage" }
+okkhor-win = { path = "crates/okkhor-win" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

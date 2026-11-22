@@ -1,10 +1,10 @@
 # Legacy compatibility
 
-Akkhor is a clean-room Rust implementation. The legacy application is a
+Okkhor is a clean-room Rust implementation. The legacy application is a
 behavioral oracle and an asset source, not a runtime dependency.
 
 The legacy installation is owner-provided and read-only. Local harnesses may
-read it through `AKKHOR_LEGACY_HOME`; never commit that path or its contents.
+read it through `OKKHOR_LEGACY_HOME`; never commit that path or its contents.
 
 Never run the legacy executable or installer as part of normal development.
 
@@ -51,7 +51,7 @@ Create a `legacy-compat` crate only when phase 2 starts:
 - differential-test against the legacy behavior;
 - remove each adapter once the Rust replacement has parity.
 
-Do not put FFI in `akkhor-core` or `akkhor-learn`.
+Do not put FFI in `okkhor-core` or `okkhor-learn`.
 
 ## Settings migration
 
@@ -85,7 +85,7 @@ If the format is not understood, start fresh and say so.
 The legacy application and its assets may be proprietary. The repository must
 not redistribute them. The importer operates on a user-selected local install
 and writes to an ignored/user data directory. Record provenance and permission
-before shipping any asset with Akkhor.
+before shipping any asset with Okkhor.
 
 ## Side-by-side testing
 

@@ -1,0 +1,20 @@
+[package]
+name = "okkhor-daemon"
+description = "Okkhor daemon and self-check scaffold."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "okkhor"
+path = "src/main.rs"
+
+[dependencies]
+okkhor-core.workspace = true
+okkhor-learn.workspace = true
+okkhor-storage.workspace = true
+okkhor-win.workspace = true
+
+[lints]
+workspace = true

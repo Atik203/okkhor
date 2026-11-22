@@ -2,7 +2,7 @@
 
 | Term | Meaning |
 | --- | --- |
-| **Akkhor** | The product: a Windows-first Bengali/English input engine. |
+| **Okkhor** | The product: a Windows-first Bengali/English input engine. |
 | **Bornomala** | The transliteration and language engine. |
 | **Smriti** | The local personalization/learning engine. |
 | **Legacy application** | The previous product, used only as a behavioral oracle during migration. |

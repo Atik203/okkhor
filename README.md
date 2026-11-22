@@ -1,13 +1,14 @@
-# Akkhor
+# Okkhor
 
-Akkhor is a ground-up, Windows-first Bengali/English input engine and keyboard
+Okkhor is a ground-up, Windows-first Bengali/English input engine and keyboard
 utility. The goal is a fast, local-first typing experience: immediate
 transliteration and suggestions, personalization that learns on the device, and
 AI features that never sit in the keystroke path.
 
-> Status: **0.1 scaffold**. The workspace, learning core, storage, and daemon
-> shell exist. The native keyboard hook, text injection, UI, speech, and AI
-> workers are roadmap items, not shipped features.
+> Status: **0.1 scaffold + early 0.2 input layer**. The workspace, learning
+> core, storage, Win32 hook, and Unicode injector exist. Daemon lifecycle/tray,
+> clipboard fallback, focus/caret placement, UI, speech, and AI workers are
+> roadmap items, not shipped features.
 
 ## Why Rust
 
@@ -29,11 +30,11 @@ AI features that never sit in the keystroke path.
 ## Repository layout
 
 ```text
-apps/akkhor-daemon/      daemon/tray binary (scaffold)
-crates/akkhor-core/      language, text, candidate, ranking primitives
-crates/akkhor-learn/     Smriti personalization and ranking
-crates/akkhor-storage/   snapshot persistence
-crates/akkhor-win/       Windows input/injection boundary
+apps/okkhor-daemon/      daemon shell + hook demo; tray pending
+crates/okkhor-core/      language, text, candidate, ranking primitives
+crates/okkhor-learn/     Smriti personalization and ranking
+crates/okkhor-storage/   snapshot persistence
+crates/okkhor-win/       Win32 hook and Unicode injection boundary
 docs/                    architecture, roadmap, learning, performance, security
 docs/adr/                architecture decisions
 assets/                  asset import instructions; proprietary files excluded
@@ -53,7 +54,7 @@ $env:PATH = "$HOME\.cargo\bin;C:\msys64\mingw64\bin;$env:PATH"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run --package akkhor-daemon -- self-check
+cargo run --package okkhor-daemon -- self-check
 ```
 
 Or:

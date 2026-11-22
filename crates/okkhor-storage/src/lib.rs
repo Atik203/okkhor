@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Persistence for Akkhor learning snapshots.
+//! Persistence for Okkhor learning snapshots.
 //!
 //! The first implementation is a small JSON repository so the learning core
 //! can be exercised end-to-end. The production adapter will use an embedded
@@ -12,7 +12,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use akkhor_learn::LearningSnapshot;
+use okkhor_learn::LearningSnapshot;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -129,8 +129,8 @@ impl JsonFileRepository {
 #[cfg(test)]
 mod tests {
     use super::{FORMAT_VERSION, JsonFileRepository, StorageError, StoredSnapshot};
-    use akkhor_core::Language;
-    use akkhor_learn::{CommitSource, LearningEvent, Smriti};
+    use okkhor_core::Language;
+    use okkhor_learn::{CommitSource, LearningEvent, Smriti};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -141,11 +141,11 @@ mod tests {
             .expect("clock after epoch")
             .as_nanos();
         std::env::temp_dir()
-            .join(format!("akkhor-storage-{}-{unique}", std::process::id()))
+            .join(format!("okkhor-storage-{}-{unique}", std::process::id()))
             .join("learning.json")
     }
 
-    fn sample_snapshot() -> akkhor_learn::LearningSnapshot {
+    fn sample_snapshot() -> okkhor_learn::LearningSnapshot {
         let smriti = Smriti::new();
         smriti.observe(LearningEvent::WordCommitted {
             word: "ভালো".to_owned(),

@@ -1,19 +1,19 @@
 [package]
-name = "akkhor-storage"
-description = "Persistence for Akkhor learning snapshots."
+name = "okkhor-storage"
+description = "Persistence for Okkhor learning snapshots."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-akkhor-learn.workspace = true
+okkhor-learn.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-akkhor-core.workspace = true
+okkhor-core.workspace = true
 
 [lints]
 workspace = true

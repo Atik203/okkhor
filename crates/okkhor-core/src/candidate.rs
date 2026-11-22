@@ -15,7 +15,7 @@ pub enum CandidateSource {
 
 /// Precomputed hints supplied by a candidate generator.
 ///
-/// `akkhor-learn` adds persisted user statistics on top of these values. Keep
+/// `okkhor-learn` adds persisted user statistics on top of these values. Keep
 /// them as hints, not as a second copy of the learned state.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RankingFeatures {

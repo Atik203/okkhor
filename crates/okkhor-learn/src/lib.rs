@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
-//! Smriti is Akkhor's local personalization engine.
+//! Smriti is Okkhor's local personalization engine.
 //!
 //! It learns from committed words, accepted suggestions, corrections, and
 //! Romanized-to-Bangla choices. It never stores raw keystrokes and never
-//! performs I/O; persistence is supplied by `akkhor-storage`.
+//! performs I/O; persistence is supplied by `okkhor-storage`.
 //!
 //! Keep this crate deterministic: callers pass timestamps in events and
 //! requests, so tests and replay tools can reproduce the exact ranking.

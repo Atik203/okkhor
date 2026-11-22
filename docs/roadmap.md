@@ -6,7 +6,9 @@
 learning engine, snapshot persistence, the Windows boundary, the daemon shell,
 tests, CI, and this documentation.
 
-**Next milestone: 0.2 — input daemon.**
+**0.2 is in progress.** The Win32 low-level hook and Unicode `SendInput`
+injector are implemented and building with MSVC; daemon lifecycle, tray,
+clipboard fallback, focus/caret, benchmark, and the integration matrix remain.
 
 ## Planning assumptions
 
@@ -50,8 +52,8 @@ language, or UI phases. See [model-roadmap.md](model-roadmap.md) and ADR 0007.
 Deliverables:
 
 - Rust workspace and crate boundaries;
-- `akkhor-core` language, text, candidate, and ranking primitives;
-- `akkhor-learn` Smriti v0 with frequency, recency, acceptance, correction,
+- `okkhor-core` language, text, candidate, and ranking primitives;
+- `okkhor-learn` Smriti v0 with frequency, recency, acceptance, correction,
   pair, and bigram signals;
 - JSON snapshot storage;
 - Windows boundary types;

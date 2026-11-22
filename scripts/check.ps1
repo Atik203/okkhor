@@ -22,6 +22,6 @@ Write-Host "==> cargo test" -ForegroundColor Cyan
 & $cargo test --workspace
 
 Write-Host "==> daemon self-check" -ForegroundColor Cyan
-& $cargo run --quiet --package akkhor-daemon -- self-check
+& $cargo run --quiet --package okkhor-daemon -- self-check
 
 Write-Host "All checks passed." -ForegroundColor Green

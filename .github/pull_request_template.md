@@ -15,7 +15,7 @@
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings`
 - [ ] `cargo test --workspace`
-- [ ] `cargo run --package akkhor-daemon -- self-check`
+- [ ] `cargo run --package okkhor-daemon -- self-check`
 - [ ] hot-path benchmark before/after (if applicable)
 
 ## Risk
@@ -27,5 +27,5 @@
 - [ ] Tests added or updated
 - [ ] Docs updated in the same change
 - [ ] No secrets, user text, or proprietary assets
-- [ ] No new `unsafe` outside `akkhor-win`/FFI
+- [ ] No new `unsafe` outside `okkhor-win`/FFI
 - [ ] No new dependency without a license/reason note

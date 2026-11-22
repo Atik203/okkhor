@@ -1,6 +1,6 @@
 # Smriti: personal learning
 
-Smriti is Akkhor's on-device personalization engine. Its job is to make the
+Smriti is Okkhor's on-device personalization engine. Its job is to make the
 next word, completion, and transliteration choice better for this user without
 putting the network, the UI, or a model in the typing path.
 

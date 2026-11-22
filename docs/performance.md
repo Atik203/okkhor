@@ -1,6 +1,6 @@
 # Performance
 
-Akkhor is a latency product. Throughput matters less than predictable p99
+Okkhor is a latency product. Throughput matters less than predictable p99
 behavior on a normal Windows desktop under normal load.
 
 ## Budgets
@@ -51,7 +51,7 @@ Report p50, p95, p99, max, and sample count. Never report only the average.
 
 Planned components:
 
-- a small Rust harness that calls `akkhor-core`/`akkhor-learn` directly for
+- a small Rust harness that calls `okkhor-core`/`okkhor-learn` directly for
   engine microbenchmarks;
 - an end-to-end harness that sends synthetic key events through the real hook
   and measures visible text;

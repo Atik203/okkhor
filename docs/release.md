@@ -19,11 +19,11 @@ Pre-release channels:
 
 | Artifact | Naming |
 | --- | --- |
-| Installer | `Akkhor-Setup-<version>.exe` |
-| Portable | `Akkhor-<version>-win64-portable.zip` |
-| Symbol package | `Akkhor-<version>-symbols.zip` (private) |
+| Installer | `Okkhor-Setup-<version>.exe` |
+| Portable | `Okkhor-<version>-win64-portable.zip` |
+| Symbol package | `Okkhor-<version>-symbols.zip` (private) |
 | Checksums | `SHA256SUMS.txt` |
-| SBOM | `Akkhor-<version>.sbom.json` |
+| SBOM | `Okkhor-<version>.sbom.json` |
 | Update manifest | `latest.json` |
 
 Every artifact must be reproducible from a tagged commit.

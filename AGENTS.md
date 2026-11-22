@@ -1,6 +1,6 @@
-# AGENTS.md — Akkhor engineering contract
+# AGENTS.md — Okkhor engineering contract
 
-Akkhor is a Windows-first Bengali/English input engine and keyboard utility.
+Okkhor is a Windows-first Bengali/English input engine and keyboard utility.
 This file is binding for every LLM agent and human contributor. Read it before
 changing code, then read the documents it points to.
 
@@ -20,10 +20,11 @@ scope.
 
 ## Current state
 
-- This repository is the **0.1 scaffold**. It builds a workspace, a pure Rust
-  learning-engine slice, storage, Windows-boundary types, and a daemon shell.
-- The real keyboard hook, text injection, UI, speech, and AI workers are **not
-  implemented yet**. Do not pretend they are.
+- This repository is the **0.1 scaffold plus the first 0.2 input slice**.
+- `okkhor-win` now contains a real Win32 low-level keyboard hook and a Unicode
+  `SendInput` injector. The daemon lifecycle/tray, clipboard fallback,
+  focus/caret placement, UI, speech, and AI workers are **not implemented yet**.
+  Do not pretend they are.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - **Never run the legacy executable or its installer.** Use static analysis or
@@ -77,9 +78,9 @@ A keyboard app sees everything. Treat that as a security boundary.
 ### 4. Windows first, explicit boundaries
 
 - Target Windows 11 x64 first.
-- `unsafe` is allowed only in `akkhor-win` and explicitly reviewed FFI modules.
+- `unsafe` is allowed only in `okkhor-win` and explicitly reviewed FFI modules.
   Every `unsafe` block needs a `// SAFETY:` comment naming the invariant.
-- `akkhor-core`, `akkhor-learn`, and `akkhor-storage` are `#![forbid(unsafe_code)]`.
+- `okkhor-core`, `okkhor-learn`, and `okkhor-storage` are `#![forbid(unsafe_code)]`.
 - Do not use a convenience crate for the production keyboard hook. Use the
   `windows` crate directly so behavior is inspectable.
 - Preserve focus. Suggestion windows must not activate.
@@ -134,11 +135,11 @@ not automatically acceptable.
 ## Repository map
 
 ```text
-apps/akkhor-daemon/      tray/daemon binary; currently a self-check shell
-crates/akkhor-core/      language, text, candidate, ranking primitives
-crates/akkhor-learn/     Smriti: personalization and ranking
-crates/akkhor-storage/   snapshot persistence and future redb adapter
-crates/akkhor-win/       Windows input/injection boundary; no Win32 yet
+apps/okkhor-daemon/      daemon shell + hook demo; tray pending
+crates/okkhor-core/      language, text, candidate, ranking primitives
+crates/okkhor-learn/     Smriti: personalization and ranking
+crates/okkhor-storage/   snapshot persistence and future redb adapter
+crates/okkhor-win/       Win32 hook and Unicode injection boundary
 docs/                    architecture, roadmap, learning, performance, security
 docs/adr/                architecture decisions
 assets/                  import instructions; proprietary binaries are not committed
@@ -146,8 +147,8 @@ benchmarks/              harness notes and future corpora
 scripts/                 developer checks and importers
 ```
 
-Planned but not created yet: `akkhor-ui`, `akkhor-ipc`, `akkhor-speech`,
-`akkhor-ai`, `akkhor-license`, `akkhor-update`. Create them only when the
+Planned but not created yet: `okkhor-ui`, `okkhor-ipc`, `okkhor-speech`,
+`okkhor-ai`, `okkhor-license`, `okkhor-update`. Create them only when the
 roadmap reaches them.
 
 ## Build and test
@@ -165,7 +166,7 @@ $env:PATH = "$HOME\.cargo\bin;C:\msys64\mingw64\bin;$env:PATH"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run --package akkhor-daemon -- self-check
+cargo run --package okkhor-daemon -- self-check
 ```
 
 Or run the wrapper:

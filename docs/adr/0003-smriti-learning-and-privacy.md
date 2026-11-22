@@ -5,7 +5,7 @@
 
 ## Context
 
-The legacy app keeps some sentence history and recent words. Akkhor needs to do
+The legacy app keeps some sentence history and recent words. Okkhor needs to do
 better: learn English vocabulary, Bangla vocabulary, and the user's preferred
 Romanized-English -> Bangla mappings. A keyboard app that learns from typing is
 also a privacy-sensitive product.

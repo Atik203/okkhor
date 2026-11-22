@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Core, platform-independent primitives for Akkhor.
+//! Core, platform-independent primitives for Okkhor.
 //!
 //! This crate must stay free of Windows APIs, I/O, and async runtimes so it can
 //! be tested deterministically and reused by the daemon, UI, and benchmark

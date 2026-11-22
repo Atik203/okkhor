@@ -33,4 +33,4 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Daemon self-check
-        run: cargo run --package akkhor-daemon -- self-check
+        run: cargo run --package okkhor-daemon -- self-check
