@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "apps/okkhor-bench",
     "apps/okkhor-daemon",
     "crates/okkhor-core",
     "crates/okkhor-learn",

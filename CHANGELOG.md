@@ -36,13 +36,25 @@ Versioning once it reaches 1.0.
   single-instance guard together.
 - Redacted JSON-lines daemon logging under `%LOCALAPPDATA%\Okkhor\logs` and
   stderr with an allowlisted field set for startup, command, and error events.
+- Strict `WindowsInjector::inject_unicode_only` entry point for diagnostics and
+  benchmarks that must never use the clipboard fallback.
+- `apps/okkhor-bench` with deterministic synthetic English/Bangla ranking
+  measurements, nearest-rank p50/p95/p99/max reporting, and git-ignored
+  JSON/CSV output under `bench-out/`.
+- Injection benchmark against a private non-elevated Win32 `EDIT` window through
+  `WindowsInjector`, including Unicode/Bangla readback correctness and a
+  deferred UTF-16 event-construction fallback when the session cannot focus a
+  test window.
+- CI-safe `--smoke` mode and unit-tested percentile/report helpers.
+- ADR 0008 documenting the non-hook benchmark boundary.
 
 ### Not yet
 
 - the Settings tray action, `TaskbarCreated` re-add after Explorer restart, and
   the settings UI;
 - full suggestion-list rendering and interaction;
-- benchmark harness, Windows integration matrix, signing.
+- hook-level keydown -> suggestion and keydown -> visible-text benchmarks;
+- Windows integration matrix and signing.
 
 ## [0.1.0] — scaffold
 

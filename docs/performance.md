@@ -49,10 +49,23 @@ Report p50, p95, p99, max, and sample count. Never report only the average.
 
 ## Harness
 
-Planned components:
+Implemented for the 0.2 input slice:
 
-- a small Rust harness that calls `okkhor-core`/`okkhor-learn` directly for
-  engine microbenchmarks;
+- `apps/okkhor-bench --ranking` calls `okkhor-learn` directly with a synthetic
+  English/Bangla corpus and reports nearest-rank p50/p95/p99, max, sample count,
+  and iterations/sec;
+- `apps/okkhor-bench --injection` creates a private non-elevated Win32 `EDIT`
+  window and measures `WindowsInjector` latency plus Unicode/Bangla readback
+  correctness, without a global hook or clipboard mutation;
+- `--json` and `--csv` write raw reports under git-ignored `bench-out/`;
+- `--smoke` and unit-tested percentile helpers are safe for CI.
+
+See [benchmarks/README.md](../benchmarks/README.md) for commands and the report
+schema. The injection mode falls back to an explicitly labeled event-construction
+benchmark when the session cannot focus the test window.
+
+Still planned:
+
 - an end-to-end harness that sends synthetic key events through the real hook
   and measures visible text;
 - ETW/WPA traces for scheduling, stalls, and Win32 calls;
