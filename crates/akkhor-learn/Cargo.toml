@@ -1,0 +1,18 @@
+[package]
+name = "akkhor-learn"
+description = "Smriti: local personalization and ranking for Akkhor."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+akkhor-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

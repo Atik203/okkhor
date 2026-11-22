@@ -1,0 +1,17 @@
+/target/
+**/*.rs.bk
+**/*.pdb
+**/*.lastbuildstate
+**/*.tlog
+**/*.log
+**/*.redb
+**/*.redb.tmp
+**/*.tmp
+.env
+.env.*
+.idea/
+.vscode/
+bench-out/
+dist/
+data/imported/
+assets/private/

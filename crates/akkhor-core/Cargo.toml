@@ -1,0 +1,14 @@
+[package]
+name = "akkhor-core"
+description = "Language, text, candidate, and ranking primitives for Akkhor."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+unicode-normalization.workspace = true
+
+[lints]
+workspace = true

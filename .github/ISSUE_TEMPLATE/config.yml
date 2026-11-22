@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/Atik203/akkhor/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.
+  - name: Project rules
+    url: https://github.com/Atik203/akkhor/blob/main/AGENTS.md
+    about: Read the engineering contract before contributing.

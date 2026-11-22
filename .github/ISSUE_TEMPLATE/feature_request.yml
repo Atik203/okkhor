@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose a product or engineering improvement.
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: milestone
+    attributes:
+      label: Roadmap milestone
+      placeholder: 0.2 input daemon / 0.3 Bornomala / unplanned
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or engineering problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Keep the typing hot path free of network, disk, and AI.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy / security impact
+      description: Does this touch text, keystrokes, clipboard, speech, or cloud providers?
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Project rules
+      options:
+        - label: This does not put AI, speech, disk, or network on the keydown path.
+          required: true
+        - label: I have read AGENTS.md and the roadmap.
+          required: true
