@@ -252,6 +252,24 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
 #[derive(Default)]
 pub struct WindowsInjector;
 
+impl WindowsInjector {
+    /// Inject with Unicode `SendInput` only, never using the clipboard fallback.
+    ///
+    /// This is for diagnostics and benchmark harnesses that must not touch the
+    /// user clipboard. Production injection should use [`TextInjector::inject`],
+    /// which falls back to clipboard paste when UIPI blocks `SendInput`.
+    pub fn inject_unicode_only(&self, text: &str) -> Result<InjectionMethod, InjectError> {
+        if text.is_empty() {
+            return Ok(InjectionMethod::UnicodeSendInput);
+        }
+
+        let target = foreground_window()?;
+        inject_unicode(text)?;
+        ensure_focus(target)?;
+        Ok(InjectionMethod::UnicodeSendInput)
+    }
+}
+
 impl TextInjector for WindowsInjector {
     fn inject(&self, text: &str) -> Result<InjectionMethod, InjectError> {
         if text.is_empty() {
@@ -450,6 +468,12 @@ mod tests {
     #[test]
     fn empty_input_is_a_noop() {
         let result = WindowsInjector.inject("");
+        assert_eq!(result, Ok(InjectionMethod::UnicodeSendInput));
+    }
+
+    #[test]
+    fn unicode_only_empty_input_is_a_noop() {
+        let result = WindowsInjector.inject_unicode_only("");
         assert_eq!(result, Ok(InjectionMethod::UnicodeSendInput));
     }
 

@@ -9,10 +9,11 @@ tests, CI, and this documentation.
 **0.2 is in progress.** The Win32 low-level hook, Unicode `SendInput`
 injector with guarded clipboard fallback, single-instance guard, capture pause
 state, global pause hotkey, caret-aware non-activating popup scaffold, per-user
-autostart, redacted daemon logging, and a minimal tray icon are implemented and
-building with MSVC. The full suggestion-rendering UI, benchmark harness, tray
-hardening (Settings action and Explorer restart), and the integration matrix
-remain.
+autostart, redacted daemon logging, a minimal tray icon, and a non-hook
+benchmark harness for ranking and injector latency are implemented and building
+with MSVC. The full suggestion-rendering UI, hook-level end-to-end benchmark,
+tray hardening (Settings action and Explorer restart), and the integration
+matrix remain.
 
 ## Planning assumptions
 
@@ -85,7 +86,8 @@ Deliverables:
 - tray lifecycle, single instance, autostart;
 - graceful pause and exit;
 - logging with redaction;
-- benchmark harness for keydown -> suggestion and keydown -> injection.
+- non-hook benchmark harness for Smriti ranking and injector latency;
+- hook-level keydown -> suggestion and keydown -> injection measurement.
 
 Exit criteria:
 

@@ -84,6 +84,7 @@ The path never performs network I/O, disk I/O, AI calls, or UI-thread waits.
 | `okkhor-storage` | snapshot load/save, future redb adapter | contain ranking policy |
 | `okkhor-win` | hook, injection, caret, focus, clipboard | contain language policy |
 | `okkhor-daemon` | composition, lifecycle, tray, workers | own algorithm internals |
+| `okkhor-bench` (dev) | synthetic ranking and injection measurements | install hooks, persist user data, or ship in a release |
 | `okkhor-ui` (planned) | settings, word manager, on-screen keyboard | sit on the hot path |
 | `okkhor-ipc` (planned) | authenticated local messages | expose raw text broadly |
 | `okkhor-speech` (planned) | audio capture, provider adapters | block typing |

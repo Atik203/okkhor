@@ -9,6 +9,7 @@
 | [0005](0005-legacy-reuse-via-compatibility-layer.md) | Legacy reuse via a compatibility layer | Accepted |
 | [0006](0006-windows-toolchain.md) | Windows toolchain and build targets | Accepted |
 | [0007](0007-hybrid-global-local-learning-to-rank.md) | Hybrid global/local learning-to-rank | Accepted |
+| [0008](0008-non-hook-benchmark-harness.md) | Non-hook benchmark harness | Accepted |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.

@@ -26,9 +26,10 @@ scope.
   single-instance guard, a capture pause state, a global pause hotkey, a
   caret-aware non-activating popup scaffold, per-user autostart, and a minimal
   `Shell_NotifyIconW` tray. The daemon has redacted JSON-lines logging and a
-  resident `daemon` mode. The Settings tray action, full suggestion rendering,
-  UI, speech, and AI workers are **not implemented yet**. Do not pretend they
-  are.
+  resident `daemon` mode. `okkhor-bench` measures Smriti ranking and injector
+  latency without installing a hook. The Settings tray action, full suggestion
+  rendering, hook-level end-to-end benchmarks, UI, speech, and AI workers are
+  **not implemented yet**. Do not pretend they are.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - **Never run the legacy executable or its installer.** Use static analysis or
@@ -139,7 +140,8 @@ not automatically acceptable.
 ## Repository map
 
 ```text
-apps/okkhor-daemon/      daemon shell, logging, tray wiring, and demos
+apps/okkhor-bench/       non-hook ranking and injection benchmark harness
+apps/okkhor-daemon/      resident daemon, tray/logging wiring, and demos
 crates/okkhor-core/      language, text, candidate, ranking primitives
 crates/okkhor-learn/     Smriti: personalization and ranking
 crates/okkhor-storage/   snapshot persistence and future redb adapter
