@@ -13,6 +13,8 @@ pub mod inject;
 pub mod input;
 
 #[cfg(windows)]
+pub mod autostart;
+#[cfg(windows)]
 mod caret;
 #[cfg(windows)]
 mod clipboard;
@@ -23,11 +25,18 @@ mod popup;
 #[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]
+mod tray;
+#[cfg(windows)]
 mod win32;
 
 pub use inject::{InjectError, InjectionMethod, TextInjector};
 pub use input::{KeyEvent, KeyPhase, KeyboardHook};
 
+#[cfg(windows)]
+pub use autostart::{
+    AUTOSTART_KEY, AUTOSTART_VALUE_NAME, AutostartError, DAEMON_ARGUMENT, autostart_command,
+    disable as disable_autostart, enable as enable_autostart, is_enabled as is_autostart_enabled,
+};
 #[cfg(windows)]
 pub use caret::{
     CaretAnchor, DpiError, PopupPlacement, caret_anchor, enable_per_monitor_dpi_awareness,
@@ -39,6 +48,8 @@ pub use hotkey::{HotkeyError, PauseHotkey};
 pub use popup::{PopupError, SuggestionPopup};
 #[cfg(windows)]
 pub use single_instance::{SingleInstance, SingleInstanceError};
+#[cfg(windows)]
+pub use tray::{TrayError, TrayEvent, TrayIcon};
 #[cfg(windows)]
 pub use win32::{
     HookError, WindowsInjector, WindowsKeyboardHook, capture_enabled, set_capture_enabled,

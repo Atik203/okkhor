@@ -125,6 +125,11 @@ AI request ──► worker ──► cache ──► optional UI badge
 - `GetGUIThreadInfo`/caret APIs and per-monitor DPI v2 for popup placement.
 - `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` for the suggestion popup.
 - Single instance via a named mutex and a message-only window.
+- A `Shell_NotifyIconW` tray icon on a hidden message-only window with Pause,
+  a disabled Settings placeholder, and Exit.
+- Per-user autostart through
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; the value is
+  `"<absolute path>" daemon` and is written without elevation.
 - Elevated windows: a non-elevated process cannot inject into them; report the
   limitation instead of silently failing.
 - IME on/off, RDP, touch keyboard, and multi-monitor are part of the test matrix.
@@ -139,7 +144,13 @@ AI request ──► worker ──► cache ──► optional UI badge
 
 ## Observability
 
-- `tracing` for structured, redacted events.
+- Structured, redacted JSON-lines events from the daemon.
+- The daemon logger accepts only allowlisted fields (`event`, `level`,
+  `version`, `pid`, `command`, `scope`, `kind`, `code`, `ts_ms`) and has no API
+  for free-form text. It writes to `%LOCALAPPDATA%\Okkhor\logs\okkhor.log` and
+  stderr.
+- A `tracing`-based span layer can replace the local logger when latency
+  instrumentation lands; the redaction contract stays the same.
 - Latency histograms for hook, candidate generation, ranking, and injection.
 - ETW/WPA traces for p99 investigations.
 - No user text in logs, crash reports, or telemetry.

@@ -7,9 +7,10 @@ AI features that never sit in the keystroke path.
 
 > Status: **0.1 scaffold + early 0.2 input layer**. The workspace, learning
 > core, storage, Win32 hook, Unicode injector with guarded clipboard fallback,
-> single-instance guard, capture pause state, pause hotkey, and caret-aware
-> non-activating popup scaffold exist. Tray, full suggestion rendering, UI,
-> speech, and AI workers are roadmap items, not shipped features.
+> single-instance guard, capture pause state, pause hotkey, caret-aware
+> non-activating popup scaffold, per-user autostart, redacted daemon logging,
+> and a minimal tray icon exist. The Settings tray action, full suggestion
+> rendering, UI, speech, and AI workers are roadmap items, not shipped features.
 
 ## Why Rust
 
@@ -31,7 +32,7 @@ AI features that never sit in the keystroke path.
 ## Repository layout
 
 ```text
-apps/okkhor-daemon/      daemon shell + hook demo; tray pending
+apps/okkhor-daemon/      daemon shell, tray/logging wiring, and demos
 crates/okkhor-core/      language, text, candidate, ranking primitives
 crates/okkhor-learn/     Smriti personalization and ranking
 crates/okkhor-storage/   snapshot persistence

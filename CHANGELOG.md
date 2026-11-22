@@ -26,10 +26,21 @@ Versioning once it reaches 1.0.
 - A non-activating `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` popup scaffold and
   `okkhor popup-demo`.
 - Hook cleanup on drop and a single-instance guard around `hook-demo`.
+- Per-user autostart through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+  with a quoted executable path and the `daemon` argument, plus
+  `okkhor autostart enable|disable|status`.
+- A minimal `Shell_NotifyIconW` tray (`TrayIcon`) on a hidden message-only
+  window with Pause/Resume, a disabled Settings placeholder, Exit, and
+  `okkhor tray-demo`.
+- The resident `okkhor daemon` mode wiring the hook, pause hotkey, tray, and
+  single-instance guard together.
+- Redacted JSON-lines daemon logging under `%LOCALAPPDATA%\Okkhor\logs` and
+  stderr with an allowlisted field set for startup, command, and error events.
 
 ### Not yet
 
-- tray, autostart, and redacted logging;
+- the Settings tray action, `TaskbarCreated` re-add after Explorer restart, and
+  the settings UI;
 - full suggestion-list rendering and interaction;
 - benchmark harness, Windows integration matrix, signing.
 

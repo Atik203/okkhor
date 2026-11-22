@@ -30,6 +30,7 @@ dependencies = [
  "okkhor-learn",
  "okkhor-storage",
  "okkhor-win",
+ "serde_json",
 ]
 
 [[package]]
