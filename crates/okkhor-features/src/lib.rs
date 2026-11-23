@@ -12,8 +12,34 @@
 //! migration note. See ADR 0015 and ADR 0017.
 
 use okkhor_core::{Candidate, CandidateSource, Language, SuggestionRequest, contains_bengali};
-use okkhor_learn::LearningSnapshot;
+use okkhor_learn::{BigramStat, LearningSnapshot, PairStat, WordStat};
 use thiserror::Error;
+
+/// Read-only view of the local learning statistics that feature extraction
+/// needs.
+///
+/// Implemented by [`LearningSnapshot`] for offline/replay use and by
+/// `Smriti` (in `okkhor-model`) for the live path, so a ranker can read the
+/// shared store without cloning a snapshot per keystroke.
+pub trait FeatureSource {
+    fn word_stat(&self, language: Language, word: &str) -> Option<WordStat>;
+    fn pair_stat(&self, language: Language, roman_input: &str, output: &str) -> Option<PairStat>;
+    fn bigram_stat(&self, language: Language, previous: &str, current: &str) -> Option<BigramStat>;
+}
+
+impl FeatureSource for LearningSnapshot {
+    fn word_stat(&self, language: Language, word: &str) -> Option<WordStat> {
+        LearningSnapshot::word_stat(self, language, word)
+    }
+
+    fn pair_stat(&self, language: Language, roman_input: &str, output: &str) -> Option<PairStat> {
+        LearningSnapshot::pair_stat(self, language, roman_input, output)
+    }
+
+    fn bigram_stat(&self, language: Language, previous: &str, current: &str) -> Option<BigramStat> {
+        LearningSnapshot::bigram_stat(self, language, previous, current)
+    }
+}
 
 /// Feature schema version. Bump on any field order/type change.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -214,13 +240,13 @@ impl FeatureVectorV1 {
     }
 }
 
-/// Extract v1 features for one (`request`, `candidate`) pair against a
-/// learning snapshot. No I/O, deterministic, bounded allocation (a few small
+/// Extract v1 features for one (`request`, `candidate`) pair against any
+/// [`FeatureSource`]. No I/O, deterministic, bounded allocation (a few small
 /// normalized keys bounded by the input lengths).
-pub fn extract_features(
+pub fn extract_features<S: FeatureSource + ?Sized>(
     request: &SuggestionRequest,
     candidate: &Candidate,
-    snapshot: &LearningSnapshot,
+    snapshot: &S,
 ) -> Result<FeatureVectorV1, FeatureError> {
     let prefix_chars = request.prefix.chars().count();
     if prefix_chars > MAX_PREFIX_CHARS {

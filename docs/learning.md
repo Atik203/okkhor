@@ -164,6 +164,10 @@ Rules:
 - The engine does not read a clock; the bound is structural and the daemon
   measures p99 around the call.
 - English completions keep their static path in 0.7; the hybrid is Bangla-only.
+- `okkhor daemon --ranker hybrid` selects the blend; the default is
+  `--ranker baseline`. A model load failure logs `model_load` and keeps typing
+  on the baseline. The 2026-11-24 synthetic-only A/B is an exact tie because the
+  replay has no learning evidence; see `docs/performance.md`.
 
 ## Base + delta
 

@@ -24,6 +24,7 @@ okkhor-engine.workspace = true
 okkhor-features.workspace = true
 okkhor-lang.workspace = true
 okkhor-learn.workspace = true
+okkhor-model.workspace = true
 okkhor-transliterate.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -350,6 +350,22 @@ impl Smriti {
         self.score_with(candidate, request, &inner)
     }
 
+    /// Score every candidate under one read lock, preserving input order.
+    ///
+    /// Additive bulk API for the hybrid reranker: centering needs the whole
+    /// staged pool's baseline scores before truncation. Bounded by the staged
+    /// pool cap; performs no I/O and reads no clock.
+    pub fn score_pool(&self, request: &SuggestionRequest, candidates: &[Candidate]) -> Vec<f32> {
+        let inner = self
+            .inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        candidates
+            .iter()
+            .map(|candidate| self.score_with(candidate, request, &inner))
+            .collect()
+    }
+
     /// Persistable snapshot for `okkhor-storage`.
     pub fn snapshot(&self) -> LearningSnapshot {
         let inner = self
@@ -878,5 +894,46 @@ mod tests {
         let score = smriti.score(&candidate, &request(2_000));
         assert!(score.is_finite());
         assert!(score > 0.0);
+    }
+
+    #[test]
+    fn score_pool_preserves_input_order_and_matches_score() {
+        let smriti = Smriti::new();
+        for _ in 0..5 {
+            commit(&smriti, "ভালো", 1_000);
+        }
+        let candidates = vec![
+            bangla_candidate("খারাপ", 0.0),
+            bangla_candidate("ভালো", 0.0),
+            bangla_candidate("ভাল", 0.0),
+        ];
+        let pool = smriti.score_pool(&request(2_000), &candidates);
+        assert_eq!(pool.len(), candidates.len());
+        for (index, candidate) in candidates.iter().enumerate() {
+            assert_eq!(pool[index], smriti.score(candidate, &request(2_000)));
+        }
+    }
+
+    #[test]
+    fn score_pool_empty_pool_is_empty() {
+        let smriti = Smriti::new();
+        assert!(smriti.score_pool(&request(2_000), &[]).is_empty());
+    }
+
+    #[test]
+    fn score_pool_ties_keep_input_order() {
+        let smriti = Smriti::new();
+        let candidates = vec![
+            bangla_candidate("গ", 0.0),
+            bangla_candidate("খ", 0.0),
+            bangla_candidate("ক", 0.0),
+        ];
+        let pool = smriti.score_pool(&request(2_000), &candidates);
+        // Identical candidates with no learned history tie exactly.
+        assert!(pool.windows(2).all(|pair| pair[0] == pair[1]));
+        // `rank` still applies its pinned (score desc, text asc) tie-break.
+        let ranked = smriti.rank(&request(2_000), candidates);
+        let texts: Vec<&str> = ranked.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(texts, ["ক", "খ", "গ"]);
     }
 }

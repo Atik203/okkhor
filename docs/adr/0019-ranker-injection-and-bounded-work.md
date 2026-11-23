@@ -1,9 +1,13 @@
 # ADR 0019: Ranker injection and bounded hybrid work in the live engine
 
-- Status: **Proposed** (owner decision D2, 2026-11-24)
+- Status: **Accepted** (owner approved the model slice, 2026-11-24)
 - Date: 2026-11-24
 - Related: ADR 0011 (candidate engine), ADR 0016 (live suggestion stages),
   ADR 0017 (feature runtime and blend), epic #98, #101
+- Implementation note (2026-11-24): `SuggestionEngine::suggest_with_ranker`,
+  `Smriti::score_pool`, and `HybridRanker` are implemented. The daemon injects
+  baseline (`Smriti`) or hybrid (`HybridRanker`) and keeps `baseline` as the
+  default. `CandidateEngine` (0.4 parity) still takes `&Smriti` unchanged.
 
 ## Context
 

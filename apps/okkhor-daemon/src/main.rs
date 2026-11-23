@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use okkhor_core::{Candidate, CandidateSource, Language, Ranker, SuggestionRequest};
 use okkhor_learn::{CommitSource, LearningEvent, Smriti, SmritiConfig};
+use okkhor_model::{HybridRanker, load_bundled};
 use okkhor_storage::JsonFileRepository;
 
 #[cfg(windows)]
@@ -182,8 +183,30 @@ impl OutputEncoding {
 }
 
 /// Usage text for the `daemon` subcommand (also the exit-2 message).
-const DAEMON_USAGE: &str =
-    "usage: okkhor daemon [--encoding unicode|bijoy] [--mode bangla|english] [--no-ipc] [--ui]";
+const DAEMON_USAGE: &str = "usage: okkhor daemon [--encoding unicode|bijoy] [--mode bangla|english] [--ranker baseline|hybrid] [--no-ipc] [--ui]";
+
+/// Which ranker the daemon injects into the live suggestion engine.
+///
+/// `Baseline` is the deterministic `Smriti` order and the default. `Hybrid`
+/// adds the bundled Tier 1 model; a load failure logs an allowlisted code and
+/// falls back to `Baseline`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum RankerChoice {
+    #[default]
+    Baseline,
+    Hybrid,
+}
+
+impl RankerChoice {
+    /// Parse a CLI value; `None` for anything outside the allowlisted pair.
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "baseline" => Some(Self::Baseline),
+            "hybrid" => Some(Self::Hybrid),
+            _ => None,
+        }
+    }
+}
 
 /// Input mode: Bangla phonetic composition or English pass-through
 /// (contract §2, ADR 0014 §1). Default is Bangla. Pause stays separate.
@@ -231,6 +254,8 @@ impl InputMode {
 struct DaemonOptions {
     encoding: OutputEncoding,
     mode: InputMode,
+    /// Final ranking stage: deterministic baseline or the hybrid reranker.
+    ranker: RankerChoice,
     /// Skip the settings-UI pipe (typing, tray, and hotkeys keep working).
     no_ipc: bool,
     /// Launch the settings UI once at startup (tray Settings always can).
@@ -242,6 +267,7 @@ impl DaemonOptions {
         Self {
             encoding,
             mode,
+            ranker: RankerChoice::Baseline,
             no_ipc: false,
             ui: false,
         }
@@ -250,11 +276,12 @@ impl DaemonOptions {
 
 /// Parse `okkhor daemon` arguments. Pure: no I/O, no process state.
 /// Accepts `--encoding <v>` / `--encoding=<v>`, `--mode <v>` /
-/// `--mode=<v>`, and the bare flags `--no-ipc` / `--ui`, in any order;
-/// anything else is a usage error.
+/// `--mode=<v>`, `--ranker <baseline|hybrid>` / `--ranker=<v>`, and the bare
+/// flags `--no-ipc` / `--ui`, in any order; anything else is a usage error.
 fn parse_daemon_args(args: &[String]) -> Result<DaemonOptions, &'static str> {
     let mut encoding = OutputEncoding::Unicode;
     let mut mode = InputMode::Bangla;
+    let mut ranker = RankerChoice::Baseline;
     let mut no_ipc = false;
     let mut ui = false;
     let mut index = 0;
@@ -266,6 +293,9 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonOptions, &'static str> {
         } else if let Some(value) = arg.strip_prefix("--mode=") {
             mode = InputMode::parse(value).ok_or(DAEMON_USAGE)?;
             index += 1;
+        } else if let Some(value) = arg.strip_prefix("--ranker=") {
+            ranker = RankerChoice::parse(value).ok_or(DAEMON_USAGE)?;
+            index += 1;
         } else if arg == "--encoding" {
             let value = args.get(index + 1).ok_or(DAEMON_USAGE)?;
             encoding = OutputEncoding::parse(value).ok_or(DAEMON_USAGE)?;
@@ -273,6 +303,10 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonOptions, &'static str> {
         } else if arg == "--mode" {
             let value = args.get(index + 1).ok_or(DAEMON_USAGE)?;
             mode = InputMode::parse(value).ok_or(DAEMON_USAGE)?;
+            index += 2;
+        } else if arg == "--ranker" {
+            let value = args.get(index + 1).ok_or(DAEMON_USAGE)?;
+            ranker = RankerChoice::parse(value).ok_or(DAEMON_USAGE)?;
             index += 2;
         } else if arg == "--no-ipc" {
             no_ipc = true;
@@ -285,6 +319,7 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonOptions, &'static str> {
         }
     }
     let mut options = DaemonOptions::new(encoding, mode);
+    options.ranker = ranker;
     options.no_ipc = no_ipc;
     options.ui = ui;
     Ok(options)
@@ -1433,7 +1468,19 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut last_english_visible = false;
     let mut last_english_foreground = foreground_window_id();
 
-    let engine = default_engine(Arc::clone(&smriti));
+    let baseline: Arc<dyn Ranker + Send + Sync> = smriti.clone();
+    let ranker: Arc<dyn Ranker + Send + Sync> = match options.ranker {
+        RankerChoice::Hybrid => match load_bundled() {
+            Ok(model) => Arc::new(HybridRanker::new(Arc::clone(&smriti), model)),
+            Err(_) => {
+                // Allowlisted code only; typing continues on the baseline.
+                logger.error(logging::Scope::Engine, "model_load", None);
+                Arc::clone(&baseline)
+            }
+        },
+        RankerChoice::Baseline => baseline,
+    };
+    let engine = default_engine(ranker);
     if let Some(kind) = engine.fallback_kind() {
         // Load failure or a disabled dictionary: allowlisted startup record
         // only (scope + kind, never text). Typing continues on what loaded.
@@ -2519,8 +2566,8 @@ fn fresh_temp_dir() -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        DaemonOptions, FontsAction, InputMode, OutputEncoding, apply_encoding, parse_daemon_args,
-        parse_fonts_args, resolve_uninstall_target, select_fonts_dir,
+        DaemonOptions, FontsAction, InputMode, OutputEncoding, RankerChoice, apply_encoding,
+        parse_daemon_args, parse_fonts_args, resolve_uninstall_target, select_fonts_dir,
     };
 
     #[test]
@@ -2657,6 +2704,7 @@ mod tests {
             Ok(DaemonOptions {
                 encoding: OutputEncoding::Unicode,
                 mode: InputMode::Bangla,
+                ranker: RankerChoice::Baseline,
                 no_ipc: false,
                 ui: false,
             })
@@ -2666,6 +2714,7 @@ mod tests {
             Ok(DaemonOptions {
                 encoding: OutputEncoding::Unicode,
                 mode: InputMode::Bangla,
+                ranker: RankerChoice::Baseline,
                 no_ipc: true,
                 ui: false,
             })
@@ -2675,6 +2724,7 @@ mod tests {
             Ok(DaemonOptions {
                 encoding: OutputEncoding::Unicode,
                 mode: InputMode::English,
+                ranker: RankerChoice::Baseline,
                 no_ipc: true,
                 ui: true,
             })
@@ -2684,10 +2734,40 @@ mod tests {
             Ok(DaemonOptions {
                 encoding: OutputEncoding::Bijoy,
                 mode: InputMode::English,
+                ranker: RankerChoice::Baseline,
                 no_ipc: false,
                 ui: true,
             })
         );
+    }
+
+    #[test]
+    fn daemon_args_ranker_defaults_to_baseline_and_accepts_hybrid() {
+        assert_eq!(
+            parse_daemon_args(&args(&[])).expect("default").ranker,
+            RankerChoice::Baseline
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--ranker", "hybrid"]))
+                .expect("hybrid")
+                .ranker,
+            RankerChoice::Hybrid
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--ranker=hybrid"]))
+                .expect("hybrid")
+                .ranker,
+            RankerChoice::Hybrid
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--ranker=baseline"]))
+                .expect("baseline")
+                .ranker,
+            RankerChoice::Baseline
+        );
+        assert!(parse_daemon_args(&args(&["--ranker"])).is_err());
+        assert!(parse_daemon_args(&args(&["--ranker=model"])).is_err());
+        assert!(parse_daemon_args(&args(&["--ranker=HYBRID"])).is_err());
     }
 
     #[test]
