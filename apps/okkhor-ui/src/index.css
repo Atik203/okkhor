@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --accent: 13 148 136; /* teal-600 default */
+}
+
+/* Accent presets (rgb triplets consumed below). */
+[data-accent="teal"] {
+  --accent: 13 148 136;
+}
+[data-accent="indigo"] {
+  --accent: 79 70 229;
+}
+[data-accent="amber"] {
+  --accent: 217 119 6;
+}
+[data-accent="rose"] {
+  --accent: 225 29 72;
+}
+
+html {
+  /* font-scale is applied at runtime from settings (style.fontSize). */
+  font-size: 100%;
+}
+
+body {
+  @apply bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
+}
+
+/* Visible focus ring everywhere (keyboard navigation, contract §5). */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
