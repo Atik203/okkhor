@@ -113,6 +113,71 @@ cargo test
 - Limitations: the bar cannot outlive the UI process; it does not
   auto-follow the active monitor after a manual drag; snap-to-edges and a
   tray menu are not implemented and not claimed.
+## Suggestion popup (native Win32, `okkhor-win`)
+
+The caret-adjacent suggestion list is a native, custom-painted Win32 window
+(`crates/okkhor-win/src/popup.rs`) — not WebView, not a `STATIC` text box.
+The daemon feeds it `Vec<String>` candidates plus the highlight index; the
+window owns sizing, painting, placement, and click queuing.
+
+### List design
+
+- Up to 10 rows (the engine currently yields at most 5); fewer candidates
+  shrink the card, an empty list hides it. One row per candidate, row height
+  30px at 96 DPI (DPI-scaled), 8px outer padding, 22px index-badge column,
+  card width clamped to 180–380px (96-DPI basis, scaled), 6px corner radius,
+  1px border, teal selection fill, badges `1`–`9`/`0` matching the digit keys.
+- Long words ellipsis (`DT_END_ELLIPSIS`); single-line, vertically centered,
+  `NOPREFIX` (a `&` in a word never becomes an accelerator).
+- GDI `DrawTextW` with a Bengali-capable font: first installed match of
+  Kalpurush → Noto Sans Bengali → Nirmala UI → Segoe UI, 15pt,
+  `CLEARTYPE_QUALITY`; regular rows use the normal weight, the highlighted
+  row uses bold + white text. Fonts recreate on DPI change (`WM_DPICHANGED`).
+- Theme follows the Windows apps preference
+  (`HKCU\...\Personalize\AppsUseLightTheme`, light on any read failure):
+  light card `rgb(220,228,245)`/black text, dark card `rgb(1,22,39)`/light
+  text — inspired by the legacy suggestion-window themes, not pixel copies.
+  No config file; unit tests inject the registry value instead of reading it.
+
+### Placement rules
+
+- Below the caret with a 4–6px (DPI-scaled) gap; flips above when the card
+  would leave the monitor work area; clamps horizontally; per-monitor DPI via
+  the caret anchor (`crates/okkhor-win/src/caret.rs`, `place_popup`).
+- Never covers the caret line when avoidable; max height is 10 rows. The
+  window is `WS_POPUP | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`,
+  the class registers once, `WM_MOUSEACTIVATE` returns `MA_NOACTIVATE`, and
+  showing uses `SW_SHOWNOACTIVATE` — it never takes focus and never steals
+  typing.
+
+### Keyboard / mouse, focus, blocking
+
+- Keyboard is unchanged: digits `1`–`5` commit, arrows move the highlight,
+  Space/Enter commit, Esc/Tab cancel, Backspace edits (`docs/input-pipeline.md`).
+- Clicking a row queues its index; the daemon drains it with
+  `try_next_click()` (which pumps only this window's messages, never blocks)
+  and commits through the same `select_digit` path as the digit keys —
+  out-of-range rows are ignored, clicks with no composition do nothing.
+- Hide on commit, cancel, pause, focus change, or empty candidates. No text
+  is ever logged (metrics carry geometry only). Typing never blocks on the
+  popup: a failed create/show degrades to typing without a popup.
+
+### DPI / multi-monitor
+
+- All metrics scale from the caret anchor DPI; the card re-lays out and
+  re-places itself on `WM_DPICHANGED` from the stored anchor. Multi-monitor
+  follows from the anchor's work area; per-monitor correctness still needs a
+  real multi-DPI manual pass.
+
+### Known gaps
+
+- Clicking outside the card does not dismiss it immediately; the composition
+  resets on the next keystroke (focus-change guard) and the card hides then.
+- No animation, no IME-mode awareness, no accessibility role beyond a plain
+  window (screen-reader naming is future work).
+- Multi-DPI and dark-theme-while-running coverage is manual only
+  (`popup-demo` + the ignored smoke test in `popup.rs`).
+
 ## How the UI talks to the daemon (IPC v1)
 
 Binding contract: `docs/design/0.5-ui-contracts.md` §4, ADR 0012 §2.

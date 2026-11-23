@@ -58,7 +58,7 @@ pub use caret::{
 #[cfg(windows)]
 pub use hotkey::{GlobalHotkey, HotkeyError, HotkeySpec, ModeBinding, ModeHotkey, PauseHotkey};
 #[cfg(windows)]
-pub use popup::{PopupError, SuggestionPopup};
+pub use popup::{MAX_ITEMS, PopupError, PopupMetrics, PopupTheme, SuggestionPopup};
 #[cfg(windows)]
 pub use single_instance::{SingleInstance, SingleInstanceError};
 #[cfg(windows)]
