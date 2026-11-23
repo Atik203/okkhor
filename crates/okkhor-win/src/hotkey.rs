@@ -133,6 +133,7 @@ impl ModeBinding {
 /// hotkey thread and released when that thread exits.
 pub struct GlobalHotkey {
     spec: HotkeySpec,
+    name: &'static str,
     thread_id: Option<u32>,
     thread: Option<JoinHandle<()>>,
     events: Option<Receiver<()>>,
@@ -146,10 +147,17 @@ impl GlobalHotkey {
     pub fn with_spec(spec: HotkeySpec) -> Self {
         Self {
             spec,
+            name: "okkhor-hotkey",
             thread_id: None,
             thread: None,
             events: None,
         }
+    }
+
+    /// Thread name for diagnostics. Only takes effect on the next `start`.
+    pub fn with_name(mut self, name: &'static str) -> Self {
+        self.name = name;
+        self
     }
 
     /// The registration this hotkey uses.
@@ -171,10 +179,11 @@ impl GlobalHotkey {
         }
 
         let spec = self.spec;
+        let name = self.name;
         let (event_tx, event_rx) = mpsc::sync_channel(16);
         let (ready_tx, ready_rx) = mpsc::channel();
         let thread = thread::Builder::new()
-            .name("okkhor-hotkey".to_owned())
+            .name(name.to_owned())
             .spawn(move || run_hotkey_thread(spec, event_tx, ready_tx))
             .map_err(HotkeyError::Spawn)?;
 
@@ -230,91 +239,47 @@ impl Drop for GlobalHotkey {
 /// A process-local registration for `Ctrl+Alt+Shift+P`.
 ///
 /// `start` can be called again after `stop`; the registration is owned by the
-/// hotkey thread and released when that thread exits.
-#[derive(Default)]
+/// hotkey thread and released when that thread exits. Implemented as a thin
+/// wrapper around [`GlobalHotkey`] with the pause chord baked in.
 pub struct PauseHotkey {
-    inner: Option<GlobalHotkey>,
-    thread_id: Option<u32>,
-    thread: Option<JoinHandle<()>>,
-    events: Option<Receiver<()>>,
+    inner: GlobalHotkey,
 }
 
 impl PauseHotkey {
     pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn ensure_inner(&mut self) -> &mut GlobalHotkey {
-        self.inner
-            .get_or_insert_with(|| GlobalHotkey::new(PAUSE_HOTKEY_ID, PAUSE_MODIFIERS, PAUSE_VK))
+        Self {
+            inner: GlobalHotkey::with_spec(HotkeySpec::new(
+                PAUSE_HOTKEY_ID,
+                PAUSE_MODIFIERS,
+                PAUSE_VK,
+            ))
+            .with_name("okkhor-pause-hotkey"),
+        }
     }
 
     /// Start listening. Registration failures are reported before any events
     /// are delivered.
     pub fn start(&mut self) -> Result<(), HotkeyError> {
-        if self.thread.is_some() || self.inner.as_ref().is_some_and(|h| h.is_running()) {
-            return Err(HotkeyError::AlreadyStarted);
-        }
-        // Delegate to the shared thread body so pause and mode stay on the
-        // same message-loop pattern.
-        let spec = HotkeySpec::new(PAUSE_HOTKEY_ID, PAUSE_MODIFIERS, PAUSE_VK);
-        let (event_tx, event_rx) = mpsc::sync_channel(16);
-        let (ready_tx, ready_rx) = mpsc::channel();
-        let thread = thread::Builder::new()
-            .name("okkhor-pause-hotkey".to_owned())
-            .spawn(move || run_hotkey_thread(spec, event_tx, ready_tx))
-            .map_err(HotkeyError::Spawn)?;
-
-        match ready_rx.recv() {
-            Ok(Ok(thread_id)) => {
-                self.thread_id = Some(thread_id);
-                self.thread = Some(thread);
-                self.events = Some(event_rx);
-                // Keep a matching generic handle for API symmetry; it stays
-                // idle while the dedicated fields own the registration.
-                let _ = self.ensure_inner();
-                Ok(())
-            }
-            Ok(Err(error)) => {
-                let _ = thread.join();
-                Err(error)
-            }
-            Err(_) => {
-                let _ = thread.join();
-                Err(HotkeyError::ThreadGone)
-            }
-        }
+        self.inner.start()
     }
 
     /// Poll for a hotkey press without blocking.
     pub fn try_next(&self) -> bool {
-        if let Some(events) = self.events.as_ref() {
-            if events.try_recv().is_ok() {
-                return true;
-            }
-        }
-        self.inner.as_ref().is_some_and(|h| h.try_next())
+        self.inner.try_next()
     }
 
     pub fn is_running(&self) -> bool {
-        self.thread
-            .as_ref()
-            .is_some_and(|thread| !thread.is_finished())
-            || self.inner.as_ref().is_some_and(|h| h.is_running())
+        self.inner.is_running()
     }
 
     pub fn stop(&mut self) {
-        if let Some(thread_id) = self.thread_id.take() {
-            // SAFETY: thread_id came from the live hotkey thread.
-            let _ = unsafe { PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) };
-        }
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-        self.events = None;
-        if let Some(inner) = self.inner.as_mut() {
-            inner.stop();
-        }
+        self.inner.stop();
+    }
+}
+
+impl Default for PauseHotkey {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -337,7 +302,7 @@ pub struct ModeHotkey {
 impl ModeHotkey {
     pub fn new() -> Self {
         Self {
-            inner: GlobalHotkey::with_spec(ModeBinding::F9.spec()),
+            inner: GlobalHotkey::with_spec(ModeBinding::F9.spec()).with_name("okkhor-mode-hotkey"),
             binding: ModeBinding::F9,
         }
     }
@@ -361,7 +326,8 @@ impl ModeHotkey {
                 };
                 binding = next;
                 // Fresh handle: the failed start joined its thread already.
-                self.inner = GlobalHotkey::with_spec(binding.spec());
+                self.inner =
+                    GlobalHotkey::with_spec(binding.spec()).with_name("okkhor-mode-hotkey");
                 self.inner.start()?;
                 self.binding = binding;
                 Ok(binding)

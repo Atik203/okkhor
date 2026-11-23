@@ -104,19 +104,23 @@ needs a real-key manual run and has not been measured yet.
 
 ## Mode behavior (ADR 0014 §1–§3)
 
-`InputMode` (`bangla` | `english`, default `bangla`, `--mode` flag) gates the
-session; pause (`Ctrl+Alt+Shift+P` / tray) stays a separate capture switch
-checked first.
+`InputMode` (`bangla` | `english`, `--mode` flag) gates the session; pause
+(`Ctrl+Alt+Shift+P` / tray) stays a separate capture switch checked first.
+The CLI flag selects the initial mode only; persisting the last mode across
+restarts (ADR 0014 §1) arrives with the settings-store wiring (Task 3) and is
+not claimed here.
 
-- Bangla: letters feed `InputSession` (buffer ≤ 32, candidates ≤ 5) as before.
+- Bangla (default): letters feed `InputSession` (buffer ≤ 32, candidates ≤ 5)
+  as before.
 - English: no composition — the toggle clears the buffer, hides the popup,
   and the worker drains the key queue without touching the session, so keys
   pass through untouched. Pause keeps working in either mode.
 - Toggle sources: `F9` (falls back to `Ctrl+Space` when `RegisterHotKey` for
   `F9` fails; the active binding is printed once at startup and a
   `scope=hotkey kind=hotkey_fallback` record is logged), tray left-click
-  (`WM_LBUTTONUP`), or the `Switch to …` tray menu item. Double-click still
-  toggles pause.
+  (`WM_LBUTTONUP`), or the `Switch to …` tray menu item. A double-click is
+  two left-clicks (net no mode change) and never pauses; pause is available
+  via the tray menu and the pause hotkey.
 - Each toggle clears/hides, updates the tray label + tooltip
   (`Okkhor - Bangla/English (active/paused)`), shows a non-activating
   `বাংলা` / `English` toast near the caret for ~800 ms, and logs only the

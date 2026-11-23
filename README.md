@@ -88,7 +88,9 @@ The daemon (`okkhor daemon`) now types Bangla end to end on Windows:
   and shows a non-activating toast (`বাংলা` / `English`) for ~800 ms without
   stealing focus. In English mode keys pass through untouched — pause is now a
   separate capture switch. Start in English with `okkhor daemon --mode english`
-  (default `--mode bangla`).
+  (default `--mode bangla`); the flag selects the initial mode only — last-mode
+  persistence arrives with the settings-store wiring and is not claimed yet.
+  A double-click is two left-clicks (net no mode change) and never pauses.
 - The pause hotkey (`Ctrl+Alt+Shift+P`) and the tray pause item cancel any
   composition and hide the popup. While paused, everything passes through.
 - Injected keystrokes (`LLKHF_INJECTED`) are never re-captured, so our own

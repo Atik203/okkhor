@@ -56,7 +56,8 @@ While it runs:
     tray icon for pause/exit. The tooltip shows the current mode.
   - Ctrl+Alt+Shift+P pauses/resumes capture (tray icon matches); pause
     is separate from the language mode.
-  - `okkhor daemon --mode english` starts in English mode.
+  - `okkhor daemon --mode english` starts in English mode (initial mode
+    only; last-mode persistence comes with settings wiring).
 
 Check the engine without typing:
 

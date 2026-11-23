@@ -34,8 +34,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetCursorPos, GetMessageW, HWND_MESSAGE, IDI_APPLICATION, LoadIconW,
     MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
     SetForegroundWindow, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
-    UnregisterClassW, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDBLCLK,
-    WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+    UnregisterClassW, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP,
+    WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -52,7 +52,7 @@ const MENU_MODE: usize = 4;
 /// Events delivered by the tray menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayEvent {
-    /// The user chose Pause or Resume, or double-clicked the icon.
+    /// The user chose Pause or Resume from the tray menu.
     TogglePause,
     /// The user chose Bangla/English, single-clicked, or picked the mode menu.
     ToggleMode,
@@ -547,13 +547,13 @@ fn is_menu_notification(notification: u32) -> bool {
 }
 
 /// Click-to-event mapping for the tray callback (pure, no Win32).
-/// Single left-click toggles Bangla/English; double-click still toggles pause
-/// for backward compatibility with the 0.2 tray.
+/// Single left-click toggles Bangla/English. A double-click arrives as two
+/// left-clicks, i.e. two mode toggles (net no change), and never pauses:
+/// pause stays available via the tray menu and the pause hotkey, so a
+/// double-click can never silently flip the language.
 fn event_for_notification(notification: u32) -> Option<TrayEvent> {
     if notification == WM_LBUTTONUP {
         Some(TrayEvent::ToggleMode)
-    } else if notification == WM_LBUTTONDBLCLK {
-        Some(TrayEvent::TogglePause)
     } else {
         None
     }
@@ -608,7 +608,6 @@ mod tests {
     use windows::Win32::UI::WindowsAndMessaging::{
         WM_CONTEXTMENU, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP,
     };
-
     #[test]
     fn pause_menu_toggles_and_exit_exits() {
         assert_eq!(event_for_command(MENU_PAUSE), Some(TrayEvent::TogglePause));
@@ -641,11 +640,12 @@ mod tests {
     }
 
     #[test]
-    fn double_click_still_toggles_pause() {
-        assert_eq!(
-            event_for_notification(WM_LBUTTONDBLCLK),
-            Some(TrayEvent::TogglePause)
-        );
+    fn double_click_never_pauses() {
+        // Double-click is not mapped: the shell delivers it as two
+        // left-clicks, i.e. two mode toggles (net no change). Pause stays
+        // available via the tray menu and the pause hotkey only.
+        assert_eq!(event_for_notification(WM_LBUTTONDBLCLK), None);
+        assert!(!is_menu_notification(WM_LBUTTONDBLCLK));
     }
 
     #[test]
