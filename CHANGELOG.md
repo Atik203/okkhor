@@ -5,6 +5,11 @@ Versioning once it reaches 1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Associate the global low-level keyboard hook with the process module handle
+  instead of passing a null module handle. Hook QA with real keys passes.
+
 ## [0.2.0] - 2026-11-23
 
 ### Added
