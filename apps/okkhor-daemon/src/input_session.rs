@@ -302,20 +302,84 @@ mod tests {
         BackspaceOutcome, InputSession, MAX_BUFFER_LEN, MAX_CANDIDATES, default_engine,
         vk_to_digit_index, vk_to_letter,
     };
+    use okkhor_core::Language;
+    use okkhor_transliterate::{
+        RuleId, TransliterationOptions, TransliterationOutput, TransliteratorEngine,
+    };
 
     fn session() -> InputSession {
         InputSession::new(default_engine())
     }
 
-    fn type_text(session: &mut InputSession, text: &str) {
+    fn type_text<E: TransliteratorEngine>(session: &mut InputSession<E>, text: &str) {
         for byte in text.bytes() {
             assert!(session.push_letter(byte), "letter {byte} accepted");
+        }
+    }
+
+    /// Stub engine yielding nothing: makes "no candidates" tests independent
+    /// of the committed rule table.
+    struct EmptyEngine;
+
+    impl TransliteratorEngine for EmptyEngine {
+        fn transliterate(
+            &self,
+            _input: &str,
+            _options: &TransliterationOptions,
+        ) -> Vec<TransliterationOutput> {
+            Vec::new()
+        }
+    }
+
+    /// Stub engine yielding more than the cap: proves truncation is the
+    /// session's doing, not an accident of the rule table.
+    struct OverflowEngine;
+
+    impl TransliteratorEngine for OverflowEngine {
+        fn transliterate(
+            &self,
+            _input: &str,
+            options: &TransliterationOptions,
+        ) -> Vec<TransliterationOutput> {
+            (0..options.max_candidates + 3)
+                .map(|index| TransliterationOutput {
+                    text: format!("ক{index}"),
+                    language: Language::Bangla,
+                    confidence: 1.0,
+                    rule_id: RuleId::from_code("rule_stub").expect("valid stub id"),
+                })
+                .collect()
         }
     }
 
     #[test]
     fn default_engine_builds_with_committed_rules() {
         assert!(default_engine().rule_count() > 0);
+    }
+
+    #[test]
+    fn decision_latency_stays_in_budget() {
+        // Unit-level poll-to-decision cost: one letter push including the
+        // transliterate refresh, exactly as the worker performs it per
+        // keystroke. This is NOT an end-to-end hook-to-commit claim — that
+        // needs a real-key manual run (see docs/input-pipeline.md).
+        let mut session = session();
+        let iterations = 1_000u32;
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            session.reset();
+            for byte in *b"bhalo" {
+                assert!(session.push_letter(byte));
+            }
+        }
+        let average = start.elapsed() / iterations;
+        println!("poll-to-decision average over {iterations} iterations: {average:?}");
+        // Generous bound: the AGENTS budget for local candidate generation is
+        // < 3 ms p99; a decision here is one push + refresh.
+        assert!(
+            average < std::time::Duration::from_millis(3),
+            "average decision {average:?} exceeds the 3 ms budget"
+        );
     }
 
     #[test]
@@ -430,13 +494,20 @@ mod tests {
 
     #[test]
     fn arrows_are_noop_without_candidates() {
+        // Idle session: nothing to move.
         let mut session = session();
         session.move_selection(1);
+        session.move_selection(-1);
         assert_eq!(session.selected(), 0);
-        type_text(&mut session, "zzz");
-        assert!(session.candidates().is_empty());
-        session.move_selection(1);
-        assert_eq!(session.selected(), 0);
+        // Composing session whose engine yields nothing: no rule-table
+        // coupling, the empty case is explicit.
+        let mut empty: InputSession<EmptyEngine> = InputSession::new(EmptyEngine);
+        assert!(empty.push_letter(b'q'));
+        assert!(empty.is_composing());
+        assert!(empty.candidates().is_empty());
+        empty.move_selection(1);
+        empty.move_selection(-1);
+        assert_eq!(empty.selected(), 0);
     }
 
     #[test]
@@ -470,12 +541,13 @@ mod tests {
 
     #[test]
     fn commit_without_candidates_returns_none_and_keeps_buffer() {
-        let mut session = session();
-        type_text(&mut session, "zzz");
+        // Fixture-free: the stub engine yields nothing for any input.
+        let mut session: InputSession<EmptyEngine> = InputSession::new(EmptyEngine);
+        type_text(&mut session, "qx");
         assert!(session.candidates().is_empty());
         assert_eq!(session.commit(true), None);
         // The roman text stays as typed; only the daemon clears the session.
-        assert_eq!(session.buffer(), "zzz");
+        assert_eq!(session.buffer(), "qx");
     }
 
     #[test]
@@ -483,14 +555,8 @@ mod tests {
         let mut session = session();
         type_text(&mut session, "kotha");
         let commit = session.commit(true).expect("commits");
-        assert_eq!(commit.erase_chars, session_buffer_len(&commit, "kotha"));
         assert_eq!(commit.erase_chars, "kotha".len());
         assert_eq!(commit.text, "কথা");
-    }
-
-    fn session_buffer_len(commit: &super::Commit, typed: &str) -> usize {
-        assert_eq!(commit.erase_chars, typed.len());
-        commit.erase_chars
     }
 
     #[test]
@@ -506,10 +572,20 @@ mod tests {
 
     #[test]
     fn candidates_are_capped_at_five() {
+        // A stub engine yielding more than the cap proves the truncation is
+        // the session's doing, not an accident of the committed rule table.
+        let mut session: InputSession<OverflowEngine> = InputSession::new(OverflowEngine);
+        assert!(session.push_letter(b'k'));
+        assert_eq!(session.candidates().len(), MAX_CANDIDATES);
+    }
+
+    #[test]
+    fn default_table_stays_within_cap() {
+        // Live-table spot check only: asserts the bound, not the exact count,
+        // so phonetic-coverage growth cannot flip it.
         let mut session = session();
         assert!(session.push_letter(b'k'));
         assert!(session.candidates().len() <= MAX_CANDIDATES);
-        assert_eq!(session.candidates().len(), MAX_CANDIDATES);
     }
 
     #[test]

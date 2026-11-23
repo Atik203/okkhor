@@ -12,8 +12,8 @@ each step fails. For the privacy contract behind every rule here, see
 | Composition worker | `okkhor-daemon` (`run_daemon` loop, every 10 ms) | worker | session updates, popup, erase + inject |
 | State machine | `okkhor-daemon/src/input_session.rs` | worker (pure) | buffer ≤ 32, candidates ≤ 5, selection; no Win32, no I/O, no logging |
 | Suggestion popup | `okkhor-win` (`SuggestionPopup`, caret-aware) | worker | non-activating numbered list, no focus theft |
-| Injector | `okkhor-win` (`send_backspaces`, `WindowsInjector`) | worker | Unicode `SendInput`, `WM_CHAR` fast path, guarded clipboard fallback |
-| Learning queue | `okkhor-daemon` → `okkhor-learn::Smriti` | background | `TransliterationCommitted` only; no I/O, never blocks typing |
+| Injector | `okkhor-win` (`inject_commit`, `WindowsInjector`) | worker | commits go out as one `SendInput` batch (erase + text + space); `WindowsInjector` remains for diagnostics/`text.insert` with `WM_CHAR`/clipboard paths |
+| Learning queue | `okkhor-daemon` → `okkhor-learn::Smriti` | background | bounded `sync_channel(1024)`, `try_send` drop-and-count; `TransliterationCommitted` only; no I/O, never blocks typing |
 
 ## State diagram
 
@@ -23,10 +23,10 @@ each step fails. For the privacy contract behind every rule here, see
    │ idle ├─►│              composing                  │─►│ committed │
    │      │  │ buffer += letter; candidates recomputed │  │           │
    └──────┘  │ popup shows numbered list (or hides)    │  └───────────┘
-      ▲      └─────────────────────────────────────────┘   erase N + inject
-      │         │ arrows │ digits │ backspace │ Esc/Tab │   + optional space
-      │         ▼        ▼        ▼           ▼         │   popup hides
-      │       select   commit   edit/       cancel:    │
+      ▲      └─────────────────────────────────────────┘   one SendInput batch:
+      │         │ arrows │ digits │ backspace │ Esc/Tab │   erase N + inject
+      │         ▼        ▼        ▼           ▼         │   + optional space
+      │       select   commit   edit/       cancel:    │   popup hides
       │       wraps    (digit)  pass-thru   raw roman  │
       │                        at empty     stays      │
       │                                               │
@@ -68,17 +68,34 @@ selection resets to index 0 on every buffer change.
 | Failure | Behavior | Log (allowlisted, no text) |
 | --- | --- | --- |
 | Foreground window changed since composition started | no erase; reset + hide | `scope=daemon kind=focus_changed` |
-| `send_backspaces` fails | no inject; reset + hide | `kind=inject_backspace` + code |
-| Text inject fails (after erase) | hide popup; learning skipped | `kind=inject_text` + code |
-| Trailing-space inject fails | Bangla already committed; hide | `kind=inject_space` + code |
+| Commit batch fails with zero delivered | nothing erased, nothing injected; reset + hide | `kind=inject_commit` + code |
+| Commit batch partially delivered | a roman prefix may already be erased without replacement (inherent to Win32); reset + hide | `kind=inject_commit` + code |
+| UIPI-blocked target | `Blocked`: nothing erased, nothing injected; reset + hide | `kind=inject_commit`, no code |
 | Popup create/show fails | typing continues without popup | `kind=popup_create` / `popup_show` + code |
 | `caret_anchor` unavailable | popup hides; typing continues | none |
-| Learn thread spawn fails | typing continues without learning | `kind=learn_thread` |
-| Elevated target blocks `SendInput` | clipboard fallback or `Blocked` code | `kind=inject_backspace` / `inject_text` + code |
+| Learn thread spawn fails / queue full | typing continues; drops counted, total printed once at shutdown | `kind=learn_thread` |
+| Learn queue full (stalled learn thread) | event dropped + counted; typing never stalls | none (count only, printed at shutdown) |
 
 No failure path ever logs the buffer, the committed text, key codes, or
-window state. The worker loop keeps its 10 ms cadence with no sleep longer
-than 1 ms on the key path.
+window state.
+
+## Latency
+
+Two different budgets apply; do not conflate them:
+
+- Hook callback: < 0.5 ms. It only timestamps and enqueues into the bounded
+  `sync_channel(4096)` after the pure `should_enqueue` gate — no I/O, no
+  allocation beyond the fixed `KeyEvent`, no `SendInput`.
+- Worker: polls the queue every 10 ms, so worst-case key-to-commit latency
+  grows by one poll quantum plus `SendInput`/popup cost. The 10 ms cadence is
+  the design, not a violation: nothing sleeps on the hook thread.
+
+Measured (unit-level only, not end-to-end): state-machine poll-to-decision
+averages ≈ 6.8 µs per 5-letter composition round (≈ 1.4 µs per keystroke push +
+refresh) in a release build on Ryzen 7 5800H / Windows 11, 2026-11-23
+(`decision_latency_stays_in_budget`, `cargo test --release -p okkhor-daemon`).
+End-to-end hook→commit latency (poll quantum + one `SendInput` batch + popup)
+needs a real-key manual run and has not been measured yet.
 
 ## What is intentionally not here yet
 
@@ -90,3 +107,8 @@ than 1 ms on the key path.
   future personalization), no per-word context, no IME on/off awareness.
 - The rule table is a small committed starter set; full phonetic coverage and
   the golden-corpus parity harness are tracked separately.
+- Numpad `1`–`5` commit candidates even with NumLock off (where those keys are
+  arrows); USB/HID-level distinction is future work.
+- The commit-time focus re-check cannot close the race between the check and
+  the `SendInput` batch (standard Win32 TOCTOU); the window makes it narrow,
+  and a wrong-window batch is still bounded to the buffer length.

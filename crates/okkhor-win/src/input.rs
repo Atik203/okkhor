@@ -18,6 +18,18 @@ pub const fn is_injected_event(flags: u32) -> bool {
     (flags & LLKHF_INJECTED) != 0
 }
 
+/// Whether the hook callback should enqueue this event for the worker.
+///
+/// False when capture is paused or the event was injected (`LLKHF_INJECTED`),
+/// so our own `SendInput` erase/inject can never be re-captured and feed the
+/// composition loop. This is the testable seam for the anti-loop filter: the
+/// callback itself only forwards the decision's inputs. Pass-through is
+/// decided by the caller — this predicate gates the queue only, never the
+/// `CallNextHookEx` forward. Allocation-free by construction.
+pub const fn should_enqueue(capture_enabled: bool, flags: u32) -> bool {
+    capture_enabled && !is_injected_event(flags)
+}
+
 /// Whether a key transition is a press or a release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -47,7 +59,7 @@ pub trait KeyboardHook {
 
 #[cfg(test)]
 mod tests {
-    use super::{KeyEvent, KeyPhase, LLKHF_INJECTED, is_injected_event};
+    use super::{KeyEvent, KeyPhase, LLKHF_INJECTED, is_injected_event, should_enqueue};
 
     #[test]
     fn key_event_is_copy_and_comparable() {
@@ -94,5 +106,25 @@ mod tests {
         }
         // Combined flags still count as injected.
         assert!(is_injected_event(LLKHF_INJECTED | 0x0000_0080));
+    }
+
+    #[test]
+    fn enqueue_matrix_real_vs_injected_and_capture_on_vs_off() {
+        // Real keystroke, capture on: the only case that reaches the worker.
+        assert!(should_enqueue(true, 0));
+        // Our own SendInput (backspaces/text) while composing: never re-captured.
+        assert!(!should_enqueue(true, LLKHF_INJECTED));
+        // Injected flag combined with other bits is still skipped.
+        assert!(!should_enqueue(true, LLKHF_INJECTED | 0x0000_0080));
+        // Paused capture drops everything, real or injected.
+        assert!(!should_enqueue(false, 0));
+        assert!(!should_enqueue(false, LLKHF_INJECTED));
+        // Neighbouring real-input bits still enqueue when capture is on.
+        for flags in [0x0000_0001u32, 0x0000_0020, 0x0000_0080] {
+            assert!(
+                should_enqueue(true, flags),
+                "flags {flags:#06X} must enqueue"
+            );
+        }
     }
 }

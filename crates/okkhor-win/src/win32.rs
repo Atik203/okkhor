@@ -246,13 +246,13 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         };
 
         if let (Some(queue), Some(phase)) = (HOOK_TX.get(), phase) {
-            // Never re-capture our own injection: SendInput backspaces and text
-            // carry LLKHF_INJECTED. Skipping them here keeps the composition
-            // loop from feeding on itself. Pass-through is unaffected — every
-            // event is still forwarded below.
-            if CAPTURE_ENABLED.load(Ordering::Relaxed)
-                && !crate::input::is_injected_event(data.flags.0)
-            {
+            // Anti-loop gate, decided by the pure `should_enqueue` seam
+            // (matrix-tested in `input.rs`): our own SendInput erase/inject
+            // carries LLKHF_INJECTED and is never re-captured. Pass-through is
+            // unaffected — every event is still forwarded below. No hook is
+            // installed in tests; this decision's execution coverage lives in
+            // the `should_enqueue` unit tests.
+            if crate::input::should_enqueue(CAPTURE_ENABLED.load(Ordering::Relaxed), data.flags.0) {
                 let _ = queue.try_send(KeyEvent {
                     virtual_key: data.vkCode as u16,
                     scan_code: data.scanCode as u16,
@@ -329,21 +329,48 @@ impl TextInjector for WindowsInjector {
 /// while keeping the `SendInput` batch bounded.
 pub const MAX_SEND_BACKSPACES: usize = 64;
 
-/// Send `count` Backspace key presses via `SendInput`.
+/// Commit an erase plus replacement text in one `SendInput` batch.
 ///
-/// Used to erase the roman buffer before injecting the committed Bangla text.
-/// A count of zero is a no-op that touches no Win32 API; larger counts are
-/// clamped to [`MAX_SEND_BACKSPACES`]. Like all injection, the resulting events
-/// carry `LLKHF_INJECTED` and are skipped by the hook filter.
-pub fn send_backspaces(count: usize) -> Result<(), InjectError> {
-    let count = count.min(MAX_SEND_BACKSPACES);
-    if count == 0 {
+/// Builds a single `INPUT` array — `backspaces` Backspace down/up pairs
+/// followed by `text` (plus one space when `trailing_space`) as
+/// `KEYEVENTF_UNICODE` down/up pairs — and delivers it in one `SendInput`
+/// call, which Windows processes in order. A zero return means nothing was
+/// inserted, so erase and inject fail together; a nonzero partial send still
+/// delivers a prefix (inherent to Win32) and is reported with its code.
+///
+/// Unlike [`TextInjector::inject`] there is no `WM_CHAR` fast path and no
+/// clipboard fallback: neither can share the single batch. A UIPI-blocked
+/// target reports [`InjectError::Blocked`] with nothing erased and nothing
+/// injected. `backspaces` clamps to [`MAX_SEND_BACKSPACES`]; the commit text
+/// stays bounded by design (the daemon only passes rule outputs of at most 64
+/// chars plus one space). A fully empty commit is a no-op that touches no
+/// Win32 API. The resulting events carry `LLKHF_INJECTED` and are skipped by
+/// the hook filter.
+pub fn inject_commit(
+    backspaces: usize,
+    text: &str,
+    trailing_space: bool,
+) -> Result<(), InjectError> {
+    let backspaces = backspaces.min(MAX_SEND_BACKSPACES);
+    let mut units = utf16_units(text);
+    if trailing_space {
+        units.push(0x20);
+    }
+    if backspaces == 0 && units.is_empty() {
         return Ok(());
     }
-    let mut inputs = Vec::with_capacity(count.saturating_mul(2));
-    for _ in 0..count {
+    let mut inputs = Vec::with_capacity(
+        backspaces
+            .saturating_mul(2)
+            .saturating_add(units.len().saturating_mul(2)),
+    );
+    for _ in 0..backspaces {
         inputs.push(virtual_key_input(VK_BACK, KEYBD_EVENT_FLAGS(0)));
         inputs.push(virtual_key_input(VK_BACK, KEYEVENTF_KEYUP));
+    }
+    for unit in &units {
+        inputs.push(key_input(*unit, KEYEVENTF_UNICODE));
+        inputs.push(key_input(*unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
     }
     // SAFETY: inputs is a valid, fully initialized INPUT slice and the
     // structure size is provided to SendInput.
@@ -361,6 +388,16 @@ pub fn send_backspaces(count: usize) -> Result<(), InjectError> {
             })
         }
     }
+}
+
+/// Send `count` Backspace key presses via `SendInput`.
+///
+/// A count of zero is a no-op that touches no Win32 API; larger counts are
+/// clamped to [`MAX_SEND_BACKSPACES`]. Shares the single-batch path with
+/// [`inject_commit`]. Like all injection, the resulting events carry
+/// `LLKHF_INJECTED` and are skipped by the hook filter.
+pub fn send_backspaces(count: usize) -> Result<(), InjectError> {
+    inject_commit(count, "", false)
 }
 
 /// Identifier of the current foreground window for the composition guard.
@@ -661,6 +698,12 @@ mod tests {
     #[test]
     fn zero_backspaces_is_a_noop() {
         assert!(super::send_backspaces(0).is_ok());
+    }
+
+    #[test]
+    fn empty_commit_is_a_noop() {
+        // Early-returns before any Win32 call; safe without a hook or focus.
+        assert!(super::inject_commit(0, "", false).is_ok());
     }
 
     #[test]

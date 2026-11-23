@@ -135,7 +135,8 @@ fn parse_autostart_action(_argument: Option<&str>) -> Option<()> {
 
 #[cfg(windows)]
 fn run_daemon() -> Result<(), Box<dyn Error>> {
-    use std::sync::mpsc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, mpsc};
     use std::time::Duration;
 
     use okkhor_core::Language;
@@ -143,8 +144,8 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
     use okkhor_transliterate::RuleTransliterator;
     use okkhor_win::{
         InjectError, KeyPhase, KeyboardHook, PauseHotkey, SingleInstance, SingleInstanceError,
-        SuggestionPopup, TextInjector, TrayEvent, TrayIcon, WindowsInjector, WindowsKeyboardHook,
-        caret_anchor, ctrl_or_alt_pressed, foreground_window_id, place_popup, send_backspaces,
+        SuggestionPopup, TrayEvent, TrayIcon, WindowsKeyboardHook, caret_anchor,
+        ctrl_or_alt_pressed, foreground_window_id, inject_commit, place_popup,
     };
 
     use crate::input_session::{
@@ -157,9 +158,9 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
     struct CompositionCtx<'a> {
         session: &'a mut InputSession<RuleTransliterator>,
         popup: &'a mut Option<SuggestionPopup>,
-        injector: &'a WindowsInjector,
         logger: &'a logging::Logger,
-        learn_tx: &'a mpsc::Sender<LearningEvent>,
+        learn_tx: &'a mpsc::SyncSender<LearningEvent>,
+        learn_dropped: &'a AtomicU64,
         compose_window: &'a mut isize,
     }
 
@@ -218,8 +219,12 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
             .unwrap_or(0)
     }
 
-    /// Commit path: verify focus, erase the roman buffer, inject Bangla.
+    /// Commit path: verify focus, then erase + inject in one batch.
     ///
+    /// Erase, Bangla text, and the optional trailing space go out in a single
+    /// `SendInput` batch, so a zero-delivery failure erases nothing and
+    /// injects nothing. A nonzero partial send can still erase a roman prefix
+    /// without replacement (inherent to Win32); retry means retyping the word.
     /// Never logs the buffer or the committed text; failures log an
     /// allowlisted kind plus an optional numeric code only.
     fn do_commit(ctx: &mut CompositionCtx<'_>, commit: Commit, roman: String) {
@@ -230,39 +235,29 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
                 .error(logging::Scope::Daemon, "focus_changed", None);
             return;
         }
-        if let Err(error) = send_backspaces(commit.erase_chars) {
-            ctx.logger.error(
-                logging::Scope::Daemon,
-                "inject_backspace",
-                inject_code(&error),
-            );
+        if let Err(error) = inject_commit(commit.erase_chars, &commit.text, commit.trailing_space) {
+            ctx.logger
+                .error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
             ctx.session.reset();
             hide_popup(ctx.popup);
             return;
         }
-        if let Err(error) = ctx.injector.inject(&commit.text) {
-            ctx.logger
-                .error(logging::Scope::Daemon, "inject_text", inject_code(&error));
-            hide_popup(ctx.popup);
-            return;
-        }
-        if commit.trailing_space {
-            if let Err(error) = ctx.injector.inject(" ") {
-                ctx.logger
-                    .error(logging::Scope::Daemon, "inject_space", inject_code(&error));
-            }
-        }
         hide_popup(ctx.popup);
-        // Queue learning for the background thread. The channel is unbounded
-        // and `Smriti::observe` performs no I/O, so nothing here can stall the
-        // key path. A disconnected receiver just drops the event.
-        let _ = ctx.learn_tx.send(LearningEvent::TransliterationCommitted {
+        // Queue learning for the background thread. The channel is bounded and
+        // `try_send` never blocks, so a stalled learn thread can never stall
+        // the key path; the drop is counted (a count carries no text) and
+        // reported once at shutdown. A disconnected receiver drops the same way.
+        // `Smriti::observe` performs no I/O.
+        let event = LearningEvent::TransliterationCommitted {
             roman_input: roman,
             output: commit.text,
             language: Language::Bangla,
             previous_word: None,
             timestamp_ms: now_ms(),
-        });
+        };
+        if ctx.learn_tx.try_send(event).is_err() {
+            ctx.learn_dropped.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     fn cancel_composition(ctx: &mut CompositionCtx<'_>) {
@@ -315,15 +310,18 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
         }
         match vk {
             VK_BACK => {
+                // Focus is re-validated before the edit, mirroring the letter
+                // arm: a focus switch resets the stale buffer (pass-through
+                // below) instead of paying for one wasted edit + refresh.
+                // Erase-count safety never depends on this ordering — commit
+                // always uses the live buffer length, and `do_commit`
+                // re-checks focus before touching `SendInput`.
+                track_focus(ctx);
                 if !ctx.session.is_composing() {
                     return;
                 }
-                match ctx.session.backspace() {
-                    BackspaceOutcome::Empty => {}
-                    BackspaceOutcome::StillComposing | BackspaceOutcome::BecameEmpty => {
-                        track_focus(ctx);
-                        refresh_popup(ctx);
-                    }
+                if ctx.session.backspace() != BackspaceOutcome::Empty {
+                    refresh_popup(ctx);
                 }
             }
             VK_SPACE | VK_RETURN => {
@@ -400,10 +398,13 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    // Learning runs on a background thread: `Smriti::observe` performs no I/O
-    // and the unbounded channel never blocks the key path. If the thread
-    // cannot start, typing continues without learning.
-    let (learn_tx, learn_rx) = mpsc::channel::<LearningEvent>();
+    // Learning runs on a background thread: `Smriti::observe` performs no I/O,
+    // the channel is bounded (1024), and `try_send` never blocks, so a
+    // stalled learn thread drops (and counts) events instead of stalling the
+    // key path. If the thread cannot start, typing continues without learning.
+    const LEARN_QUEUE_CAP: usize = 1024;
+    let (learn_tx, learn_rx) = mpsc::sync_channel::<LearningEvent>(LEARN_QUEUE_CAP);
+    let learn_dropped = Arc::new(AtomicU64::new(0));
     if std::thread::Builder::new()
         .name("okkhor-learn".to_owned())
         .spawn(move || {
@@ -425,7 +426,6 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let injector = WindowsInjector;
     let mut session: InputSession<RuleTransliterator> = InputSession::new(default_engine());
     let mut compose_window = foreground_window_id();
 
@@ -471,9 +471,9 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
             let mut ctx = CompositionCtx {
                 session: &mut session,
                 popup: &mut popup,
-                injector: &injector,
                 logger,
                 learn_tx: &learn_tx,
+                learn_dropped: &learn_dropped,
                 compose_window: &mut compose_window,
             };
             handle_key(event.virtual_key, &mut ctx);
@@ -485,6 +485,11 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
     hook.stop();
     hotkey.stop();
     tray.remove();
+    // A dropped-learn count carries no text, so it is safe to print.
+    let dropped = learn_dropped.load(Ordering::Relaxed);
+    if dropped > 0 {
+        println!("daemon: dropped {dropped} learn events (queue full)");
+    }
     Ok(())
 }
 

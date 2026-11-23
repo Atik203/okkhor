@@ -83,10 +83,13 @@ The daemon (`okkhor daemon`) now types Bangla end to end on Windows:
 - Injected keystrokes (`LLKHF_INJECTED`) are never re-captured, so our own
   erase/inject `SendInput` cannot feed the loop. Nothing is swallowed: the hook
   keeps pass-through for every key.
-- Safety: if the foreground window changed since the buffer started, or if the
-  erase step fails, nothing is erased or injected — failures log an allowlisted
-  code only, never text. See `docs/input-pipeline.md` for the state diagram
-  and the full failure table.
+- Safety: a commit (erase + Bangla text + optional space) goes out as one
+  `SendInput` batch. If the batch fails with zero delivered, nothing is erased
+  or injected; a nonzero partial batch can still erase a roman prefix without
+  replacement (inherent to Win32 — retry means retyping the word). If the
+  foreground window changed since the buffer started, nothing is sent at all.
+  Failures log an allowlisted code only, never text. See
+  `docs/input-pipeline.md` for the state diagram and the full failure table.
 
 Known limitations: `Enter` while composing commits instead of newline;
 `Backspace` at an empty buffer passes through (never erases beyond the
