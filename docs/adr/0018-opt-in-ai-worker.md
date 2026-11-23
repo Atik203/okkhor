@@ -51,7 +51,8 @@ UI may ai.cancel(job_id)
 - Opt-in only; default disabled.
 - Max one in-flight request per installation; 15 s timeout; cancellable.
 - Cache is in memory only (64 entries / 256 KiB), keyed by SHA-256 of
-  system + prompt + model + prompt version. No prompt or response on disk.
+  system + prompt + model + prompt version + temperature + max_tokens. No prompt
+  or response on disk.
 - No prompt, response, key, or window title in logs, errors, crash reports, or
   telemetry.
 - API key from `OKKHOR_OPENAI_API_KEY` only; model id from `OKKHOR_AI_MODEL`

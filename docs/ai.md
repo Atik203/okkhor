@@ -80,8 +80,8 @@ hard-code a price in the UI.
 
 - AI prompts and responses are **memory-only** in 0.7; nothing is written to
   disk.
-- The cache key is a SHA-256 of system + prompt + model + prompt version; the
-  prompt itself is not logged.
+- The cache key is a SHA-256 of system + prompt + model + prompt version +
+  temperature + max_tokens; the prompt itself is not logged.
 - No prompt, response, key, or window title appears in logs or errors.
 - The provider is opt-in and disabled by default.
 - Pause and the local dictionary remain the escape hatch.
