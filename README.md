@@ -72,7 +72,10 @@ Or:
 The daemon (`okkhor daemon`) now types Bangla end to end on Windows:
 
 - Type Banglish letters (`bhalo`) — a non-activating popup near the caret shows
-  up to 5 numbered Bangla candidates, refreshed per keystroke.
+  the Bangla candidate from the real embedded Avro phonetic table, refreshed
+  per keystroke (up to 5 numbered candidates; the deterministic table yields
+  one). Lowercase `o` after a consonant is the inherent vowel (`bhalo` →
+  ভাল); capital `O` gives the ো-kar (`bhalO` → ভালো).
 - `Space` erases the roman buffer and commits the selected candidate plus a
   space; `Enter` commits without the space. The highlight defaults to the first
   candidate; `1`–`5` commit a numbered candidate, arrow keys cycle with wrap,
@@ -93,9 +96,9 @@ The daemon (`okkhor daemon`) now types Bangla end to end on Windows:
 
 Known limitations: `Enter` while composing commits instead of newline;
 `Backspace` at an empty buffer passes through (never erases beyond the
-buffer); Ctrl/Alt/Win chords cancel the composition; the candidate table is a
-small committed starter set with literal-prefix ranking only; learning commits
-are queued to a background `Smriti` with no rerank yet.
+buffer); Ctrl/Alt/Win chords cancel the composition; candidates come from the
+real Avro table only, so dictionary-based corrections (আপনি, ধন্যবাদ) come
+later; learning commits are queued to a background `Smriti` with no rerank yet.
 
 ## Documentation
 

@@ -56,12 +56,17 @@ each step fails. For the privacy contract behind every rule here, see
 
 ## Candidate generation
 
-`InputSession` queries `RuleTransliterator` (the committed rule table embedded
-in `input_session.rs`: Bangla vowels, common consonants, frequent words) with
-`max_candidates = 5, allow_partial = true`. Full matches (a rule input prefixes
-the buffer) order before partial matches (the buffer prefixes a rule input);
-within each group the engine's length-then-priority order applies. The
-selection resets to index 0 on every buffer change.
+`InputSession` queries `PhoneticTransliterator` (the real Avro phonetic table:
+250 ordered regex rules embedded in `crates/okkhor-transliterate/assets/` and
+compiled once at startup via `from_embedded_avro`, off the typing path) with
+`max_candidates = 5, allow_partial = true`. The table is deterministic, so a
+buffer yields at most one candidate — the table form — and the selection
+resets to index 0 on every buffer change. Lowercase `o` after a consonant is
+the inherent vowel (deleted: `bhalo` → ভাল), while capital `O` is the ো-kar
+(`bhalO` → ভালো); dictionary-based corrections (আপনি, ধন্যবাদ) come later.
+If the embedded table somehow fails to load, the daemon logs one allowlisted
+startup error (`scope=transliterate` + the failure kind, never text) and runs
+with an empty engine (no candidates, keys pass through) instead of panicking.
 
 ## Failure behavior
 
@@ -105,8 +110,9 @@ needs a real-key manual run and has not been measured yet.
   composing; `Backspace` past the buffer start is untouched.
 - No Smriti rerank of transliteration candidates yet (commits are queued for
   future personalization), no per-word context, no IME on/off awareness.
-- The rule table is a small committed starter set; full phonetic coverage and
-  the golden-corpus parity harness are tracked separately.
+- The candidate table is the real embedded Avro phonetic table (deterministic
+  single candidate per buffer); dictionary-based corrections (আপনি, ধন্যবাদ)
+  and the golden-corpus parity harness are tracked separately.
 - Numpad `1`–`5` commit candidates even with NumLock off (where those keys are
   arrows); USB/HID-level distinction is future work.
 - The commit-time focus re-check cannot close the race between the check and

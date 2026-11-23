@@ -141,7 +141,6 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
 
     use okkhor_core::Language;
     use okkhor_learn::{LearningEvent, Smriti};
-    use okkhor_transliterate::RuleTransliterator;
     use okkhor_win::{
         InjectError, KeyPhase, KeyboardHook, PauseHotkey, SingleInstance, SingleInstanceError,
         SuggestionPopup, TrayEvent, TrayIcon, WindowsKeyboardHook, caret_anchor,
@@ -149,14 +148,15 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
     };
 
     use crate::input_session::{
-        BackspaceOutcome, Commit, InputSession, VK_BACK, VK_DOWN, VK_ESCAPE, VK_LEFT, VK_RETURN,
-        VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, default_engine, vk_to_digit_index, vk_to_letter,
+        BackspaceOutcome, Commit, DefaultEngine, InputSession, VK_BACK, VK_DOWN, VK_ESCAPE,
+        VK_LEFT, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, default_engine, vk_to_digit_index,
+        vk_to_letter,
     };
 
     /// Everything one key event needs. Kept in one struct so the hot loop
     /// stays a thin dispatch with no globals and no cross-thread sharing.
     struct CompositionCtx<'a> {
-        session: &'a mut InputSession<RuleTransliterator>,
+        session: &'a mut InputSession<DefaultEngine>,
         popup: &'a mut Option<SuggestionPopup>,
         logger: &'a logging::Logger,
         learn_tx: &'a mpsc::SyncSender<LearningEvent>,
@@ -426,7 +426,16 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let mut session: InputSession<RuleTransliterator> = InputSession::new(default_engine());
+    let engine = default_engine();
+    if engine.is_fallback() {
+        // Embedded-table load failure: allowlisted startup record only
+        // (scope + kind, never text). Typing continues with no candidates.
+        let kind = engine
+            .fallback_kind()
+            .unwrap_or("transliterate_embedded_table");
+        logger.error(logging::Scope::Transliterate, kind, None);
+    }
+    let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
     let mut compose_window = foreground_window_id();
 
     println!("daemon: running");
