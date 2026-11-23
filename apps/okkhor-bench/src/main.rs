@@ -466,10 +466,14 @@ fn print_help() {
          USAGE:\n\
          \x20   okkhor-bench --ranking [--iterations N] [--warmup N] [--seed N] [--json|--csv] [--smoke]\n\
          \x20   okkhor-bench --candidates [--iterations N] [--warmup N] [--json|--csv] [--smoke]\n\
+         \x20   okkhor-bench --injection [--iterations N] [--sendinput] [--json|--csv]\n\n\
          MODES:\n\
          \x20   --ranking      Run N Smriti::rank calls over synthetic English/Bangla cases.\n\
-         \x20   --candidates   Run N CandidateEngine::suggest calls over the committed synthetic\n\
-         \x20   --smoke        Short CI-friendly run; validates the percentile report. With\n\
+         \x20   --candidates   Run N CandidateEngine::suggest calls over the committed\n\
+         \x20                  synthetic golden corpus; report top-1/top-5 hit rate plus rank latency.\n\
+         \x20   --injection    Inject synthetic text into a private Win32 EDIT window and read it back.\n\
+         \x20   --smoke        Short CI-friendly run; validates the percentile report\n\
+         \x20                  (ranking default; one-case subset with `--candidates`).\n\n\
          OPTIONS:\n\
          \x20   --sendinput    Force the pure Unicode SendInput path instead of the native WM_CHAR fast path.\n\
          \x20   --iterations N  Measured iterations (default: 5000 ranking, 2000 candidates, 20 injection; 100/10/5 with --smoke).\n\

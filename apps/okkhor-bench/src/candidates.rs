@@ -6,7 +6,8 @@
 //! and never duplicates it. The engine components mirror the golden-corpus
 //! integration test in `crates/okkhor-engine/tests/golden.rs`: two small
 //! sorted dictionaries, a two-rule transliterator, an empty `Smriti`, and
-//! default budgets.
+//! default budgets. A unit test pins per-case output to the committed file,
+//! so dictionary/rule drift fails loudly instead of silently diverging.
 //!
 //! Correctness reuses [`okkhor_engine::check_parity`] (top-1/top-5 hit rate
 //! over the full corpus). Latency samples come from repeated timed
@@ -112,7 +113,14 @@ pub fn load_corpus() -> Result<GoldenCorpus, okkhor_engine::EngineError> {
 }
 
 /// Build the parity request for one golden case (mirrors `check_parity`).
-fn request_for_case(case: &okkhor_engine::GoldenCase) -> SuggestionRequest {
+///
+/// The limit uses the same `min(5, budget max_limit)` clamp as the metric so
+/// warmup and timed calls measure the identical query shape.
+fn request_for_case(
+    engine: &CandidateEngine,
+    case: &okkhor_engine::GoldenCase,
+) -> SuggestionRequest {
+    let budget = LanguageBudget::for_language(engine.config(), case.language);
     SuggestionRequest {
         prefix: case.prefix.clone(),
         language: case.language,
@@ -120,7 +128,7 @@ fn request_for_case(case: &okkhor_engine::GoldenCase) -> SuggestionRequest {
         context: case.context.clone(),
         roman_input: case.roman_input.clone(),
         now_ms: 0,
-        limit: 5,
+        limit: 5usize.min(budget.max_limit),
     }
 }
 
@@ -143,7 +151,7 @@ pub fn run(
     let cases = &corpus.cases[..timed_cases];
 
     for index in 0..warmup {
-        let request = request_for_case(&cases[index % timed_cases]);
+        let request = request_for_case(engine, &cases[index % timed_cases]);
         let ranked = engine.suggest(&request);
         black_box(&ranked);
     }
@@ -151,11 +159,7 @@ pub fn run(
     let mut samples = Vec::with_capacity(iterations);
     let mut suggestions_total = 0;
     for index in 0..iterations {
-        let request = request_for_case(&cases[index % timed_cases]);
-        // Clamp to the same parity limit the metric uses.
-        let budget = LanguageBudget::for_language(engine.config(), request.language);
-        let mut request = request;
-        request.limit = 5usize.min(budget.max_limit);
+        let request = request_for_case(engine, &cases[index % timed_cases]);
         let started = Instant::now();
         let ranked = engine.suggest(&request);
         let elapsed = started.elapsed();
@@ -221,5 +225,48 @@ mod tests {
         assert_eq!(result.subset_cases, 1);
         assert!(result.latency.is_monotonic());
         assert!(result.suggestions_total > 0);
+    }
+
+    #[test]
+    fn per_case_results_are_pinned_to_the_committed_corpus() {
+        use okkhor_core::CandidateSource;
+
+        // The fixture engine above mirrors
+        // `crates/okkhor-engine/tests/golden.rs`. Pin its observable behavior
+        // to the committed corpus file: any dictionary/rule drift that
+        // alters per-case output fails here and forces the mirror update.
+        // (Corpus growth must update this pin alongside the mirror.)
+        let corpus = load_corpus().expect("fixture must validate");
+        assert_eq!(corpus.cases.len(), 3, "corpus growth must update this pin");
+        let components = FixtureComponents::build();
+        let engine = components.engine().expect("valid fixture engine");
+        let expected: &[(&str, &[&str], CandidateSource)] = &[
+            (
+                "bn_bha_prefix",
+                &["ভাই", "ভাত", "ভাবনা", "ভালো", "ভাষা"],
+                CandidateSource::Dictionary,
+            ),
+            (
+                "en_hel_prefix",
+                &["held", "helix", "hello", "helm", "help"],
+                CandidateSource::Dictionary,
+            ),
+            (
+                "bn_roman_bha",
+                &["ভালো", "ব"],
+                CandidateSource::Transliteration,
+            ),
+        ];
+        for (case, (id, texts, source)) in corpus.cases.iter().zip(expected) {
+            assert_eq!(&case.id, id);
+            let request = super::request_for_case(&engine, case);
+            let suggestions = engine.suggest(&request);
+            let actual: Vec<&str> = suggestions.iter().map(|s| s.text.as_str()).collect();
+            assert_eq!(actual, *texts, "suggestion texts for case {id}");
+            assert!(
+                suggestions.iter().all(|s| s.source == *source),
+                "suggestion sources for case {id}"
+            );
+        }
     }
 }
