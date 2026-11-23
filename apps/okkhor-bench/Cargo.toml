@@ -8,7 +8,10 @@ publish.workspace = true
 
 [dependencies]
 okkhor-core.workspace = true
+okkhor-engine.workspace = true
+okkhor-lang.workspace = true
 okkhor-learn.workspace = true
+okkhor-transliterate.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

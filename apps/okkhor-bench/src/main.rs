@@ -3,6 +3,7 @@
 //! This is a developer tool, not a daemon component. It runs no network, installs
 //! no global keyboard hook, and uses only synthetic English/Bangla fixtures.
 
+mod candidates;
 mod corpus;
 mod injection;
 mod output;
@@ -14,9 +15,10 @@ use std::fmt;
 use std::io;
 use std::process::ExitCode;
 
+use candidates::FixtureComponents;
 use corpus::SyntheticCorpus;
 use injection::InjectionOptions;
-use output::{Format, InjectionReport, RankingReport};
+use output::{CandidatesReport, Format, InjectionReport, RankingReport};
 
 const DEFAULT_SEED: u64 = 0x4f4b_4b48_4f52;
 
@@ -68,6 +70,31 @@ fn run() -> Result<(), BenchError> {
         }
         if options.smoke {
             validate_smoke(&report)?;
+        }
+    }
+
+    if options.candidates {
+        // Parity always covers the full committed corpus. The timed loop
+        // cycles through all cases, or a one-case subset for `--smoke` CI.
+        let subset = options.smoke.then_some(1);
+        let iterations = options
+            .iterations
+            .unwrap_or(if options.smoke { 10 } else { 2_000 });
+        let corpus =
+            candidates::load_corpus().map_err(|error| BenchError::Failed(error.to_string()))?;
+        let components = FixtureComponents::build();
+        let engine = components
+            .engine()
+            .map_err(|error| BenchError::Failed(error.to_string()))?;
+        let warmup = options.warmup.unwrap_or_else(|| default_warmup(iterations));
+        let measurement = candidates::run(&engine, &corpus, iterations, warmup, subset);
+        let report = CandidatesReport::from_run(&measurement);
+        print_candidates(&report);
+        if let Some(path) = output::write_candidates(&report, format)? {
+            println!("candidates: wrote {}", path.display());
+        }
+        if options.smoke {
+            validate_candidates_smoke(&report)?;
         }
     }
 
@@ -148,6 +175,72 @@ fn print_ranking(report: &RankingReport) {
     );
 }
 
+fn print_candidates(report: &CandidatesReport) {
+    println!(
+        "candidates: corpus={} cases={} top1={}/{} ({:.3}) top5={}/{} ({:.3})",
+        report.corpus,
+        report.cases,
+        report.top1_hits,
+        report.cases,
+        report.top1_rate,
+        report.top5_hits,
+        report.cases,
+        report.top5_rate,
+    );
+    println!(
+        "candidates: iterations={} warmup={} subset_cases={} suggestions={}",
+        report.iterations, report.warmup_iterations, report.subset_cases, report.suggestions_total
+    );
+    println!(
+        "latency: p50={} p95={} p99={} max={} (n={})",
+        format_ns(report.latency.p50_ns),
+        format_ns(report.latency.p95_ns),
+        format_ns(report.latency.p99_ns),
+        format_ns(report.latency.max_ns),
+        report.latency.count
+    );
+    println!(
+        "throughput: {:.0} iterations/sec",
+        report.iterations_per_second
+    );
+}
+
+fn validate_candidates_smoke(report: &CandidatesReport) -> Result<(), BenchError> {
+    if report.iterations == 0 {
+        return Err(BenchError::Failed(
+            "smoke check requires at least one iteration".to_owned(),
+        ));
+    }
+    if report.latency.count != report.iterations {
+        return Err(BenchError::Failed(format!(
+            "smoke check saw {} samples for {} iterations",
+            report.latency.count, report.iterations
+        )));
+    }
+    if !report.latency.is_monotonic() {
+        return Err(BenchError::Failed(
+            "smoke check found non-monotonic percentiles".to_owned(),
+        ));
+    }
+    if report.cases == 0 || report.subset_cases == 0 {
+        return Err(BenchError::Failed(
+            "smoke check requires at least one golden case".to_owned(),
+        ));
+    }
+    if report.top1_hits > report.cases || report.top5_hits > report.cases {
+        return Err(BenchError::Failed(
+            "smoke check found parity hits above the case count".to_owned(),
+        ));
+    }
+    if report.suggestions_total == 0 {
+        return Err(BenchError::Failed(
+            "smoke check returned no suggestions".to_owned(),
+        ));
+    }
+    println!("smoke: ok");
+    Ok(())
+}
+
 fn print_injection(report: &InjectionReport) {
     println!(
         "injection: path={} iterations={} deferred={}",
@@ -223,6 +316,7 @@ fn default_warmup(iterations: usize) -> usize {
 #[derive(Debug, Clone)]
 struct Options {
     ranking: bool,
+    candidates: bool,
     injection: bool,
     smoke: bool,
     sendinput: bool,
@@ -239,6 +333,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             ranking: false,
+            candidates: false,
             injection: false,
             smoke: false,
             sendinput: false,
@@ -260,6 +355,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--ranking" => options.ranking = true,
+            "--candidates" => options.candidates = true,
             "--injection" => options.injection = true,
             "--smoke" => options.smoke = true,
             "--sendinput" => options.sendinput = true,
@@ -308,12 +404,12 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
             "--json and --csv are mutually exclusive".to_owned(),
         ));
     }
-    if !options.ranking && !options.injection {
+    if !options.ranking && !options.candidates && !options.injection {
         if options.smoke {
             options.ranking = true;
         } else {
             return Err(BenchError::Usage(
-                "select --ranking, --injection, or --smoke".to_owned(),
+                "select --ranking, --candidates, --injection, or --smoke".to_owned(),
             ));
         }
     }
@@ -369,15 +465,15 @@ fn print_help() {
         "Okkhor {} benchmark harness\n\n\
          USAGE:\n\
          \x20   okkhor-bench --ranking [--iterations N] [--warmup N] [--seed N] [--json|--csv] [--smoke]\n\
-         \x20   okkhor-bench --injection [--iterations N] [--sendinput] [--json|--csv]\n\n\
+         \x20   okkhor-bench --candidates [--iterations N] [--warmup N] [--json|--csv] [--smoke]\n\
          MODES:\n\
          \x20   --ranking      Run N Smriti::rank calls over synthetic English/Bangla cases.\n\
-         \x20   --injection    Inject synthetic text into a private Win32 EDIT window and read it back.\n\
-         \x20   --smoke        Short CI-friendly ranking run; validates the percentile report.\n\n\
+         \x20   --candidates   Run N CandidateEngine::suggest calls over the committed synthetic\n\
+         \x20   --smoke        Short CI-friendly run; validates the percentile report. With\n\
          OPTIONS:\n\
          \x20   --sendinput    Force the pure Unicode SendInput path instead of the native WM_CHAR fast path.\n\
-         \x20   --iterations N  Measured iterations (default: 5000 ranking, 20 injection; 100/5 with --smoke).\n\
-         \x20   --warmup N      Untimed ranking iterations (default: 10% of measured, clamped to 10..=500).\n\
+         \x20   --iterations N  Measured iterations (default: 5000 ranking, 2000 candidates, 20 injection; 100/10/5 with --smoke).\n\
+         \x20   --warmup N      Untimed ranking/candidates iterations (default: 10% of measured, clamped to 10..=500).\n\
          \x20   --seed N        Synthetic corpus seed (default: {}).\n\
          \x20   --json | --csv  Write a report under bench-out/ (git-ignored).\n\n\
          SAFETY:\n\
@@ -451,6 +547,20 @@ mod tests {
 
         let hexadecimal = parse(&["--ranking", "--seed=0x10"]).expect("valid hex seed");
         assert_eq!(hexadecimal.seed, 16);
+    }
+
+    #[test]
+    fn candidates_mode_parses_with_iterations_and_format() {
+        let options = parse(&["--candidates", "--iterations", "2000", "--json"])
+            .expect("valid candidates arguments");
+        assert!(options.candidates);
+        assert!(!options.ranking);
+        assert!(!options.injection);
+        assert_eq!(options.iterations, Some(2000));
+        assert!(options.json);
+        let smoke = parse(&["--candidates", "--smoke"]).expect("valid candidates smoke arguments");
+        assert!(smoke.candidates);
+        assert!(smoke.smoke);
     }
 
     #[test]
