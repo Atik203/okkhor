@@ -26,6 +26,11 @@ okkhor-ipc = { path = "../../../crates/okkhor-ipc" }
 version = "0.62"
 features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"]
 
+[features]
+# Required for production builds so the webview loads embedded assets instead
+# of `devUrl`. The release script passes `--features custom-protocol`.
+custom-protocol = ["tauri/custom-protocol"]
+
 [lints.rust]
 # `deny` (not `forbid`) so the single explicitly-reviewed Win32 FFI module
 # below (`quickbar_native`) can `#[allow(unsafe_code)]` with SAFETY comments.

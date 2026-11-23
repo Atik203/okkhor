@@ -1263,7 +1263,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 Ok(token_path) => match crate::ipc::install_token(&token_path) {
                     Ok(token) => match crate::ipc::IpcServer::start(state, token) {
                         Ok(server) => {
-                            logger.error(logging::Scope::Ipc, "ipc_start", None);
+                            logger.info(logging::Scope::Ipc, "ipc_start");
                             println!("daemon: IPC ready for the settings UI");
                             ipc_server = Some((server, token_path));
                         }
