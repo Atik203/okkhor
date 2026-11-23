@@ -7,6 +7,24 @@ Versioning once it reaches 1.0.
 
 ### Added
 
+- 0.5 daemon IPC server (Task 3): `okkhor daemon` serves contract §4 on
+  `\\.\pipe\okkhor-ipc-v1` (dedicated thread + runtime, max 4 clients, 10 s
+  read timeout, 5 s deadline, owner-only DACL) unless `--no-ipc`. The token
+  file is created/rotated at startup and removed on clean shutdown; setup
+  failures degrade to typing-without-IPC. Handlers: `status` (incl. live
+  `input_mode`/`output_encoding`), `settings.get/update` with live-apply
+  (mode, encoding, pause/capture, popup enable, learning, autostart;
+  hotkeys re-register where feasible else `Deferred`, fonts validated not
+  installed), `layouts.list` (Avro/Khipro/Banglish/Bijoy), `words.*`
+  (caps/dupes enforced), `text.insert` (512 UTF-16, 20/s, recorder-tested,
+  injection-locked against commits), `capture.set`, `ai.complete` →
+  `Unsupported`. Tray Settings launches `okkhor-ui.exe` (detached,
+  `OKKHOR_UI_PATH` override, balloon + log code when missing); `daemon --ui`
+  launches it once at startup. Unit + `ipc_roundtrip` pipe tests; no hook
+  install, no SendInput, no text in logs/errors.
+- Store review advisories: `Debug`/log output redacted (no user paths from
+  either store), and atomic-replace failures surface loudly as a typed error
+  plus one allowlisted log code instead of a silent remove-and-retry.
 - 0.5 encrypted store (Task 2): `okkhor-win::dpapi` (current-user
   `CryptProtectData`/`CryptUnprotectData`, `CRYPTPROTECT_UI_FORBIDDEN`, typed
   errors, 64 MiB cap), `okkhor-storage::EncryptedJsonRepository` over a

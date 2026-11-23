@@ -75,10 +75,23 @@ impl SettingsStoreError {
 }
 
 /// Owned settings document plus the file it persists to.
-#[derive(Debug)]
+///
+/// The `Debug` impl is manual and redacted: the file path can contain the
+/// user's name, so it is never rendered (see `docs/security-privacy.md`).
 pub struct SettingsStore {
     path: PathBuf,
     settings: Settings,
+}
+
+impl std::fmt::Debug for SettingsStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SettingsStore")
+            .field("schema", &self.settings.schema)
+            .field("language", &self.settings.language)
+            .field("layout", &self.settings.layout)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SettingsStore {
@@ -129,12 +142,6 @@ impl SettingsStore {
         Self::load(&crate::paths::settings_path()?)
     }
 
-    /// File this store persists to.
-    #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
     /// The current validated settings.
     #[must_use]
     pub fn settings(&self) -> &Settings {
@@ -162,6 +169,12 @@ impl SettingsStore {
 
 /// Atomically replace `path` with `bytes` via a sibling temporary file and
 /// rename, creating parents as needed.
+///
+/// A failed rename surfaces loudly as an I/O error (typed `Internal` at the
+/// IPC layer with an allowlisted log kind): the previous file is left intact
+/// and the temporary file is removed. There is deliberately no remove-and-retry
+/// fallback — deleting the live file to work around an AV lock would risk
+/// destroying the user's settings to report success.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SettingsStoreError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -171,19 +184,6 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SettingsStoreError> {
 
     match fs::rename(&temp_path, path) {
         Ok(()) => Ok(()),
-        Err(error)
-            if matches!(
-                error.kind(),
-                ErrorKind::AlreadyExists | ErrorKind::PermissionDenied
-            ) =>
-        {
-            // Windows can refuse to replace an existing file (AV locks). The
-            // new bytes are preserved when the fallback also fails, and the
-            // old file is untouched until a rename succeeds.
-            fs::remove_file(path)?;
-            fs::rename(&temp_path, path)?;
-            Ok(())
-        }
         Err(error) => {
             let _ = fs::remove_file(&temp_path);
             Err(error.into())

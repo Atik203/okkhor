@@ -110,6 +110,38 @@ buffer); Ctrl/Alt/Win chords cancel the composition; candidates come from the
 real Avro table only, so dictionary-based corrections (আপনি, ধন্যবাদ) come
 later; learning commits are queued to a background `Smriti` with no rerank yet.
 
+## Settings, UI, and IPC (0.5 Task 3)
+
+The resident daemon owns settings, user words, and a local control pipe; a
+separate settings UI observes and configures it. Full contract:
+`docs/design/0.5-ui-contracts.md`, transport/settings ownership:
+`docs/adr/0012-ui-ipc-and-settings.md`, UI notes: `docs/ui.md`.
+
+- Run: `okkhor daemon [--encoding unicode|bijoy] [--mode bangla|english]
+  [--no-ipc] [--ui]`. The CLI flags seed a fresh data home only — afterwards
+  the persisted last mode wins (the tray/F9 toggle persists too).
+  `--no-ipc` disables the settings-UI pipe (typing, tray, and hotkeys keep
+  working); `--ui` launches the settings UI once at startup. Either way a
+  store/token failure degrades to typing-without-IPC, never a dead daemon.
+- The tray menu has Bangla/English, Pause/Resume, **Settings** (launches
+  `okkhor-ui.exe` from next to the daemon, `OKKHOR_UI_PATH` override; a
+  missing UI shows a tray balloon), and Exit. Token file:
+  `%LOCALAPPDATA%\Okkhor\runtime\ipc.token` (rotated per start, removed on
+  clean shutdown; `OKKHOR_DATA_HOME` override for tests/dev/portable).
+- `status` reports version, `paused`, `language`/`layout`, `input_mode`,
+  `output_encoding`, `popup_visible`, `words_total`, `learning_enabled`,
+  `autostart`. `settings.update` validates/clamps, persists atomically, and
+  live-applies mode, encoding, pause/capture, popup enable, learning, and
+  autostart; hotkeys re-register where feasible (F9 / Ctrl+Space, default
+  pause chord) and are reported deferred otherwise — never claimed live when
+  they are not. Fonts are validated, not installed.
+- `text.insert` is explicit UI clicks only (512 UTF-16 units, 20/s budget,
+  same injector as commits, serialized against them — a mid-commit insert
+  fails loudly instead of interleaving). `ai.complete` answers `Unsupported`.
+- No user text, tokens, or paths in logs or errors; store `Debug` output is
+  redacted; an atomic-replace failure surfaces as a typed error plus one
+  allowlisted log code instead of a silent fallback.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)

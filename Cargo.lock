@@ -184,6 +184,7 @@ dependencies = [
  "okkhor-win",
  "serde_json",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

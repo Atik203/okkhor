@@ -113,6 +113,42 @@ cargo test
 - Limitations: the bar cannot outlive the UI process; it does not
   auto-follow the active monitor after a manual drag; snap-to-edges and a
   tray menu are not implemented and not claimed.
+## How the UI talks to the daemon (IPC v1)
+
+Binding contract: `docs/design/0.5-ui-contracts.md` §4, ADR 0012 §2.
+Pipe: `\\.\pipe\okkhor-ipc-v1`, max 4 clients, 1 MiB frames, 10 s read
+timeout, 5 s per-request deadline.
+
+1. Read the session token from `%LOCALAPPDATA%\Okkhor\runtime\ipc.token`
+   (`OKKHOR_DATA_HOME` override honored). The daemon rotates it on every
+   start and removes it on clean shutdown; the value is never logged.
+2. Send exactly one `hello` first: `{"hello":{"protocol":1,"token":"…"}}`.
+   A wrong protocol is a typed `ProtocolMismatch` ("restart Okkhor"); a wrong
+   token is `Unauthorized`.
+3. Requests are one tagged object per frame. Results:
+   - `status` → daemon version, `paused`, `language`/`layout`, `input_mode`,
+     `output_encoding`, `popup_visible`, `words_total`, `learning_enabled`,
+     `autostart` (full field list is pinned by the IPC `Status` shape).
+   - `settings.get` / `settings.update` (partial patch; the daemon validates,
+     clamps, persists atomically, and live-applies what it can — see below).
+   - `layouts.list` → Avro/Khipro/Banglish/Bijoy with display names.
+   - `words.list` (search + `offset`/`limit`, limit clamped to 200),
+     `words.add` (duplicate triple rejected), `words.remove`,
+     `words.import` (CSV `roman,output,language` or JSON, 5,000 rows max),
+     `words.export` (either format, 1 MiB cap).
+   - `text.insert` (explicit clicks only, 512 UTF-16 units, 20/s budget).
+   - `capture.set` → flips pause, returns fresh `status`.
+   - `ai.complete` → typed `Unsupported` in 0.5 (accepted, never executed).
+4. Errors are `{"error":{"code":"…","message":"…"}}` with static messages —
+   never user text, tokens, or paths. Unknown top-level keys are
+   `UnknownMethod`; oversized frames are `FrameTooLarge`.
+
+Live-apply (the daemon never lies about it): input mode, output encoding,
+pause/capture, popup enable, learning flag, and autostart take effect
+immediately. Hotkey changes re-register where feasible (F9 / Ctrl+Space and
+the default pause chord); anything else is persisted and reported deferred.
+Fonts are validated, not installed. `popup_max_items` is persisted for the
+UI's own rendering; the native popup keeps the engine's 5-candidate cap.
 
 ## On-screen keyboard (`#/keyboard`)
 

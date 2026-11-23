@@ -2,14 +2,13 @@
 //!
 //! The tray owns a hidden message-only window on a dedicated thread, so it
 //! never touches the keyboard hook or the suggestion popup. The menu is built on
-//! demand and contains Bangla/English mode, Pause/Resume, a disabled Settings
-//! placeholder, and Exit.
+//! demand and contains Bangla/English mode, Pause/Resume, Settings (launches
+//! the `okkhor-ui` process; the daemon reports a missing UI with a balloon),
+//! and Exit.
 //!
 //! This is deliberately a scaffold for the 0.2 tray lifecycle: it implements
-//! add, remove, tooltip update, and menu events. Remaining integration:
+//! add, remove, tooltip update, balloon, and menu events. Remaining integration:
 //!
-//! - The Settings item stays disabled until the `okkhor-ui` process and IPC
-//!   exist (roadmap 0.5).
 //! - Re-add the icon when Explorer broadcasts `TaskbarCreated`; that belongs to
 //!   the 0.2 tray hardening follow-up.
 //! - The daemon currently polls `try_next`; a future version can use the same
@@ -26,13 +25,13 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
-    Shell_NotifyIconW,
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+    NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
     DispatchMessageW, GetCursorPos, GetMessageW, HWND_MESSAGE, IDI_APPLICATION, LoadIconW,
-    MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
+    MF_SEPARATOR, MF_STRING, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
     SetForegroundWindow, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
     UnregisterClassW, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP,
     WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
@@ -43,6 +42,7 @@ const TRAY_WINDOW_CLASS: PCWSTR = w!("OkkhorTrayWindow.v1");
 const TRAY_ICON_ID: u32 = 1;
 const WM_TRAY_CALLBACK: u32 = WM_APP + 1;
 const WM_TRAY_REFRESH: u32 = WM_APP + 2;
+const WM_TRAY_BALLOON: u32 = WM_APP + 3;
 
 const MENU_PAUSE: usize = 1;
 const MENU_SETTINGS: usize = 2;
@@ -56,6 +56,8 @@ pub enum TrayEvent {
     TogglePause,
     /// The user chose Bangla/English, single-clicked, or picked the mode menu.
     ToggleMode,
+    /// The user chose Settings: the daemon launches the settings UI.
+    Settings,
     /// The user chose Exit.
     Exit,
 }
@@ -114,6 +116,9 @@ pub enum TrayError {
 /// `extern "system"` function pointer and cannot capture state, so the sender is
 /// stored here and cleared when the tray thread exits.
 static EVENT_TX: Mutex<Option<SyncSender<TrayEvent>>> = Mutex::new(None);
+/// Pending balloon text for [`TrayIcon::show_balloon`]. Fixed literals from the
+/// daemon only (never user text or paths); the tray thread renders them.
+static BALLOON: Mutex<Option<(String, String)>> = Mutex::new(None);
 static PAUSED: AtomicBool = AtomicBool::new(false);
 static MODE_ENGLISH: AtomicBool = AtomicBool::new(false);
 
@@ -208,6 +213,22 @@ impl TrayIcon {
         // message to a stale handle fails harmlessly.
         unsafe {
             let _ = PostMessageW(Some(self.window), WM_TRAY_REFRESH, WPARAM(0), LPARAM(0));
+        }
+    }
+
+    /// Show a notification balloon from the tray icon.
+    ///
+    /// The tray thread renders the text; only fixed daemon literals are ever
+    /// passed here — never user text, tokens, or paths. Truncates to the
+    /// Win32 balloon limits (63 title / 255 body chars). Never steals focus.
+    pub fn show_balloon(&self, title: &str, body: &str) {
+        *BALLOON
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((truncate_balloon(title, 63), truncate_balloon(body, 255)));
+        // SAFETY: same contract as `refresh` above.
+        unsafe {
+            let _ = PostMessageW(Some(self.window), WM_TRAY_BALLOON, WPARAM(0), LPARAM(0));
         }
     }
 
@@ -442,6 +463,48 @@ fn write_tooltip(buffer: &mut [u16; 128], text: &str) {
     }
 }
 
+/// Truncate balloon text to the Win32 limit, keeping char boundaries.
+fn truncate_balloon(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_owned();
+    }
+    text.chars().take(max_chars).collect()
+}
+
+fn write_balloon_text<const N: usize>(buffer: &mut [u16; N], text: &str) {
+    buffer.fill(0);
+    let limit = buffer.len().saturating_sub(1);
+    for (slot, unit) in buffer.iter_mut().zip(text.encode_utf16().take(limit)) {
+        *slot = unit;
+    }
+}
+
+/// Render a pending balloon (if any) on the tray thread.
+fn show_pending_balloon(window: HWND) {
+    let pending = BALLOON
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    let Some((title, body)) = pending else {
+        return;
+    };
+    let mut data = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: window,
+        uID: TRAY_ICON_ID,
+        uFlags: NIF_INFO,
+        dwInfoFlags: NIIF_INFO,
+        ..NOTIFYICONDATAW::default()
+    };
+    write_balloon_text(&mut data.szInfoTitle, &title);
+    write_balloon_text(&mut data.szInfo, &body);
+    // SAFETY: data is fully initialized, sizes match this ABI version, and the
+    // window is live on this thread.
+    unsafe {
+        let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
+    }
+}
+
 unsafe extern "system" fn tray_window_proc(
     window: HWND,
     message: u32,
@@ -467,6 +530,10 @@ unsafe extern "system" fn tray_window_proc(
         }
         WM_TRAY_REFRESH => {
             update_tray_icon(window);
+            LRESULT(0)
+        }
+        WM_TRAY_BALLOON => {
+            show_pending_balloon(window);
             LRESULT(0)
         }
         WM_CLOSE => {
@@ -511,7 +578,7 @@ fn show_menu(window: HWND) {
     unsafe {
         let _ = AppendMenuW(menu, MF_STRING, MENU_MODE, mode_label);
         let _ = AppendMenuW(menu, MF_STRING, MENU_PAUSE, pause_label);
-        let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, MENU_SETTINGS, w!("Settings"));
+        let _ = AppendMenuW(menu, MF_STRING, MENU_SETTINGS, w!("Settings"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, w!(""));
         let _ = AppendMenuW(menu, MF_STRING, MENU_EXIT, w!("Exit"));
     }
@@ -563,6 +630,7 @@ fn event_for_command(id: usize) -> Option<TrayEvent> {
     match id {
         MENU_MODE => Some(TrayEvent::ToggleMode),
         MENU_PAUSE => Some(TrayEvent::TogglePause),
+        MENU_SETTINGS => Some(TrayEvent::Settings),
         MENU_EXIT => Some(TrayEvent::Exit),
         _ => None,
     }
@@ -603,7 +671,8 @@ fn last_error(operation: &'static str, code: i32) -> TrayError {
 mod tests {
     use super::{
         MENU_EXIT, MENU_MODE, MENU_PAUSE, MENU_SETTINGS, TrayEvent, TrayMode, event_for_command,
-        event_for_notification, is_menu_notification, tooltip_text, write_tooltip,
+        event_for_notification, is_menu_notification, tooltip_text, truncate_balloon,
+        write_tooltip,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         WM_CONTEXTMENU, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP,
@@ -620,8 +689,8 @@ mod tests {
     }
 
     #[test]
-    fn settings_is_a_disabled_placeholder() {
-        assert_eq!(event_for_command(MENU_SETTINGS), None);
+    fn settings_opens_the_ui() {
+        assert_eq!(event_for_command(MENU_SETTINGS), Some(TrayEvent::Settings));
         assert_eq!(event_for_command(99), None);
     }
 
@@ -682,5 +751,15 @@ mod tests {
         write_tooltip(&mut buffer, "Okkhor");
         assert_eq!(&buffer[..6], &[79, 107, 107, 104, 111, 114]);
         assert!(buffer[6..].iter().all(|unit| *unit == 0));
+    }
+
+    #[test]
+    fn balloon_text_truncates_on_char_boundaries() {
+        assert_eq!(truncate_balloon("Okkhor", 63), "Okkhor");
+        let long = "অ".repeat(300);
+        let truncated = truncate_balloon(&long, 255);
+        assert_eq!(truncated.chars().count(), 255);
+        let ascii = "a".repeat(100);
+        assert_eq!(truncate_balloon(&ascii, 63).len(), 63);
     }
 }
