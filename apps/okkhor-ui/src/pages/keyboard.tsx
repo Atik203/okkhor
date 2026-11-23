@@ -173,7 +173,7 @@ export default function KeyboardPage({ readOnly }: { readOnly: boolean }) {
   const emojiResults = React.useMemo(() => searchEmoji(emojiQuery), [emojiQuery]);
 
   return (
-    <div className="grid max-w-3xl gap-4">
+    <div data-testid="page-keyboard" className="grid min-w-0 gap-4">
       <Card>
         <CardHeader>
           <CardTitle>On-screen keyboard</CardTitle>
@@ -264,6 +264,8 @@ export default function KeyboardPage({ readOnly }: { readOnly: boolean }) {
         </Card>
       )}
 
+      {/* Key groups reflow: one column on narrow windows, two at lg+. */}
+      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
       {orderedGroups.map((group, position) => {
         const isCollapsed = collapsed[group.id] ?? false;
         return (
@@ -345,6 +347,7 @@ export default function KeyboardPage({ readOnly }: { readOnly: boolean }) {
           </section>
         );
       })}
+      </div>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         Group order is remembered on this machine; no keystrokes are stored.
       </p>

@@ -160,7 +160,7 @@ export default function App() {
     <div className="flex h-screen overflow-hidden">
       <nav
         aria-label="Primary"
-        className="flex w-52 shrink-0 flex-col gap-1 border-r border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900"
+        className="flex w-60 shrink-0 flex-col gap-1 border-r border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
       >
         <div className="flex items-center gap-2 px-2 pb-3 pt-1">
           <span
@@ -179,7 +179,7 @@ export default function App() {
             className={cn(
               "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium",
               route === item.path
-                ? "bg-neutral-200 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+                ? "bg-[rgb(var(--accent)/0.12)] text-neutral-900 ring-1 ring-inset ring-[rgb(var(--accent)/0.4)] dark:text-neutral-100"
                 : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800/60",
             )}
           >
@@ -194,7 +194,10 @@ export default function App() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <ConnectionBanner connection={connection} />
-        <main className="min-h-0 flex-1 overflow-auto p-5">
+        {/* Centered app shell: the container caps line length on wide
+            windows while the sidebar stays a fixed 240 px. */}
+        <main className="min-h-0 flex-1 overflow-auto">
+          <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
           {route === "/" && <StatusPage readOnly={readOnly} />}
           <React.Suspense
             fallback={
@@ -208,6 +211,7 @@ export default function App() {
             {route === "/words" && <WordsPage readOnly={readOnly} />}
           </React.Suspense>
           {route === "/about" && <AboutPage />}
+          </div>
         </main>
       </div>
 

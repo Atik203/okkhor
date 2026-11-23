@@ -225,8 +225,9 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
 
   return (
     <form
+      data-testid="page-settings"
       aria-label="Settings"
-      className="grid max-w-2xl gap-4"
+      className="grid min-w-0 items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0"
       onSubmit={(event) => void handleSubmit(onSubmit)(event)}
     >
       <Card>
@@ -677,7 +678,7 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
         </div>
       </details>
 
-      <div className="sticky bottom-0 flex items-center gap-2 border-t border-neutral-200 bg-white/95 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/95">
+      <div className="sticky bottom-0 flex items-center gap-2 border-t border-neutral-200 bg-white/95 py-3 backdrop-blur lg:col-span-2 dark:border-neutral-800 dark:bg-neutral-950/95">
         <Button type="submit" disabled={readOnly || isSubmitting || !isDirty}>
           {isSubmitting ? "Saving…" : "Save"}
         </Button>

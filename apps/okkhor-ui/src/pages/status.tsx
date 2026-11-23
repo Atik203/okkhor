@@ -82,7 +82,7 @@ export default function StatusPage({ readOnly }: { readOnly: boolean }) {
   const status = statusQuery.data;
 
   return (
-    <div className="grid max-w-2xl gap-4">
+    <div data-testid="page-status" className="grid min-w-0 items-start gap-4 md:grid-cols-2 [&>*]:min-w-0">
       <Card>
         <CardHeader>
           <CardTitle>Okkhor status</CardTitle>
@@ -117,26 +117,38 @@ export default function StatusPage({ readOnly }: { readOnly: boolean }) {
               label="Output encoding"
               value={status.output_encoding === "unicode" ? "Unicode" : "Bijoy"}
             />
-            <Row label="Words stored" value={status.words_total} />
-            <Row label="Autostart" value={status.autostart ? "On" : "Off"} />
           </dl>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="flex items-start gap-3 pt-5 text-sm text-neutral-600 dark:text-neutral-300">
-          {status.paused ? (
-            <Pause className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          ) : (
-            <Play className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          )}
-          <p>
-            This settings window is a separate process from typing. Closing it
-            or losing the daemon connection never stops keystrokes in other
-            apps.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="grid min-w-0 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Words and startup</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              <Row label="Words stored" value={status.words_total} />
+              <Row label="Autostart" value={status.autostart ? "On" : "Off"} />
+            </dl>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="flex items-start gap-3 pt-5 text-sm text-neutral-600 dark:text-neutral-300">
+            {status.paused ? (
+              <Pause className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            ) : (
+              <Play className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            )}
+            <p>
+              This settings window is a separate process from typing. Closing it
+              or losing the daemon connection never stops keystrokes in other
+              apps.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

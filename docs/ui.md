@@ -281,3 +281,47 @@ UI's own rendering; the native popup keeps the engine's 5-candidate cap.
 - On-screen keyboard routes inserts through `text.insert` (512 UTF-16
   cap); recents stay session-only — no raw text in `localStorage` (only
   non-sensitive group order and pinned single-character favorites).
+
+## Layout rules (responsive shell)
+
+- App shell (`src/app.tsx`): fixed 240 px sidebar (`w-60 shrink-0`) plus a
+  single scroll region (`main.overflow-auto`) whose child centers content with
+  `mx-auto w-full max-w-6xl px-4 py-6 sm:px-6`. The page never scrolls
+  horizontally; the sidebar never shrinks. 960×640 stays fully usable and
+  720×520 is the supported minimum.
+- Every grid that holds cards/table wrappers carries `min-w-0` on itself and
+  `[&>*]:min-w-0` (or explicit `min-w-0` on children) so wide tables/keys can
+  scroll internally (`overflow-x-auto` on the table wrapper) instead of
+  pushing the page wider.
+- Status: `md:grid-cols-2` — status card left, words/startup + note stacked
+  right.
+- Settings: one form grid, `lg:grid-cols-2` — group cards flow into two
+  columns; the sticky Save/Reset bar is `lg:col-span-2`.
+- Words: `xl:grid-cols-5` — word-list table card `xl:col-span-3` left, a rail
+  (`xl:col-span-2`) stacking Add + Import + Export right; rail forms collapse
+  to one column (`xl:grid-cols-1`). Below `xl` everything stacks.
+- Keyboard: header card full width, key-group sections in `lg:grid-cols-2`;
+  Favorites/Recents/Emoji stay full width below.
+- About stays `max-w-2xl`. The quickbar route/window keeps its fixed 460×60
+  layout — layout work must not touch it.
+
+## Theme tokens
+
+- Light: page `neutral-100`, cards/sidebar white, borders `neutral-200`,
+  body text `neutral-900`, muted `neutral-500`. Dark: page `neutral-950`,
+  cards/sidebar `neutral-900`, borders `neutral-800`, body text
+  `neutral-100`, muted `neutral-400`. Muted-on-surface pairs hold ≥ 4.5:1;
+  red/green/amber message text uses the 700 (light) / 400 (dark) steps.
+- Accent: teal-700 fill with white text in **both** modes (≥ 5:1); the
+  settings accent preset tints only the selected sidebar item
+  (`rgb(var(--accent)/0.12)` wash + ring) and the global focus-visible ring.
+- Font: `"Segoe UI", "Kalpurush", "Noto Sans Bengali", "Hind Siliguri",
+  system-ui, sans-serif` on `body` — Latin from Segoe UI, Bangla from the
+  resident Kalpurush/Noto fonts (stack only, no bundled font files).
+- Scrollbars are thin and theme-aware (`scrollbar-width: thin` + WebKit
+  rules) and never reserve layout space.
+- Tables: header row `neutral-50`/`neutral-900`, row hover
+  `neutral-50`/`neutral-800/50`, long Bangla strings wrap
+  (`overflow-wrap: anywhere` on `td`).
+- Layout decisions are pinned by `src/test/layout.test.tsx` (shell width,
+  container cap, per-page breakpoints, table/rail spans).
