@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "name": "mini-corpus",
+  "version": "1.0.0",
+  "license": "CC0-1.0",
+  "source": "synthetic",
+  "sha256": "59f8d1dc2766a8fb80370110e07d3366ee2d7c1e593abc972e51c77ec0785c7b",
+  "rows": 16,
+  "languages": ["bn", "en"],
+  "split": "train",
+  "notes": "Hand-authored synthetic ramp fixture; no user data, no real corpus."
+}
