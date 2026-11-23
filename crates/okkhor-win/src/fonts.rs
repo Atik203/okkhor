@@ -1,10 +1,11 @@
 //! Per-user font management for Okkhor.
 //!
-//! Okkhor renders Bijoy byte text with a Bijoy-compatible font (Kalpurush
-//! ANSI by default, SutonnyMJ where the user already has it) and Unicode
-//! text with Kalpurush / Noto Sans Bengali. Fonts ship as data, never as
-//! binaries in this repository: `scripts/fetch-fonts.ps1` downloads them
-//! into `assets/fonts/` at build time.
+//! Okkhor renders Bijoy byte text with a Bijoy-compatible font (SutonnyMJ
+//! where installed, Kalpurush ANSI as fallback) and Unicode text with
+//! Kalpurush / Noto Sans Bengali. Fonts ship as data, never as binaries in
+//! this repository: `scripts/fetch-fonts.ps1` downloads the OFL fonts and
+//! stages SutonnyMJ from the owner's legacy installation into
+//! `assets/fonts/` at build time.
 //!
 //! This module installs those files per user only: it copies into
 //! `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, registers under
@@ -12,9 +13,13 @@
 //! needed and nothing is written outside the user's own profile.
 //!
 //! The registry value name comes from the font's own name table
-//! ([`font_family_name`], e.g. `Kalpurush (TrueType)`), falling back to the
+//! ([`font_family_name`], e.g. `SutonnyMJ (TrueType)`), falling back to the
 //! file stem. [`list_bundled_fonts`] reports which expected files are
 //! present; it performs no logging, so user paths can never leak.
+//! [`resolve_bijoy_font`] picks the Bijoy rendering font: SutonnyMJ when
+//! staged, Kalpurush ANSI otherwise, or [`BijoyFontChoice::NoneAvailable`]
+//! (a typed, non-fatal "missing" — the app must keep working on Unicode
+//! and Kalpurush ANSI paths).
 //!
 //! Tests never touch the real registry or fonts directory: pass
 //! [`InstallOptions`] with `dry_run = true` and a temporary `fonts_dir`,
@@ -51,8 +56,12 @@ impl FontRole {
 }
 
 /// Expected bundled font files in install order: `(file name, role)`.
+/// SutonnyMJ is the primary Bijoy font; Kalpurush ANSI is its fallback.
+/// Both share the `bijoy-ansi` role; [`resolve_bijoy_font`] encodes the
+/// preference.
 pub const BUNDLED_FONTS: &[(&str, FontRole)] = &[
     ("kalpurush.ttf", FontRole::UnicodeUi),
+    ("SutonnyMJ Regular.ttf", FontRole::BijoyAnsi),
     ("kalpurush ANSI.ttf", FontRole::BijoyAnsi),
     ("NotoSansBengali.ttf", FontRole::Fallback),
 ];
@@ -117,6 +126,9 @@ pub enum FontError {
     /// Font file exceeds [`MAX_FONT_BYTES`].
     #[error("font file is too large")]
     TooLarge,
+    /// A staged font failed length/hash verification.
+    #[error("staged font failed verification")]
+    HashMismatch,
     /// Filesystem I/O failed.
     #[error("font file operation failed")]
     Io(#[from] std::io::Error),
@@ -139,6 +151,7 @@ impl FontError {
             Self::NotFound => "font_not_found",
             Self::UnsupportedExtension => "font_unsupported_extension",
             Self::TooLarge => "font_too_large",
+            Self::HashMismatch => "font_hash_mismatch",
             Self::Io(_) => "font_io",
             Self::Registry => "font_registry",
             Self::Win32(_) => "font_win32",
@@ -156,6 +169,7 @@ impl PartialEq for FontError {
             | (Self::NotFound, Self::NotFound)
             | (Self::UnsupportedExtension, Self::UnsupportedExtension)
             | (Self::TooLarge, Self::TooLarge)
+            | (Self::HashMismatch, Self::HashMismatch)
             | (Self::Registry, Self::Registry)
             | (Self::UnsupportedPlatform, Self::UnsupportedPlatform) => true,
             (Self::Win32(a), Self::Win32(b)) => a == b,
@@ -279,6 +293,89 @@ pub fn font_registry_value_name(family_or_stem: &str, extension: &str) -> String
     format!("{family_or_stem} ({kind})")
 }
 
+/// Expected staged bytes for bundled fonts:
+/// `(file name, length in bytes, lowercase-or-uppercase SHA256 hex)`.
+/// SutonnyMJ is staged from the owner's legacy installation
+/// (`OKKHOR_LEGACY_HOME/Res/Fonts`); the rest are pinned upstream
+/// downloads (see `scripts/fetch-fonts.ps1`).
+pub const EXPECTED_FONT_HASHES: &[(&str, u64, &str)] = &[
+    (
+        "kalpurush.ttf",
+        314592,
+        "83613A03E53AAD8337F2BE9FB974409A23C1D99B3B4B494567BA9D156C492B01",
+    ),
+    (
+        "kalpurush ANSI.ttf",
+        113300,
+        "BFB06B2360A558424C61405A29C24B09C70487757204814C6DD04621A2A9EEBC",
+    ),
+    (
+        "NotoSansBengali.ttf",
+        463668,
+        "dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a",
+    ),
+    (
+        "SutonnyMJ Regular.ttf",
+        73656,
+        "D58D9A45311447301426649C641FE148010163594AE57A4094AC086B21D52BDC",
+    ),
+];
+
+/// Verify raw font bytes against an expected SHA256 hex digest.
+/// Used for staged build inputs; rejects mismatches with
+/// [`FontError::HashMismatch`].
+pub fn verify_font_hash(data: &[u8], expected_sha256_hex: &str) -> Result<(), FontError> {
+    use sha2::{Digest, Sha256};
+
+    let expected = parse_sha256_hex(expected_sha256_hex).ok_or(FontError::HashMismatch)?;
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    if hasher.finalize().as_slice() == expected {
+        Ok(())
+    } else {
+        Err(FontError::HashMismatch)
+    }
+}
+
+/// Parse 64 hex characters into 32 bytes; `None` on any malformed input.
+fn parse_sha256_hex(hex: &str) -> Option<[u8; 32]> {
+    if hex.len() != 64 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, chunk) in hex.as_bytes().chunks_exact(2).enumerate() {
+        let text = std::str::from_utf8(chunk).ok()?;
+        out[i] = u8::from_str_radix(text, 16).ok()?;
+    }
+    Some(out)
+}
+
+/// Verify a staged font file by its file name against
+/// [`EXPECTED_FONT_HASHES`] (byte length plus SHA256). Unknown names are
+/// [`FontError::InvalidPath`]; any content mismatch is
+/// [`FontError::HashMismatch`].
+pub fn verify_staged_font(path: &Path) -> Result<(), FontError> {
+    let file_name = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or(FontError::InvalidPath)?;
+    let (_, expected_len, expected_hex) = EXPECTED_FONT_HASHES
+        .iter()
+        .find(|(name, _, _)| *name == file_name)
+        .ok_or(FontError::InvalidPath)?;
+    let bytes = std::fs::read(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            FontError::NotFound
+        } else {
+            FontError::Io(error)
+        }
+    })?;
+    if bytes.len() as u64 != *expected_len {
+        return Err(FontError::HashMismatch);
+    }
+    verify_font_hash(&bytes, expected_hex)
+}
+
 /// Resolve the per-user fonts directory
 /// (`%LOCALAPPDATA%\Microsoft\Windows\Fonts`).
 pub fn user_fonts_dir() -> Result<PathBuf, FontError> {
@@ -291,6 +388,53 @@ pub fn user_fonts_dir() -> Result<PathBuf, FontError> {
         return Err(FontError::InvalidPath);
     }
     Ok(dir)
+}
+
+/// Which Bijoy rendering font to use. The app must keep working when the
+/// answer is [`BijoyFontChoice::NoneAvailable`] (Unicode paths and
+/// Kalpurush ANSI staging do not depend on SutonnyMJ).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BijoyFontChoice {
+    /// Staged `SutonnyMJ Regular.ttf`: the default Bijoy font.
+    SutonnyMJ(PathBuf),
+    /// Staged `kalpurush ANSI.ttf`: used when SutonnyMJ is absent.
+    KalpurushAnsi(PathBuf),
+    /// Neither Bijoy font is staged. Non-fatal: keep Unicode working.
+    NoneAvailable,
+}
+
+impl BijoyFontChoice {
+    /// The staged file to render Bijoy bytes with, if any.
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Self::SutonnyMJ(path) | Self::KalpurushAnsi(path) => Some(path),
+            Self::NoneAvailable => None,
+        }
+    }
+
+    /// Stable machine-readable choice code.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SutonnyMJ(_) => "sutonnymj",
+            Self::KalpurushAnsi(_) => "kalpurush-ansi",
+            Self::NoneAvailable => "none-available",
+        }
+    }
+}
+
+/// Pick the Bijoy rendering font staged in `dir`: SutonnyMJ when present,
+/// Kalpurush ANSI as fallback, [`BijoyFontChoice::NoneAvailable`] when
+/// neither is staged. Pure filesystem presence check; never fatal.
+pub fn resolve_bijoy_font(dir: &Path) -> BijoyFontChoice {
+    let sutonny = dir.join("SutonnyMJ Regular.ttf");
+    if sutonny.is_file() {
+        return BijoyFontChoice::SutonnyMJ(sutonny);
+    }
+    let ansi = dir.join("kalpurush ANSI.ttf");
+    if ansi.is_file() {
+        return BijoyFontChoice::KalpurushAnsi(ansi);
+    }
+    BijoyFontChoice::NoneAvailable
 }
 
 /// Report which expected bundled font files are present in `dir`.
@@ -686,9 +830,10 @@ fn unregister_font(_file_name: &str) -> Result<bool, FontError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        BUNDLED_FONTS, FontError, FontRole, InstallOptions, font_family_name,
-        font_registry_value_name, install_font_per_user_with_options, list_bundled_fonts,
-        uninstall_font_per_user_with_options,
+        BUNDLED_FONTS, BijoyFontChoice, EXPECTED_FONT_HASHES, FontError, FontRole, InstallOptions,
+        font_family_name, font_registry_value_name, install_font_per_user_with_options,
+        list_bundled_fonts, resolve_bijoy_font, uninstall_font_per_user_with_options,
+        verify_font_hash, verify_staged_font,
     };
     use std::path::PathBuf;
 
@@ -770,6 +915,10 @@ mod tests {
         assert_eq!(
             font_registry_value_name("Kalpurush ANSI", "TTF"),
             "Kalpurush ANSI (TrueType)"
+        );
+        assert_eq!(
+            font_registry_value_name("SutonnyMJ", "ttf"),
+            "SutonnyMJ (TrueType)"
         );
         assert_eq!(
             font_registry_value_name("Noto Sans Bengali", "otf"),
@@ -871,13 +1020,18 @@ mod tests {
         write_font(&dir, "kalpurush.ttf", &sfnt_with_family("Kalpurush"));
         let listed = list_bundled_fonts(&dir);
         assert_eq!(listed.len(), BUNDLED_FONTS.len());
+        assert_eq!(listed.len(), 4);
         assert_eq!(listed[0].file_name, "kalpurush.ttf");
         assert_eq!(listed[0].role, FontRole::UnicodeUi);
         assert!(listed[0].present);
+        assert_eq!(listed[1].file_name, "SutonnyMJ Regular.ttf");
         assert_eq!(listed[1].role, FontRole::BijoyAnsi);
         assert!(!listed[1].present);
-        assert_eq!(listed[2].role, FontRole::Fallback);
+        assert_eq!(listed[2].file_name, "kalpurush ANSI.ttf");
+        assert_eq!(listed[2].role, FontRole::BijoyAnsi);
         assert!(!listed[2].present);
+        assert_eq!(listed[3].role, FontRole::Fallback);
+        assert!(!listed[3].present);
         assert_eq!(FontRole::UnicodeUi.as_str(), "unicode-ui");
         assert_eq!(FontRole::BijoyAnsi.as_str(), "bijoy-ansi");
         assert_eq!(FontRole::Fallback.as_str(), "fallback");
@@ -891,6 +1045,7 @@ mod tests {
             FontError::UnsupportedExtension.kind(),
             "font_unsupported_extension"
         );
+        assert_eq!(FontError::HashMismatch.kind(), "font_hash_mismatch");
         assert_eq!(FontError::Registry.kind(), "font_registry");
         assert_eq!(FontError::Win32(5).kind(), "font_win32");
         for error in [
@@ -898,10 +1053,110 @@ mod tests {
             FontError::NotFound,
             FontError::Registry,
             FontError::Win32(0),
+            FontError::HashMismatch,
             FontError::UnsupportedPlatform,
         ] {
             let text = format!("{error}");
             assert!(!text.contains("C:\\"), "leaks path: {text}");
         }
+    }
+
+    #[test]
+    fn bijoy_resolution_prefers_sutonny_then_ansi() {
+        let dir = temp_dir("resolve");
+        // Neither staged: typed, non-fatal missing.
+        let missing = resolve_bijoy_font(&dir);
+        assert_eq!(missing, BijoyFontChoice::NoneAvailable);
+        assert_eq!(missing.path(), None);
+        assert_eq!(missing.as_str(), "none-available");
+
+        // Only the fallback staged.
+        let ansi = write_font(
+            &dir,
+            "kalpurush ANSI.ttf",
+            &sfnt_with_family("Kalpurush ANSI"),
+        );
+        let fallback = resolve_bijoy_font(&dir);
+        assert_eq!(fallback, BijoyFontChoice::KalpurushAnsi(ansi.clone()));
+        assert_eq!(fallback.path(), Some(ansi.as_path()));
+        assert_eq!(fallback.as_str(), "kalpurush-ansi");
+
+        // SutonnyMJ staged: it wins even with the fallback present.
+        let sutonny = write_font(
+            &dir,
+            "SutonnyMJ Regular.ttf",
+            &sfnt_with_family("SutonnyMJ"),
+        );
+        let primary = resolve_bijoy_font(&dir);
+        assert_eq!(primary, BijoyFontChoice::SutonnyMJ(sutonny.clone()));
+        assert_eq!(primary.path(), Some(sutonny.as_path()));
+        assert_eq!(primary.as_str(), "sutonnymj");
+    }
+
+    #[test]
+    fn hash_verification_accepts_a_known_vector() {
+        // SHA256("") — standard test vector.
+        assert!(
+            verify_font_hash(
+                b"",
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            )
+            .is_ok()
+        );
+        assert_eq!(EXPECTED_FONT_HASHES.len(), 4);
+    }
+
+    #[test]
+    fn hash_verification_rejects_mismatches() {
+        let zeros = "0".repeat(64);
+        assert_eq!(
+            verify_font_hash(b"font bytes", &zeros),
+            Err(FontError::HashMismatch)
+        );
+        // Malformed digests (wrong length, non-hex) also reject.
+        assert_eq!(
+            verify_font_hash(b"", "e3b0c44"),
+            Err(FontError::HashMismatch)
+        );
+        assert_eq!(
+            verify_font_hash(b"", &"z".repeat(64)),
+            Err(FontError::HashMismatch)
+        );
+    }
+
+    #[test]
+    fn staged_verification_rejects_wrong_content() {
+        let dir = temp_dir("staged");
+        // Right name, wrong bytes (length mismatch).
+        let wrong = write_font(&dir, "kalpurush.ttf", b"too short");
+        assert_eq!(verify_staged_font(&wrong), Err(FontError::HashMismatch));
+        // Unknown names and missing files are typed, not panics.
+        assert_eq!(
+            verify_staged_font(&dir.join("other.ttf")),
+            Err(FontError::InvalidPath)
+        );
+        assert_eq!(
+            verify_staged_font(&dir.join("kalpurush ANSI.ttf")),
+            Err(FontError::NotFound)
+        );
+    }
+
+    #[test]
+    fn dry_run_install_supports_display_names_with_spaces() {
+        let src = temp_dir("sutonny-src");
+        let dst = temp_dir("sutonny-dst");
+        let options = options_for(&dst);
+        let path = write_font(
+            &src,
+            "SutonnyMJ Regular.ttf",
+            &sfnt_with_family("SutonnyMJ"),
+        );
+        let installed = install_font_per_user_with_options(&path, &options).expect("install");
+        assert!(!installed.already_installed);
+        assert_eq!(installed.path, dst.join("SutonnyMJ Regular.ttf"));
+
+        let removed = uninstall_font_per_user_with_options("SutonnyMJ Regular.ttf", &options)
+            .expect("uninstall");
+        assert!(removed.removed_file);
     }
 }

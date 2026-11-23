@@ -2,7 +2,8 @@
 
 Okkhor holds Bengali text internally as Unicode. Some official workflows
 still require **Bijoy** output: byte text that only reads as Bengali when
-rendered with a Bijoy-compatible font. This document describes the two
+rendered with a Bijoy-compatible font (SutonnyMJ by default where staged,
+Kalpurush ANSI as fallback). This document describes the two
 representations, the conversion model, the font story, and the limits.
 
 ## Unicode vs Bijoy ANSI
@@ -13,8 +14,8 @@ representations, the conversion model, the font story, and the limits.
 - **Bijoy ANSI** reuses plain ASCII bytes for Bengali glyphs: the byte `j`
   *means* `ক`, the byte sequence `d` + consonant *means* a pre-base `ি`,
   and so on. The text is only legible under a Bijoy-layout font
-  (Kalpurush ANSI by default, SutonnyMJ where the user has it). The byte
-  mapping is identical between those two fonts, so converting once is
+  (SutonnyMJ by default where staged, Kalpurush ANSI as fallback). The byte
+  mapping is identical between those fonts, so converting once is
   correct for either; only the rendering font choice differs.
 
 In short: Unicode text carries meaning in the bytes; Bijoy text carries
@@ -57,11 +58,17 @@ where several Unicode sources share one Bijoy form the first map rule wins
 
 | Family | Role | License | Distribution |
 | --- | --- | --- | --- |
+| SutonnyMJ | `bijoy-ansi` — **default Bijoy rendering** | Proprietary © Mustafa Jabbar, Ananda Computers (owner-approved for release builds; see `THIRD_PARTY_LICENSES.md`) | Bundled (staged at build time from `OKKHOR_LEGACY_HOME`, never committed) |
 | Kalpurush | `unicode-ui` — Unicode UI/editor | SIL OFL 1.0 | Bundled (fetched at build time) |
-| Kalpurush ANSI | `bijoy-ansi` — default Bijoy rendering | SIL OFL 1.0 | Bundled (fetched at build time) |
+| Kalpurush ANSI | `bijoy-ansi` — Bijoy fallback when SutonnyMJ is absent | SIL OFL 1.0 | Bundled (fetched at build time) |
 | Noto Sans Bengali | `fallback` — Unicode fallback | SIL OFL 1.1 | Bundled (fetched at build time) |
-| SutonnyMJ | Optional Bijoy choice | Proprietary | User-installed only; detected, never distributed |
 | Siyam Rupali | Optional Unicode font | GPL | User-installed only; not bundled (GPL) |
+
+`okkhor-win::fonts::resolve_bijoy_font` encodes the preference: SutonnyMJ
+when staged, Kalpurush ANSI otherwise, typed non-fatal missing when
+neither is present. The app must not fail if SutonnyMJ is missing; the
+Bijoy byte mapping is identical across Bijoy fonts, so only the rendering
+choice changes.
 
 Binaries are never committed: `scripts/fetch-fonts.ps1` downloads the three
 bundled fonts into `assets/fonts/` with pinned URLs, lengths, and SHA256
@@ -85,9 +92,10 @@ reports the three expected files and their roles without logging paths.
 2. `to_bijoy` rewrites the Unicode text to Bijoy bytes (46 map-derived
    goldens in `okkhor-lang::bijoy` tests; legacy differential testing
    still pending).
-3. Render or hand the bytes to the official form under **Kalpurush ANSI**.
-   If the office machine has **SutonnyMJ** installed, Okkhor offers it as
-   a rendering choice — the bytes are unchanged.
+3. Render or hand the bytes to the official form under **SutonnyMJ** when
+   staged, otherwise **Kalpurush ANSI**. The bytes are identical either
+   way; only the rendering font differs, and a missing SutonnyMJ is a
+   warning, never a build or runtime failure.
 
 ## Limitations
 

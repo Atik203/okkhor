@@ -63,4 +63,34 @@ foreach ($font in $Fonts) {
   Write-Host "OK $($font.Name) ($actual bytes, sha256 verified)"
 }
 
+# SutonnyMJ is staged from the owner's legacy installation, never from the
+# network and never committed. Absence is a warning, not an error: the build
+# continues with Kalpurush ANSI as the Bijoy fallback.
+$SutonnyName   = 'SutonnyMJ Regular.ttf'
+$SutonnyLength = 73656
+$SutonnySha256 = 'D58D9A45311447301426649C641FE148010163594AE57A4094AC086B21D52BDC'
+$SutonnyDest   = Join-Path $resolved $SutonnyName
+$legacyHome = $env:OKKHOR_LEGACY_HOME
+if ([string]::IsNullOrWhiteSpace($legacyHome)) {
+  Write-Warning "OKKHOR_LEGACY_HOME is not set; skipping $SutonnyName (Kalpurush ANSI remains the Bijoy fallback)."
+} else {
+  $legacyFont = Join-Path $legacyHome 'Res\Fonts\SutonnyMJ Regular.ttf'
+  if (-not (Test-Path $legacyFont)) {
+    Write-Warning "Legacy font not found at $legacyFont; skipping $SutonnyName (Kalpurush ANSI remains the Bijoy fallback)."
+  } else {
+    Copy-Item -Force $legacyFont $SutonnyDest
+    $actual = (Get-Item $SutonnyDest).Length
+    if ($actual -ne $SutonnyLength) {
+      Remove-Item -Force $SutonnyDest
+      throw "Length mismatch for $SutonnyName - expected $SutonnyLength, got $actual"
+    }
+    $hash = (Get-FileHash -Path $SutonnyDest -Algorithm SHA256).Hash
+    if ($hash -ne $SutonnySha256) {
+      Remove-Item -Force $SutonnyDest
+      throw "SHA256 mismatch for $SutonnyName - expected $SutonnySha256, got $hash"
+    }
+    Write-Host "OK $SutonnyName ($actual bytes, sha256 verified, staged from legacy installation)"
+  }
+}
+
 Write-Host "All fonts verified in $resolved"
