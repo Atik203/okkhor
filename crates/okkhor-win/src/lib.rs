@@ -58,7 +58,7 @@ pub use autostart::{
 #[cfg(windows)]
 pub use caret::{
     CaretAnchor, DpiError, PopupPlacement, caret_anchor, enable_per_monitor_dpi_awareness,
-    place_popup,
+    focused_element_is_password, place_popup,
 };
 #[cfg(windows)]
 pub use hotkey::{GlobalHotkey, HotkeyError, HotkeySpec, ModeBinding, ModeHotkey, PauseHotkey};
@@ -77,5 +77,6 @@ pub use tray::{TrayError, TrayEvent, TrayIcon, TrayMode};
 pub use win32::{
     HookError, MAX_SEND_BACKSPACES, WindowsInjector, WindowsKeyboardHook, capture_enabled,
     ctrl_or_alt_pressed, foreground_window_id, inject_commit, send_backspaces, send_enter,
-    set_capture_enabled, set_composition_state, toggle_capture, utf16_units,
+    send_tab, set_capture_enabled, set_composition_state, set_english_popup, toggle_capture,
+    utf16_units,
 };

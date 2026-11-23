@@ -16,6 +16,7 @@ use okkhor_storage::JsonFileRepository;
 #[cfg(windows)]
 mod logging;
 
+mod english;
 mod input_session;
 mod ipc;
 mod paths;
@@ -642,13 +643,15 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant};
 
+    use crate::english::{EnglishCommit, EnglishSession};
     use okkhor_core::Language;
     use okkhor_learn::{LearningEvent, LearningSnapshot, Smriti, SmritiConfig};
     use okkhor_storage::{EncryptedJsonRepository, StorageError};
     use okkhor_win::{
         InjectError, KeyPhase, KeyboardHook, ModeHotkey, PauseHotkey, SingleInstance,
         SingleInstanceError, SuggestionPopup, TrayEvent, TrayIcon, TrayMode, WindowsKeyboardHook,
-        caret_anchor, ctrl_or_alt_pressed, foreground_window_id, inject_commit, place_popup,
+        caret_anchor, ctrl_or_alt_pressed, focused_element_is_password, foreground_window_id,
+        inject_commit, place_popup, send_tab,
     };
 
     use crate::input_session::{
@@ -738,6 +741,60 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
             }
         }
+    }
+
+    /// Show or hide the English completion popup at the caret.
+    fn refresh_english_popup(
+        popup: &mut Option<SuggestionPopup>,
+        english: &EnglishSession,
+        state: Option<&ProdState>,
+    ) {
+        let Some(window) = popup.as_mut() else {
+            return;
+        };
+        if !english.is_visible() {
+            window.hide();
+            if let Some(state) = state {
+                state.set_popup_visible(false);
+            }
+            return;
+        }
+        match caret_anchor() {
+            Some(anchor) => {
+                if window
+                    .show_candidates(english.suggestions(), english.selected(), &anchor)
+                    .is_err()
+                {
+                    window.hide();
+                    if let Some(state) = state {
+                        state.set_popup_visible(false);
+                    }
+                } else if let Some(state) = state {
+                    state.set_popup_visible(true);
+                }
+            }
+            None => {
+                window.hide();
+                if let Some(state) = state {
+                    state.set_popup_visible(false);
+                }
+            }
+        }
+    }
+
+    /// Erase the English token and inject the completion under the shared
+    /// injection lock. Returns false when the caller should re-emit Tab.
+    fn apply_english_commit(
+        commit: EnglishCommit,
+        logger: &logging::Logger,
+        injection: &std::sync::Mutex<()>,
+    ) -> bool {
+        let _injection = injection.lock().unwrap_or_else(|error| error.into_inner());
+        if let Err(error) = inject_commit(commit.erase_chars, &commit.text, false) {
+            logger.error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
+            return false;
+        }
+        true
     }
 
     impl CompositionCtx<'_> {
@@ -1297,6 +1354,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         logger.error(logging::Scope::Engine, kind, None);
     }
     let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
+    let mut english = EnglishSession::new();
     let mut compose_window = foreground_window_id();
     let mut encoding = options.encoding;
     let mut mode = options.mode;
@@ -1569,6 +1627,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             toast_until_ms = 0;
             // Nothing may be swallowed while capture is off.
+            hook.set_english_popup(false);
             hook.set_composition_state(false, false, false);
             // Drain injected and real events alike while paused.
             while hook.try_next().is_some() {}
@@ -1577,18 +1636,87 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
 
         if !mode.allows_composition() {
-            // English mode: no composition, no candidates, no popup. The hook
-            // keeps passing everything through; the buffer is already clear
-            // from the toggle, and any stray state is dropped here before the
-            // drain so a mode switch can never leak a partial buffer.
+            // English mode: no Bangla composition. Track the Latin token and
+            // offer prefix completions; Space/Enter/punctuation pass through
+            // untouched. Only Tab (while visible) or a popup click accepts.
             if session.is_composing() {
                 session.reset();
             }
-            if toast_until_ms == 0 {
+            let enabled = ipc_state
+                .as_deref()
+                .is_none_or(|state| state.english_suggestions());
+            let limit = ipc_state
+                .as_deref()
+                .map_or(8usize, |state| state.popup_max_items());
+            if !enabled {
+                english.reset();
+            }
+
+            let mut clicked: Vec<usize> = Vec::new();
+            if let Some(window) = popup.as_mut() {
+                while let Some(index) = window.try_next_click() {
+                    clicked.push(index);
+                    if clicked.len() >= 8 {
+                        break;
+                    }
+                }
+            }
+            for index in clicked {
+                if english.is_visible() {
+                    if let Some(commit) = english.accept_index(index) {
+                        if !apply_english_commit(commit, logger, &injection_lock) {
+                            let _ = send_tab();
+                        }
+                    }
+                }
+            }
+
+            while let Some(event) = hook.try_next() {
+                if event.phase != KeyPhase::Down {
+                    continue;
+                }
+                if !enabled {
+                    continue;
+                }
+                match event.virtual_key {
+                    VK_TAB if english.is_visible() => {
+                        if let Some(commit) = english.accept() {
+                            if !apply_english_commit(commit, logger, &injection_lock) {
+                                let _ = send_tab();
+                            }
+                        } else {
+                            let _ = send_tab();
+                        }
+                    }
+                    VK_ESCAPE => english.dismiss(),
+                    VK_BACK => english.backspace(limit, |prefix, limit| {
+                        session.english_suggestions(prefix, limit)
+                    }),
+                    other => {
+                        if let Some(letter) = vk_to_letter(other) {
+                            let foreground = foreground_window_id();
+                            if !english.token().is_empty() && english.window() != foreground {
+                                english.reset();
+                            }
+                            english.push_letter(letter, limit, foreground, |prefix, limit| {
+                                session.english_suggestions(prefix, limit)
+                            });
+                        } else {
+                            english.reset();
+                        }
+                    }
+                }
+            }
+
+            if english.is_visible() && focused_element_is_password() {
+                english.dismiss();
+            }
+            refresh_english_popup(&mut popup, &english, ipc_state.as_deref());
+            hook.set_english_popup(english.is_visible());
+            hook.set_composition_state(false, false, false);
+            if !english.is_visible() && toast_until_ms == 0 {
                 hide_popup(&mut popup, ipc_state.as_deref());
             }
-            hook.set_composition_state(false, false, false);
-            while hook.try_next().is_some() {}
             std::thread::sleep(Duration::from_millis(5));
             continue;
         }
@@ -1596,6 +1724,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // Publish the state the hook uses to swallow commit keys. Done before
         // the drain so a key arriving during this poll sees the last buffer,
         // and again after it so the next poll sees the new one.
+        hook.set_english_popup(false);
         let bangla_unicode =
             mode.allows_composition() && encoding == crate::OutputEncoding::Unicode;
         hook.set_composition_state(

@@ -227,6 +227,30 @@ fn uia_caret_rect(foreground: windows::Win32::Foundation::HWND) -> Option<RECT> 
     None
 }
 
+/// Whether the focused control is a password field.
+///
+/// Uses the same cached UIA element as the caret path, so a typing burst does
+/// not re-walk the tree. Unknown/unsupported results return `false` (the daemon
+/// still has the pause control as the escape hatch).
+#[cfg(windows)]
+pub fn focused_element_is_password() -> bool {
+    // SAFETY: GetForegroundWindow has no pointer preconditions.
+    let foreground = unsafe { GetForegroundWindow() };
+    if foreground.0.is_null() {
+        return false;
+    }
+    let Some(uia) = uia_automation() else {
+        return false;
+    };
+    let Some(element) = focused_element(&uia, foreground) else {
+        return false;
+    };
+    // SAFETY: UIA property read; failure is a typed HRESULT and maps to false.
+    unsafe { element.CurrentIsPassword() }
+        .map(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
 /// Focused element for `foreground`, cached briefly to keep typing smooth.
 fn focused_element(
     uia: &IUIAutomation,

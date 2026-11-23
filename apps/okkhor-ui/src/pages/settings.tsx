@@ -433,6 +433,22 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
             />
             <FieldError message={errors.popup_max_items?.message} />
           </Field>
+          <Field className="sm:col-span-2">
+            <Controller
+              name="english_suggestions"
+              control={control}
+              render={({ field }) => (
+                <ToggleRow
+                  name="english_suggestions"
+                  label="English suggestions"
+                  description="Show prefix completions in English mode. Tab accepts the highlighted word; typing is never replaced."
+                  checked={field.value}
+                  onChange={field.onChange}
+                  disabled={readOnly}
+                />
+              )}
+            />
+          </Field>
           <Field>
             <Controller
               name="show_toggle_toast"

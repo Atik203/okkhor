@@ -25,6 +25,7 @@ function baseSettings(): Settings {
     font_bijoy: "sutonnymj",
     popup_enabled: true,
     popup_max_items: 5,
+    english_suggestions: true,
     toggle_hotkey: "F9",
     pause_hotkey: "Ctrl+Alt+Shift+P",
     show_toggle_toast: true,

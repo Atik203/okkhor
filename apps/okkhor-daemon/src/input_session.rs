@@ -124,6 +124,11 @@ pub trait SuggestionProvider {
         now_ms: u64,
         user_words: &[UserWord],
     ) -> Vec<String>;
+
+    /// English prefix completions. Default: none (tests and the empty engine).
+    fn english_suggestions(&self, _prefix: &str, _limit: usize) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 pub struct InputSession<P = DefaultEngine> {
@@ -160,6 +165,11 @@ impl<P: SuggestionProvider> InputSession<P> {
     /// Replace the user dictionary snapshot used by the provider.
     pub fn set_user_words(&mut self, words: Vec<UserWord>) {
         self.user_words = words;
+    }
+
+    /// English prefix completions for the shared English tracker.
+    pub fn english_suggestions(&self, prefix: &str, limit: usize) -> Vec<String> {
+        self.provider.english_suggestions(prefix, limit)
     }
 
     /// Last committed word, used as ranking context.
@@ -397,6 +407,13 @@ impl SuggestionProvider for DefaultEngine {
                     .map(|suggestion| suggestion.text)
                     .collect()
             }
+            Self::Empty { .. } => Vec::new(),
+        }
+    }
+
+    fn english_suggestions(&self, prefix: &str, limit: usize) -> Vec<String> {
+        match self {
+            Self::Suggest { engine, .. } => engine.suggest_english(prefix, limit),
             Self::Empty { .. } => Vec::new(),
         }
     }

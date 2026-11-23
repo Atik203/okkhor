@@ -161,6 +161,7 @@ pub fn live_plan(patch: &SettingsPatch) -> LivePlan {
     flag!(patch.font_bijoy, "font_bijoy", true);
     flag!(patch.popup_enabled, "popup_enabled", false);
     flag!(patch.popup_max_items, "popup_max_items", false);
+    flag!(patch.english_suggestions, "english_suggestions", false);
     flag!(patch.toggle_hotkey, "toggle_hotkey", true);
     flag!(patch.pause_hotkey, "pause_hotkey", true);
     flag!(patch.show_toggle_toast, "show_toggle_toast", false);
@@ -223,6 +224,7 @@ pub struct DaemonState<P> {
     popup_max_items: AtomicU8,
     toggle_sound: AtomicBool,
     learning: AtomicBool,
+    english_suggestions: AtomicBool,
     words_revision: AtomicU64,
     shutdown_requested: AtomicBool,
     rebind_requested: AtomicBool,
@@ -327,6 +329,7 @@ impl<P: Protector> DaemonState<P> {
             popup_max_items: AtomicU8::new(current.popup_max_items),
             toggle_sound: AtomicBool::new(current.toggle_sound),
             learning: AtomicBool::new(current.learning_enabled),
+            english_suggestions: AtomicBool::new(current.english_suggestions),
             words_revision: AtomicU64::new(0),
             shutdown_requested: AtomicBool::new(false),
             settings: Mutex::new(settings),
@@ -417,6 +420,11 @@ impl<P: Protector> DaemonState<P> {
     /// Whether learning commits are queued (live mirror of the setting).
     pub fn learning(&self) -> bool {
         self.learning.load(Ordering::SeqCst)
+    }
+
+    /// Whether English prefix completions are enabled.
+    pub fn english_suggestions(&self) -> bool {
+        self.english_suggestions.load(Ordering::SeqCst)
     }
 
     /// Monotonic counter bumped by every words mutation.
@@ -526,6 +534,8 @@ impl<P: Protector> DaemonState<P> {
             .store(merged.toggle_sound, Ordering::SeqCst);
         self.learning
             .store(merged.learning_enabled, Ordering::SeqCst);
+        self.english_suggestions
+            .store(merged.english_suggestions, Ordering::SeqCst);
         // The bar toggles mode through `settings.update`; the hotkey and tray
         // use the daemon-local path. Play the same click for both so feedback
         // is consistent, and only when the mode actually changed.

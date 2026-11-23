@@ -15,7 +15,7 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LWIN,
-    VK_MENU, VK_RETURN, VK_RWIN, VK_SHIFT,
+    VK_MENU, VK_RETURN, VK_RWIN, VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
@@ -58,6 +58,9 @@ static BANGLA_MODE: AtomicBool = AtomicBool::new(true);
 /// Whether a composition buffer is non-empty (published by the daemon).
 static COMPOSING: AtomicBool = AtomicBool::new(false);
 
+/// Whether the English completion popup is visible (published by the daemon).
+static ENGLISH_POPUP: AtomicBool = AtomicBool::new(false);
+
 /// Virtual key of the last key-down the hook swallowed, so its key-up is
 /// swallowed too. Zero means none pending.
 static LAST_SWALLOWED_VK: AtomicU16 = AtomicU16::new(0);
@@ -71,6 +74,12 @@ pub fn set_composition_state(bangla_mode: bool, composing: bool, bangla_unicode:
     BANGLA_MODE.store(bangla_mode, Ordering::Release);
     COMPOSING.store(composing, Ordering::Release);
     BANGLA_UNICODE.store(bangla_unicode, Ordering::Release);
+}
+
+/// Publish whether the English completion popup is visible so the hook can
+/// swallow Tab only while an accept is possible.
+pub fn set_english_popup(visible: bool) {
+    ENGLISH_POPUP.store(visible, Ordering::Release);
 }
 
 /// Whether Bangla **Unicode** output is active (danda and Bengali numerals).
@@ -132,6 +141,11 @@ impl WindowsKeyboardHook {
     /// Publish the Bangla/composing state used for key swallowing.
     pub fn set_composition_state(&self, bangla_mode: bool, composing: bool, bangla_unicode: bool) {
         set_composition_state(bangla_mode, composing, bangla_unicode);
+    }
+
+    /// Publish the English completion visibility for Tab swallowing.
+    pub fn set_english_popup(&self, visible: bool) {
+        set_english_popup(visible);
     }
 
     /// Toggle capture and return the new state.
@@ -300,6 +314,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     let bangla = BANGLA_MODE.load(Ordering::Relaxed);
                     let composing = COMPOSING.load(Ordering::Relaxed);
                     let unicode = BANGLA_UNICODE.load(Ordering::Relaxed);
+                    let english_popup = ENGLISH_POPUP.load(Ordering::Relaxed);
                     let decision = !injected
                         && (crate::input::should_swallow(
                             capture,
@@ -321,6 +336,13 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                             bangla,
                             unicode,
                             composing,
+                            chord,
+                            false,
+                            virtual_key,
+                        ) || crate::input::should_swallow_tab(
+                            capture,
+                            !bangla,
+                            english_popup,
                             chord,
                             false,
                             virtual_key,
@@ -496,6 +518,31 @@ pub fn send_enter() -> Result<(), InjectError> {
     let inputs = [
         virtual_key_input(VK_RETURN, KEYBD_EVENT_FLAGS(0)),
         virtual_key_input(VK_RETURN, KEYEVENTF_KEYUP),
+    ];
+    // SAFETY: inputs is a valid, fully initialized INPUT slice and the
+    // structure size is provided to SendInput.
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent as usize == inputs.len() {
+        Ok(())
+    } else {
+        let code = last_error_code();
+        if sent == 0 && code == 5 {
+            Err(InjectError::Blocked)
+        } else {
+            Err(InjectError::Win32 {
+                operation: "SendInput",
+                code,
+            })
+        }
+    }
+}
+
+/// Re-emit a swallowed Tab (English accept failed, or the popup hid during
+/// the accept). Uses the same `SendInput` path as Enter.
+pub fn send_tab() -> Result<(), InjectError> {
+    let inputs = [
+        virtual_key_input(VK_TAB, KEYBD_EVENT_FLAGS(0)),
+        virtual_key_input(VK_TAB, KEYEVENTF_KEYUP),
     ];
     // SAFETY: inputs is a valid, fully initialized INPUT slice and the
     // structure size is provided to SendInput.
