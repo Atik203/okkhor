@@ -256,4 +256,46 @@ describe("quick bar", () => {
     const bar = container.querySelector('[role="toolbar"]');
     expect(bar?.getAttribute("style")).toContain("opacity: 0.65");
   });
+
+  test("bar is fixed 460x60 with no clipping, grip owns the drag region", async () => {
+    mockOnline();
+    const { container } = renderPage();
+    const bar = await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
+    // Fixed canvas: no scrollbars, no clipped controls.
+    expect(bar.className).toContain("w-[460px]");
+    expect(bar.className).toContain("h-[60px]");
+    expect(bar.className).toContain("overflow-hidden");
+    expect(bar.className).toContain("flex-nowrap");
+    // Exactly one drag surface (the grip); buttons must never start a drag.
+    const dragRegions = container.querySelectorAll("[data-tauri-drag-region]");
+    expect(dragRegions).toHaveLength(1);
+    const buttons = container.querySelectorAll("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(button.hasAttribute("data-tauri-drag-region")).toBe(false);
+    }
+  });
+
+  test("collapsed orb is 44x44 with its own drag ring and expand button", async () => {
+    mockOnline({ ...ONLINE, collapsed: true });
+    renderPage();
+    const orb = await screen.findByRole("button", { name: "Expand quick bar" });
+    const ring = orb.parentElement;
+    expect(ring?.className).toContain("w-[44px]");
+    expect(ring?.className).toContain("h-[44px]");
+    expect(ring?.className).toContain("overflow-hidden");
+    expect(ring?.hasAttribute("data-tauri-drag-region")).toBe(true);
+    expect(orb.hasAttribute("data-tauri-drag-region")).toBe(false);
+    expect(orb.className).toContain("size-9");
+  });
+
+  test("quickbar canvas lock constrains html/body without scrollbars", async () => {
+    mockOnline();
+    renderPage();
+    await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
+    for (const element of [document.documentElement, document.body]) {
+      const style = element.getAttribute("style") ?? "";
+      expect(style).toContain("overflow:hidden");
+    }
+  });
 });

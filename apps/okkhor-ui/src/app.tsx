@@ -148,7 +148,7 @@ export default function App() {
     return (
       <React.Suspense
         fallback={
-          <div aria-label="Loading quick bar" className="h-12 w-[340px] animate-pulse" />
+          <div aria-label="Loading quick bar" className="h-[60px] w-[460px] animate-pulse" />
         }
       >
         <QuickbarPage />

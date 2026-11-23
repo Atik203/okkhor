@@ -39,7 +39,7 @@ WebView (React) ──invoke──▶ src-tauri (Rust commands) ──named pipe
 | `#/settings` | Settings | every contract §2 field (incl. quickbar X/Y + Automatic toggle), live validation, dirty guard, Save/Reset, toasts |
 | `#/keyboard` | On-screen keyboard | layout selector, Unicode key table + Shift layer, reorderable groups, favorites, session recents, bundled emoji search |
 | `#/words` | Word manager | paginated table (50 default), search, add/remove, CSV/JSON import preview + export download |
-| `#/quickbar` | Quick bar | compact 340×48 pill (see below); also auto-hosted by the `quickbar` window with no nav chrome |
+| `#/quickbar` | Quick bar | compact 460×60 bar (see below); also auto-hosted by the `quickbar` window with no nav chrome |
 | `#/about` | About | versions, data locations, privacy summary, licenses pointer |
 
 Unknown hashes fall back to `#/` (status). First run shows no wizard and no
@@ -95,10 +95,13 @@ cargo test
   chips, pause, keyboard, settings, or collapse never activates the window.
   The bar is the single approved exception to contract §5's no-always-on-top
   rule (lead ruling, 2026-11-23); no other UI window may be always-on-top.
-- Geometry: 340×48 pill, collapsible to a 44×44 orb (double-click/click the
+- Geometry: 460×60 bar, collapsible to a 44×44 orb (double-click/click the
   orb to expand). For 0.5 the bar starts top-right of the primary monitor
-  with per-monitor DPI scaling (`scale_factor`); the background is a
-  `data-tauri-drag-region` (no custom drag command), buttons stay clickable.
+  with per-monitor DPI scaling (`scale_factor`). Only the dedicated left
+  grip strip is a `data-tauri-drag-region` (no custom drag command);
+  buttons never start a drag and stay clickable. While mounted, the bar
+  locks `html`/`body`/`#root` to 100% with `overflow: hidden` and a
+  transparent background, so no scrollbar or bottom line can appear.
 - Contents: mode chip (`বাংলা`/`EN`), encoding chip (`ইউনিকোড`/`বিজয়`),
   pause, on-screen keyboard (opens `main` at `/keyboard`), settings,
   collapse; status dot (text-announced, never color-only) for daemon

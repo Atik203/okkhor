@@ -15,9 +15,9 @@
 use serde::Serialize;
 
 /// Logical size of the expanded bar (matches `tauri.conf.json`).
-pub const QUICKBAR_LOGICAL_W: u32 = 340;
+pub const QUICKBAR_LOGICAL_W: u32 = 460;
 /// Logical height of the expanded bar (matches `tauri.conf.json`).
-pub const QUICKBAR_LOGICAL_H: u32 = 48;
+pub const QUICKBAR_LOGICAL_H: u32 = 60;
 /// Logical size of the collapsed orb (square).
 pub const ORB_LOGICAL: u32 = 44;
 /// Logical margin from the screen edges.
@@ -210,7 +210,7 @@ mod tests {
             1.0,
             EDGE_MARGIN_LOGICAL,
         );
-        assert_eq!((x, y), (1920 - 340 - 12, 12));
+        assert_eq!((x, y), (1920 - 460 - 12, 12));
     }
 
     #[test]
@@ -223,7 +223,7 @@ mod tests {
             1.5,
             EDGE_MARGIN_LOGICAL,
         );
-        assert_eq!((x, y), (1920 - 510 - 18, 18));
+        assert_eq!((x, y), (1920 - 690 - 18, 18));
         let (ox, oy) = quickbar_top_right_physical(
             (0, 0),
             (1920, 1080),
@@ -243,7 +243,7 @@ mod tests {
             1.0,
             EDGE_MARGIN_LOGICAL,
         );
-        assert_eq!((x, y), (-1920 + 1920 - 340 - 12, 12));
+        assert_eq!((x, y), (-1920 + 1920 - 460 - 12, 12));
     }
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
                 scale,
                 EDGE_MARGIN_LOGICAL,
             );
-            assert_eq!((x, y), (1920 - 340 - 12, 12), "scale {scale}");
+            assert_eq!((x, y), (1920 - 460 - 12, 12), "scale {scale}");
         }
         // Tiny monitor: clamp onto the origin instead of going negative.
         let (x, y) = quickbar_top_right_physical(
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn short_monitor_clamps_the_bottom_edge() {
-        // 200×40 strip: the 48 px bar cannot fit below the margin, so it is
+        // 200×40 strip: the 60 px bar cannot fit below the margin, so it is
         // pinned to the origin instead of overflowing.
         let (x, y) = quickbar_top_right_physical(
             (100, 100),
