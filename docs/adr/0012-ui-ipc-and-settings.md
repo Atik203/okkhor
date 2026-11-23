@@ -28,6 +28,10 @@ encrypted-at-rest user text. `docs/security-privacy.md` names DPAPI.
 
 - Accept ADR 0004. The UI is Tauri 2 + React 19 + TypeScript + Vite, in
   `apps/okkhor-ui`, a **separate process** from the daemon.
+- UI stack: Tailwind CSS v4, shadcn/ui on Radix primitives, lucide-react,
+  sonner, TanStack Query, react-hook-form + zod, and the usual class utilities.
+  Route-level code splitting with a 350 KB gzip initial-JS budget; no remote
+  assets, fonts, or telemetry.
 - The suggestion popup stays native Win32 (`okkhor-win`). The WebView never
   renders per-keystroke suggestions.
 - The UI is optional. Closing or crashing it must not affect typing.
@@ -86,9 +90,11 @@ encrypted-at-rest user text. `docs/security-privacy.md` names DPAPI.
 - CI adds one `ui` job: `npm ci`, `npm run build`, `cargo test` in
   `src-tauri` (client framing tests only), and `cargo check` for the Tauri
   shell. Root `fmt`/`clippy`/`test` are unchanged.
-- Dependencies: Tauri 2, React 19, Vite, TypeScript, Vitest for UI logic.
-  No component library, no CSS framework, no icon package: the UI is small and
-  a dependency-free design keeps the review surface honest.
+- Dependencies: Tauri 2, React 19, Vite, TypeScript, Tailwind CSS v4,
+  shadcn/ui + Radix, lucide-react, sonner, TanStack Query, react-hook-form,
+  zod, Vitest, and React Testing Library. No second state library and no
+  UI kit beyond shadcn primitives; the dependency list is reviewed for license
+  and bundle cost.
 
 ## Consequences
 

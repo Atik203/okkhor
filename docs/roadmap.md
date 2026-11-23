@@ -19,10 +19,15 @@ set (`docs/design/0.3-core-contracts.md`, ADR 0010/0011), the `okkhor-lang`,
 synthetic golden corpus, engine parity benchmarking, the 0.3/0.4 QA and
 performance records, and the G1–G4 gates.
 
-**0.5, 0.6, and 1.0 are planned**: `docs/superpowers/plans/0.5-ui.md`,
-`0.6-model-speech-ai.md`, and `1.0-release.md`. The 0.5 UI decision is ADR 0004
-amended by ADR 0012 (Tauri UI process, named-pipe IPC, daemon-owned settings,
-DPAPI-encrypted word store).
+**0.5–1.0 are planned**: `docs/superpowers/plans/0.5-ui.md`,
+`0.6-model-data-ai.md`, `0.9-voice.md`, and `1.0-release.md`. The 0.5 UI
+decision is ADR 0004 amended by ADR 0012 (Tauri UI process, named-pipe IPC,
+daemon-owned settings, DPAPI-encrypted word store). Dataset rules live in
+`docs/design/datasets.md`; heavy corpora are downloaded and processed only on
+the cloud GPU, never locally and never committed.
+
+Voice typing is the **last** feature phase (0.9). Keyboard input, language
+data, the reranker, UI, and release mechanics come first.
 
 Manual Windows QA execution remains in issue #8. The full suggestion-rendering
 UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
@@ -45,8 +50,11 @@ UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
 | 2. Bornomala core | 0.3 | 8–14 | dictionaries, layouts, transliteration, candidates |
 | 3. Smriti v1 | 0.4 | 14–20 | persistent learning, ranking, migration, replay |
 | 4. UI | 0.5 | 20–28 | settings, on-screen keyboard, word manager, themes |
-| 5. Speech and AI | 0.6 | 28–34 | provider workers, cache, cancellation, fallbacks |
-| 6. Parity and 1.0 | 1.0 | 34–40 | signed installer, updater, migration, beta hardening |
+| 5. Language data, model, AI text | 0.6 | 28–36 | datasets, Tier 1 reranker, AI text worker |
+| 6. Hardening | 0.7 | 36–40 | IME/RDP/DPI, stress, accessibility, reliability |
+| 7. Parity | 0.8 | 40–44 | real dictionaries/layouts, importers, migration, parity matrix |
+| 8. Voice typing | 0.9 | 44–46 | opt-in dictation, last feature phase |
+| 9. Release 1.0 | 1.0 | 46–50 | signed installer, updater, SBOM, beta hardening |
 
 Weeks are relative to project start, not calendar dates. Add 20–30% buffer for
 Windows compatibility and Bengali edge cases.
@@ -58,9 +66,9 @@ language, or UI phases. See [model-roadmap.md](model-roadmap.md) and ADR 0007.
 
 | Stage | Model work |
 | --- | --- |
-| 0.4 | Smriti v1 baseline; stable feature schema; replay harness |
-| 0.6 | Tier 1 local logistic reranker; pure Rust; A/B |
-| 1.0 | Global prior (public corpora) + local adapter; signed packages |
+| 0.4 | candidate engine and deterministic ranking baseline; no learned reranker |
+| 0.6 | feature schema v1; replay harness; Tier 1 logistic reranker; A/B |
+| 1.0 | global prior from licensed corpora + local adapter; checksummed packages |
 | 1.x | Optional Tier 2 ONNX next-word; deadline tuning |
 | 2.0 | Federated/DP pilot; Tier 3 transformer for idle only |
 
@@ -172,27 +180,77 @@ Exit criteria:
 - 100–200% DPI and multi-monitor checks pass;
 - feature parity list is explicit about remaining gaps.
 
-## Phase 5 — Speech and AI (0.6)
+## Phase 5 — Language data, model, and AI text (0.6)
 
 Deliverables:
 
-- audio capture for microphone and system loopback;
-- `SpeechProvider` abstraction with Google Speech first;
-- `AiProvider` abstraction with Gemini first;
-- debounce, cancellation, single-flight, cache, circuit breaker;
-- visible AI/speech status without blocking typing;
-- local fallback path and offline behavior;
-- privacy controls for cloud features.
+- dataset manifests, license review, and remote-only corpus handling;
+- feature schema v1 and a frozen replay harness;
+- Tier 1 deterministic logistic reranker with deadline and fallback;
+- A/B report against the deterministic baseline;
+- `AiProvider` abstraction, in-memory cache, circuit breaker, and worker;
+- visible AI status without blocking typing;
+- privacy controls for cloud features (text only; no microphone).
 
 Exit criteria:
 
-- AI/speech outage never delays a keystroke;
-- stale responses are discarded;
-- cache hit/miss and provider latency are measurable;
-- cloud features are opt-in and documented;
-- no text in logs or crash reports.
+- model miss or AI outage never delays a keystroke;
+- hybrid rerank p99 under 1 ms with proven fallback;
+- no raw text or audio in logs;
+- dataset licenses and checksums recorded;
+- no claim beyond the evaluated dataset's provenance.
 
-## Phase 6 — Parity and 1.0
+## Phase 6 — Hardening (0.7)
+
+Deliverables:
+
+- IME on/off, RDP, elevated windows, multi-monitor, and 100–200% DPI passes;
+- 10,000-event hook stress and sleep/resume tests;
+- crash isolation for UI and worker;
+- accessibility and keyboard-only audit;
+- reliability fixes from beta feedback.
+
+Exit criteria:
+
+- no lost or duplicated keys in stress runs;
+- typing works with the UI closed, crashed, or not installed;
+- elevated-window failure is explicit and never corrupts text.
+
+## Phase 7 — Parity (0.8)
+
+Deliverables:
+
+- real dictionary and layout import (validated formats, no guessing);
+- legacy custom-word and settings import where the format is known;
+- feature parity matrix against the legacy app;
+- migration report and rollback rehearsal.
+
+Exit criteria:
+
+- parity matrix has no silent gaps;
+- import is reproducible and documented;
+- unsupported legacy data is reported, not silently dropped.
+
+## Phase 8 — Voice typing (0.9)
+
+Voice is the last feature phase: keyboard input is the primary path.
+
+Deliverables:
+
+- opt-in microphone capture with explicit start/stop;
+- `SpeechProvider` abstraction with Google Speech first;
+- worker isolation, cancellation, 30 s cap;
+- transcript panel with explicit insert only (no auto-injection);
+- privacy controls and no audio/transcript persistence.
+
+Exit criteria:
+
+- speech outage never delays a keystroke;
+- stale responses are discarded;
+- cloud features are opt-in and documented;
+- no audio or transcript in logs or crash reports.
+
+## Phase 9 — Release 1.0
 
 Deliverables:
 
