@@ -340,6 +340,28 @@ Still planned:
 The end-to-end harness must run in a disposable VM or with explicit approval,
 because it exercises global input hooks.
 
+## 0.6 suggestion engine (development machine)
+
+Measured 2026-11-24 on the owner's Windows 11 desktop, release build, GNU
+toolchain. The corpus is the 113-case golden set plus 2,000 prefix queries
+(`a`, `am`, `bha`, `bhal`, `k`, `ko`, `kor`, `dho`, `dhonno`, `com`, `valo`)
+through the embedded `OKS1` index. Percentiles use the nearest-rank method.
+
+| Path | Corpus | Top-1 | Top-5 | p50 | p95 | p99 | max |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `SuggestionEngine::suggest` (release) | `golden-v1` (113) + 2,000 prefix queries | 92.9% | 100.0% | 0.37 ms | 0.68 ms | 0.80 ms | 0.97 ms |
+| `okkhor-bench --suggestions --smoke` | 35 everyday words | 100.0% | 100.0% | 0.28 ms | 0.56 ms | 0.67 ms | 0.68 ms |
+
+Command:
+
+```powershell
+.\target\release\okkhor-bench.exe --suggestions --iterations 2000
+```
+
+This is a development-machine number, not a reference-machine claim. The
+3 ms p99 budget in `AGENTS.md` is met with headroom; re-measure on the release
+candidate before tagging.
+
 ## Scenarios
 
 | Scenario | Corpus |

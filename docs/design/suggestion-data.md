@@ -13,22 +13,26 @@ development time. The query path performs no I/O, no SQLite, and no network.
 | `bn-starter-v1.json` | curated exact forms | 229 |
 | `wordfreq` `bn` top 50k | common forms missing from Avro; zipf popularity | 47,827 |
 | `wordfreq` `en` top 60k | English completions; zipf popularity | 58,928 |
+| Nms `bangla_dict.bin` | direct roman→Bangla keys (WTR1 leaf records) | 114,193 |
 
-The union is **184,775 Bangla words** (72,315 with non-zero popularity) and
-**58,928 English words**. The index is ~7.7 MiB; the manifest records the
-source SHA256s and the `wordfreq` version.
+The union is **184,775 Bangla words** (72,315 with non-zero popularity),
+**58,928 English words**, and **114,193 roman→Bangla pairs**. The index is
+~10.2 MiB; the manifest records the source SHA256s and the `wordfreq` version.
 
-The Nms Kontho `WTR1` phonetic trie is **not** parsed in 0.6. Its 135,410
-roman→Bangla pairs would add spelling variants, but the format is a binary
-trie and AGENTS.md requires a test-validated parser, not a guess. It remains a
-0.8 option.
+The Nms `WTR1` trie is **not reconstructed**. The importer walks the byte
+stream, accepts complete leaf records (`u16 key_len`, ASCII key, `u32 freq`,
+`u16 value_len`, Bengali value), and fails the build unless a known-mapping
+set matches (`dhonnobad`, `bhalo`, `ghor`, `mangsho`, `jabo`, `koro`,
+`korechi`, `computer`, …). The direct roman index is what fixes the rule
+table's inherent-vowel gaps; it is not a guess at the trie's node layout.
 
 ## Regeneration
 
 ```powershell
 $env:PATH = "$HOME\.cargo\bin;C:\msys64\mingw64\bin;$env:PATH"
 python -m pip install -r scripts/requirements-suggest.txt
-python scripts/build-suggestion-index.py --avro-home ..\avro_portable
+python scripts/build-suggestion-index.py --avro-home ..\avro_portable `
+  --nms-dict "..\Nms Kontho x64 8.002\Dictionaries\Langs\Bangla\Dics\bangla_dict.bin"
 .\scripts\verify-suggestion-index.ps1
 ```
 
@@ -52,6 +56,7 @@ section table: { id u32, offset u32, len u32, count u32 } * section_count
 7  EN          { text_off u32, text_len u16, zipf u16 } sorted by UTF-8 bytes
 8  EN_POP      u32 indices into EN, sorted by (zipf desc, text)
 9  META        UTF-8 JSON (counts, sources, wordfreq version)
+10 ROMAN       { key_off u32, key_len u16, out_off u32, out_len u16 } sorted by key
 ```
 
 `zipf` is `round(zipf_frequency * 100)` clamped to 0–800. Words are NFC,
@@ -69,3 +74,6 @@ failure disables the dictionary and keeps the rule-only path.
   even if a source changes.
 - The autocorrect list is a bounded correction layer, not an auto-replace
   rule; it only adds candidates.
+- The Nms roman pairs cover words the 250-rule table spells differently
+  (`ghor` → ঘর, `mangsho` → মাংস, `jabo` → যাবো); the Avro list still supplies
+  words the Nms dictionary lacks.

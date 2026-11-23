@@ -9,6 +9,7 @@ mod injection;
 mod output;
 mod ranking;
 mod stats;
+mod suggestions;
 
 use std::error::Error;
 use std::fmt;
@@ -98,6 +99,18 @@ fn run() -> Result<(), BenchError> {
         }
     }
 
+    if options.suggestions {
+        let iterations = options
+            .iterations
+            .unwrap_or(if options.smoke { 100 } else { 2_000 });
+        let warmup = options.warmup.unwrap_or_else(|| default_warmup(iterations));
+        let report = suggestions::run(iterations, warmup).map_err(BenchError::Failed)?;
+        print_suggestions(&report);
+        if options.smoke {
+            validate_suggestions_smoke(&report)?;
+        }
+    }
+
     if options.injection {
         let iterations = options
             .iterations
@@ -113,6 +126,59 @@ fn run() -> Result<(), BenchError> {
     }
 
     Ok(())
+}
+
+fn print_suggestions(report: &suggestions::SuggestionReport) {
+    println!(
+        "suggestions: top1 {}/{} ({:.1}%), top5 {}/{} ({:.1}%)",
+        report.top1,
+        report.total,
+        percent(report.top1, report.total),
+        report.top5,
+        report.total,
+        percent(report.top5, report.total)
+    );
+    if let Some(latency) = &report.latency {
+        println!(
+            "suggest latency: p50 {:.3} ms, p95 {:.3} ms, p99 {:.3} ms, max {:.3} ms, {} samples",
+            nanos_ms(latency.p50_ns),
+            nanos_ms(latency.p95_ns),
+            nanos_ms(latency.p99_ns),
+            nanos_ms(latency.max_ns),
+            latency.count
+        );
+    }
+}
+
+fn validate_suggestions_smoke(report: &suggestions::SuggestionReport) -> Result<(), BenchError> {
+    if report.total == 0 || report.top5 == 0 {
+        return Err(BenchError::Failed(
+            "suggestion smoke produced no hits".to_owned(),
+        ));
+    }
+    let Some(latency) = &report.latency else {
+        return Err(BenchError::Failed(
+            "suggestion smoke produced no latency samples".to_owned(),
+        ));
+    };
+    if !latency.is_monotonic() {
+        return Err(BenchError::Failed(
+            "suggestion smoke found non-monotonic percentiles".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn percent(part: usize, total: usize) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        part as f64 * 100.0 / total as f64
+    }
+}
+
+fn nanos_ms(value: u64) -> f64 {
+    value as f64 / 1_000_000.0
 }
 
 fn validate_smoke(report: &RankingReport) -> Result<(), BenchError> {
@@ -317,6 +383,7 @@ fn default_warmup(iterations: usize) -> usize {
 struct Options {
     ranking: bool,
     candidates: bool,
+    suggestions: bool,
     injection: bool,
     smoke: bool,
     sendinput: bool,
@@ -334,6 +401,7 @@ impl Default for Options {
         Self {
             ranking: false,
             candidates: false,
+            suggestions: false,
             injection: false,
             smoke: false,
             sendinput: false,
@@ -356,6 +424,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
         match argument.as_str() {
             "--ranking" => options.ranking = true,
             "--candidates" => options.candidates = true,
+            "--suggestions" => options.suggestions = true,
             "--injection" => options.injection = true,
             "--smoke" => options.smoke = true,
             "--sendinput" => options.sendinput = true,
@@ -409,7 +478,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
             options.ranking = true;
         } else {
             return Err(BenchError::Usage(
-                "select --ranking, --candidates, --injection, or --smoke".to_owned(),
+                "select --ranking, --candidates, --suggestions, --injection, or --smoke".to_owned(),
             ));
         }
     }
@@ -466,11 +535,14 @@ fn print_help() {
          USAGE:\n\
          \x20   okkhor-bench --ranking [--iterations N] [--warmup N] [--seed N] [--json|--csv] [--smoke]\n\
          \x20   okkhor-bench --candidates [--iterations N] [--warmup N] [--json|--csv] [--smoke]\n\
+         \x20   okkhor-bench --suggestions [--iterations N] [--warmup N] [--smoke]\n\
          \x20   okkhor-bench --injection [--iterations N] [--sendinput] [--json|--csv]\n\n\
          MODES:\n\
          \x20   --ranking      Run N Smriti::rank calls over synthetic English/Bangla cases.\n\
          \x20   --candidates   Run N CandidateEngine::suggest calls over the committed\n\
          \x20                  synthetic golden corpus; report top-1/top-5 hit rate plus rank latency.\n\
+         \x20   --suggestions  Run the live 0.6 engine over everyday words; report top-1/top-5\n\
+         \x20                  and suggestion latency.\n\
          \x20   --injection    Inject synthetic text into a private Win32 EDIT window and read it back.\n\
          \x20   --smoke        Short CI-friendly run; validates the percentile report\n\
          \x20                  (ranking default; one-case subset with `--candidates`).\n\n\

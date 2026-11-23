@@ -46,6 +46,7 @@ SECTION_SUFFIX = 6
 SECTION_EN = 7
 SECTION_EN_POP = 8
 SECTION_META = 9
+SECTION_ROMAN = 10
 
 MAX_WORD_BYTES = 96
 MAX_ENGLISH = 60_000
@@ -159,6 +160,68 @@ def read_starter(path: Path) -> list[tuple[str, str]]:
     return sorted(pairs.items(), key=lambda item: item[0])
 
 
+def read_nms_roman(path: Path) -> list[tuple[str, str]]:
+    """Extract leaf pairs from the Nms `WTR1` phonetic dictionary.
+
+    The file is a serialized trie; this importer walks the byte stream and
+    accepts only complete leaf records (`u16 key_len`, ASCII key, `u32 freq`,
+    `u16 value_len`, Bengali value). It does not reconstruct the trie. The
+    known-mapping validation below fails the build if the layout drifts.
+    """
+    data = path.read_bytes()
+    pairs: dict[tuple[str, str], None] = {}
+    position = 0
+    limit = len(data) - 10
+    while position < limit:
+        key_len = struct.unpack_from("<H", data, position)[0]
+        if 1 <= key_len <= 24 and position + 2 + key_len + 6 <= len(data):
+            key_bytes = data[position + 2 : position + 2 + key_len]
+            if all(97 <= byte <= 122 for byte in key_bytes):
+                frequency = struct.unpack_from("<I", data, position + 2 + key_len)[0]
+                value_len = struct.unpack_from("<H", data, position + 2 + key_len + 4)[0]
+                value_start = position + 2 + key_len + 6
+                if (
+                    1 <= frequency < 10_000_000
+                    and 3 <= value_len <= 300
+                    and value_start + value_len <= len(data)
+                ):
+                    try:
+                        value = data[value_start : value_start + value_len].decode("utf-8")
+                    except UnicodeDecodeError:
+                        value = ""
+                    normalized = normalize_bangla(value)
+                    if normalized == value:
+                        pairs[(key_bytes.decode("ascii"), value)] = None
+                        position = value_start + value_len
+                        continue
+        position += 1
+
+    rows = sorted(pairs, key=lambda item: (item[0].encode(), item[1].encode()))
+    by_key: dict[str, set[str]] = {}
+    for key, value in rows:
+        by_key.setdefault(key, set()).add(value)
+    expected = {
+        "dhonnobad": "ধন্যবাদ",
+        "bhalo": "ভালো",
+        "amar": "আমার",
+        "kemon": "কেমন",
+        "computer": "কম্পিউটার",
+        "ghor": "ঘর",
+        "mangsho": "মাংস",
+        "jabo": "যাবো",
+        "koro": "করো",
+        "korechi": "করেছি",
+    }
+    for key, value in expected.items():
+        if value not in by_key.get(key, set()):
+            raise SystemExit(
+                f"Nms dictionary validation failed: {key!r} does not map to {value!r}"
+            )
+    if not (100_000 <= len(rows) <= 160_000):
+        raise SystemExit(f"Nms dictionary pair count is implausible: {len(rows)}")
+    return rows
+
+
 def popularity(text: str, language: str) -> int:
     from wordfreq import zipf_frequency
 
@@ -212,6 +275,7 @@ def write_index(
     output: Path,
     manifest_path: Path,
     curated: list[tuple[str, str]],
+    roman: list[tuple[str, str]],
     bangla: list[tuple[str, int]],
     english: list[tuple[str, int]],
     autocorrect: list[tuple[str, str]],
@@ -223,8 +287,8 @@ def write_index(
     pool = Pool()
 
     curated_entries = bytearray()
-    for roman, bangla_output in curated:
-        roman_offset, roman_length = pool.add(roman)
+    for curated_roman, bangla_output in curated:
+        roman_offset, roman_length = pool.add(curated_roman)
         out_offset, out_length = pool.add(bangla_output)
         curated_entries.extend(
             struct.pack("<IHIH", roman_offset, roman_length, out_offset, out_length)
@@ -232,6 +296,14 @@ def write_index(
 
     bn_entries, bn_pop = pack_text_entries(pool, bangla)
     en_entries, en_pop = pack_text_entries(pool, english)
+
+    roman_entries = bytearray()
+    for key, value in roman:
+        key_offset, key_length = pool.add(key)
+        value_offset, value_length = pool.add(value)
+        roman_entries.extend(
+            struct.pack("<IHIH", key_offset, key_length, value_offset, value_length)
+        )
 
     autoc_entries = bytearray()
     for left, right in autocorrect:
@@ -242,8 +314,8 @@ def write_index(
         )
 
     suffix_entries = bytearray()
-    for roman, bangla_text in suffixes:
-        roman_offset, roman_length = pool.add(roman)
+    for suffix_roman, bangla_text in suffixes:
+        roman_offset, roman_length = pool.add(suffix_roman)
         bangla_offset, bangla_length = pool.add(bangla_text)
         suffix_entries.extend(
             struct.pack("<IHIH", roman_offset, roman_length, bangla_offset, bangla_length)
@@ -263,6 +335,7 @@ def write_index(
         build_section(SECTION_EN, en_entries, len(english)),
         build_section(SECTION_EN_POP, en_pop, len(english)),
         build_section(SECTION_META, meta_bytes, 1),
+        build_section(SECTION_ROMAN, bytes(roman_entries), len(roman)),
     ]
 
     header_size = 12 + 16 * len(sections)
@@ -313,6 +386,13 @@ def main() -> int:
         default=root / "apps/okkhor-daemon/assets/suggestions/bn-starter-v1.json",
     )
     parser.add_argument(
+        "--nms-dict",
+        type=Path,
+        default=root.parent
+        / "Nms Kontho x64 8.002/Dictionaries/Langs/Bangla/Dics/bangla_dict.bin",
+        help="Nms Kontho WTR1 phonetic dictionary (leaf records only)",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=root / "crates/okkhor-engine/assets/suggest/suggest-v1.bin",
@@ -331,7 +411,7 @@ def main() -> int:
 
     db_path = args.avro_home / "Database.db3"
     auto_path = args.avro_home / "autodict.dct"
-    for required in (db_path, auto_path, args.starter):
+    for required in (db_path, auto_path, args.starter, args.nms_dict):
         if not required.exists():
             parser.error(f"missing source: {required}")
 
@@ -339,6 +419,7 @@ def main() -> int:
     suffixes = read_suffixes(db_path)
     autocorrect = read_autocorrect(auto_path)
     curated = read_starter(args.starter)
+    roman = read_nms_roman(args.nms_dict)
 
     bangla_words: set[str] = set()
     for word in avro_words:
@@ -381,11 +462,14 @@ def main() -> int:
             "curated": len(curated),
             "autocorrect": len(autocorrect),
             "suffix": len(suffixes),
+            "roman_pairs": len(roman),
+            "roman_keys": len({key for key, _ in roman}),
         },
         "sources": {
             "avro_database": {"name": db_path.name, "sha256": sha256(db_path)},
             "avro_autocorrect": {"name": auto_path.name, "sha256": sha256(auto_path)},
             "starter": {"name": args.starter.name, "sha256": sha256(args.starter)},
+            "nms_phonetic": {"name": args.nms_dict.name, "sha256": sha256(args.nms_dict)},
         },
         "notes": "Bangla words are single-word NFC; ASCII/Latin entries are rejected.",
     }
@@ -394,6 +478,7 @@ def main() -> int:
         output=args.output,
         manifest_path=args.manifest,
         curated=curated,
+        roman=roman,
         bangla=bangla,
         english=english,
         autocorrect=autocorrect,

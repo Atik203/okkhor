@@ -8,9 +8,9 @@ English completion rules are in ADR-0016.
 ## 0.6 additions
 
 - **Suggestion engine** (`okkhor-engine::suggest`) replaces the session's
-  ad-hoc starter + rule merge. Stage order: curated exact, user exact,
-  autocorrect exact, rule output/vowel variant, dictionary exact, dictionary
-  prefix, suffix expansion, Smriti rank.
+  ad-hoc starter + rule merge. Stage order: curated exact, user exact, roman
+  exact/prefix, autocorrect exact, rule output/vowel variant, dictionary
+  exact, dictionary prefix, suffix expansion, Smriti rank.
 - **Rows:** `popup_max_items` defaults to 8 (max 10); digits `1`-`9` and `0`
   select the tenth.
 - **English completions:** a separate token tracker in the daemon; the popup

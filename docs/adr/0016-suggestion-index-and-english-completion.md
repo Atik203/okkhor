@@ -21,7 +21,8 @@ installation. Analysis found:
   tables plus a 749-row suffix table; no frequency column.
 - Avro `autodict.dct`: 2,481 roman→roman autocorrect pairs.
 - Nms `bangla_dict.bin`: a `WTR1` binary trie with 135,410 roman→Bangla
-  pairs; a validated parser is deferred (0.4 contract).
+  pairs. Its leaf records are imported by a validated byte scanner shared by
+  the generator; the trie itself is not reconstructed.
 - `wordfreq` provides Bengali/English zipf popularity and a top-word list
   that fills common forms missing from the Avro database.
 
@@ -31,14 +32,18 @@ installation. Analysis found:
 
 Build `crates/okkhor-engine/assets/suggest/suggest-v1.bin` from the Avro
 database, the suffix table, the autocorrect dictionary, the curated starter
-list, and `wordfreq` top lists for `bn` and `en`. The index is deterministic,
-versioned (`OKS1`), NFC-normalized, and carries a manifest with source
-SHA256s, counts, and the wordfreq version. It is embedded with
-`include_bytes!` and parsed once at daemon startup into a zero-copy view.
-No source path is committed.
+list, the Nms phonetic dictionary, and `wordfreq` top lists for `bn` and
+`en`. The index is deterministic, versioned (`OKS1`), NFC-normalized, and
+carries a manifest with source SHA256s, counts, and the wordfreq version. It
+is embedded with `include_bytes!` and parsed once at daemon startup into a
+zero-copy view. No source path is committed.
 
-`WTR1` is not parsed in 0.6. The Avro data matches the Avro phonetic rules
-already shipped, so it is the lower-risk source.
+The Nms `WTR1` trie is **not reconstructed**. The generator walks the byte
+stream, accepts complete leaf records (`u16 key_len`, ASCII key, `u32 freq`,
+`u16 value_len`, Bengali value), and fails the build unless a known-mapping
+set (including `ghor`, `mangsho`, `jabo`, `koro`, `korechi`) matches. This
+adds a direct roman index that covers the rule table's inherent-vowel gaps
+(`achhi`, `mangsho`, `jabo`, `koro`).
 
 ### 2. Stage order
 
@@ -46,12 +51,13 @@ For a roman buffer, the live engine uses:
 
 1. curated exact (starter list);
 2. user dictionary exact;
-3. autocorrect exact;
-4. rule output exact and explicit-vowel variant (`o` → `O`);
-5. dictionary exact;
-6. dictionary prefix, bounded to the 40 most popular completions;
-7. suffix expansion if it improves the golden corpus;
-8. merge/dedup, `Smriti::rank`, top N.
+3. roman exact and roman prefix (Nms phonetic dictionary);
+4. autocorrect exact;
+5. rule output exact and explicit-vowel variant (`o` → `O`);
+6. dictionary exact;
+7. dictionary prefix, bounded to the 40 most popular completions;
+8. suffix expansion if it improves the golden corpus;
+9. merge/dedup, `Smriti::rank`, top N.
 
 The query is bounded (≤64 staged candidates, ≤8 rule outputs), performs no
 I/O, reads no clock, and has no `unsafe`. Corrupt data fails closed to the
@@ -87,7 +93,7 @@ The popup window itself is unchanged (non-activating, per-monitor DPI).
 
 ## Consequences
 
-- The daemon grows by the embedded index (target ≤8 MiB) and a small parse
+- The daemon grows by the embedded index (~10.2 MiB) and a small parse
   cost at startup, off the key path.
 - Regenerating the index requires the owner-provided sources and the pinned
   wordfreq version; the committed manifest makes drift visible.

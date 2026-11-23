@@ -1,236 +1,951 @@
 {
   "schema": 1,
   "name": "bn-starter-v1",
-  "note": "Curated starter roman-to-Bangla list for the 0.5 caret suggestions. Order is priority. Keep entries ASCII-roman and lower-case; the daemon never logs them. Replace with the imported Avro dictionary in 0.6.",
+  "note": "Curated starter roman-to-Bangla list. Order is priority. Keep entries ASCII-roman and lower-case; the daemon never logs them. The 0.6 suggestion index augments this list.",
   "entries": [
-    { "roman": "amar", "output": "আমার" },
-    { "roman": "ami", "output": "আমি" },
-    { "roman": "tumi", "output": "তুমি" },
-    { "roman": "apni", "output": "আপনি" },
-    { "roman": "amra", "output": "আমরা" },
-    { "roman": "tara", "output": "তারা" },
-    { "roman": "tomar", "output": "তোমার" },
-    { "roman": "apnar", "output": "আপনার" },
-    { "roman": "amake", "output": "আমাকে" },
-    { "roman": "tomake", "output": "তোমাকে" },
-    { "roman": "kemon", "output": "কেমন" },
-    { "roman": "kivabe", "output": "কিভাবে" },
-    { "roman": "kibhabe", "output": "কিভাবে" },
-    { "roman": "keno", "output": "কেন" },
-    { "roman": "kothay", "output": "কোথায়" },
-    { "roman": "ki", "output": "কী" },
-    { "roman": "kichu", "output": "কিছু" },
-    { "roman": "na", "output": "না" },
-    { "roman": "hya", "output": "হ্যাঁ" },
-    { "roman": "bhalo", "output": "ভালো" },
-    { "roman": "valo", "output": "ভালো" },
-    { "roman": "kharap", "output": "খারাপ" },
-    { "roman": "dhonnobad", "output": "ধন্যবাদ" },
-    { "roman": "dhanyabad", "output": "ধন্যবাদ" },
-    { "roman": "korcho", "output": "করছো" },
-    { "roman": "korchi", "output": "করছি" },
-    { "roman": "korchen", "output": "করছেন" },
-    { "roman": "korlam", "output": "করলাম" },
-    { "roman": "kore", "output": "করে" },
-    { "roman": "korte", "output": "করতে" },
-    { "roman": "korbo", "output": "করবো" },
-    { "roman": "korsi", "output": "করসি" },
-    { "roman": "hoy", "output": "হয়" },
-    { "roman": "hobe", "output": "হবে" },
-    { "roman": "hoyeche", "output": "হয়েছে" },
-    { "roman": "chilo", "output": "ছিল" },
-    { "roman": "ache", "output": "আছে" },
-    { "roman": "nei", "output": "নেই" },
-    { "roman": "theke", "output": "থেকে" },
-    { "roman": "jonno", "output": "জন্য" },
-    { "roman": "shathe", "output": "সাথে" },
-    { "roman": "sathe", "output": "সাথে" },
-    { "roman": "bangla", "output": "বাংলা" },
-    { "roman": "bangladesh", "output": "বাংলাদেশ" },
-    { "roman": "bhasha", "output": "ভাষা" },
-    { "roman": "desh", "output": "দেশ" },
-    { "roman": "manush", "output": "মানুষ" },
-    { "roman": "chele", "output": "ছেলে" },
-    { "roman": "meye", "output": "মেয়ে" },
-    { "roman": "baba", "output": "বাবা" },
-    { "roman": "ma", "output": "মা" },
-    { "roman": "bhai", "output": "ভাই" },
-    { "roman": "bon", "output": "বোন" },
-    { "roman": "bondhu", "output": "বন্ধু" },
-    { "roman": "dost", "output": "বন্ধু" },
-    { "roman": "didi", "output": "দিদি" },
-    { "roman": "dada", "output": "দাদা" },
-    { "roman": "nana", "output": "নানা" },
-    { "roman": "nani", "output": "নানি" },
-    { "roman": "aj", "output": "আজ" },
-    { "roman": "ajke", "output": "আজকে" },
-    { "roman": "kal", "output": "কাল" },
-    { "roman": "kalke", "output": "কালকে" },
-    { "roman": "ekhon", "output": "এখন" },
-    { "roman": "pore", "output": "পরে" },
-    { "roman": "age", "output": "আগে" },
-    { "roman": "sokale", "output": "সকালে" },
-    { "roman": "shokale", "output": "সকালে" },
-    { "roman": "dupure", "output": "দুপুরে" },
-    { "roman": "bikale", "output": "বিকেলে" },
-    { "roman": "rate", "output": "রাতে" },
-    { "roman": "shomoy", "output": "সময়" },
-    { "roman": "shokal", "output": "সকাল" },
-    { "roman": "dupur", "output": "দুপুর" },
-    { "roman": "bikol", "output": "বিকেল" },
-    { "roman": "sondha", "output": "সন্ধ্যা" },
-    { "roman": "rat", "output": "রাত" },
-    { "roman": "din", "output": "দিন" },
-    { "roman": "bochor", "output": "বছর" },
-    { "roman": "mash", "output": "মাস" },
-    { "roman": "shoptaho", "output": "সপ্তাহ" },
-    { "roman": "ghonta", "output": "ঘণ্টা" },
-    { "roman": "minute", "output": "মিনিট" },
-    { "roman": "khub", "output": "খুব" },
-    { "roman": "onek", "output": "অনেক" },
-    { "roman": "beshi", "output": "বেশি" },
-    { "roman": "kom", "output": "কম" },
-    { "roman": "taka", "output": "টাকা" },
-    { "roman": "kaj", "output": "কাজ" },
-    { "roman": "pora", "output": "পড়া" },
-    { "roman": "lekha", "output": "লেখা" },
-    { "roman": "kotha", "output": "কথা" },
-    { "roman": "gaan", "output": "গান" },
-    { "roman": "boi", "output": "বই" },
-    { "roman": "chobi", "output": "ছবি" },
-    { "roman": "golpo", "output": "গল্প" },
-    { "roman": "kobita", "output": "কবিতা" },
-    { "roman": "khela", "output": "খেলা" },
-    { "roman": "mon", "output": "মন" },
-    { "roman": "valobasha", "output": "ভালোবাসা" },
-    { "roman": "bhalobasha", "output": "ভালোবাসা" },
-    { "roman": "hasi", "output": "হাসি" },
-    { "roman": "kanna", "output": "কান্না" },
-    { "roman": "dukkho", "output": "দুঃখ" },
-    { "roman": "khushi", "output": "খুশি" },
-    { "roman": "shundor", "output": "সুন্দর" },
-    { "roman": "choto", "output": "ছোট" },
-    { "roman": "boro", "output": "বড়" },
-    { "roman": "notun", "output": "নতুন" },
-    { "roman": "purano", "output": "পুরানো" },
-    { "roman": "shob", "output": "সব" },
-    { "roman": "koto", "output": "কত" },
-    { "roman": "kobe", "output": "কবে" },
-    { "roman": "kon", "output": "কোন" },
-    { "roman": "bolbo", "output": "বলবো" },
-    { "roman": "bolun", "output": "বলুন" },
-    { "roman": "boli", "output": "বলি" },
-    { "roman": "shuni", "output": "শুনি" },
-    { "roman": "dekhi", "output": "দেখি" },
-    { "roman": "dekhun", "output": "দেখুন" },
-    { "roman": "jai", "output": "যাই" },
-    { "roman": "jani", "output": "জানি" },
-    { "roman": "parbo", "output": "পারবো" },
-    { "roman": "pari", "output": "পারি" },
-    { "roman": "gelam", "output": "গেলাম" },
-    { "roman": "giye", "output": "গিয়ে" },
-    { "roman": "ashi", "output": "আসি" },
-    { "roman": "asbe", "output": "আসবে" },
-    { "roman": "acho", "output": "আছো" },
-    { "roman": "achen", "output": "আছেন" },
-    { "roman": "khai", "output": "খাই" },
-    { "roman": "khao", "output": "খাও" },
-    { "roman": "kheye", "output": "খেয়ে" },
-    { "roman": "ghum", "output": "ঘুম" },
-    { "roman": "shopno", "output": "স্বপ্ন" },
-    { "roman": "shuru", "output": "শুরু" },
-    { "roman": "shesh", "output": "শেষ" },
-    { "roman": "prothom", "output": "প্রথম" },
-    { "roman": "ditio", "output": "দ্বিতীয়" },
-    { "roman": "tritio", "output": "তৃতীয়" },
-    { "roman": "ek", "output": "এক" },
-    { "roman": "dui", "output": "দুই" },
-    { "roman": "tin", "output": "তিন" },
-    { "roman": "char", "output": "চার" },
-    { "roman": "panch", "output": "পাঁচ" },
-    { "roman": "choy", "output": "ছয়" },
-    { "roman": "shat", "output": "সাত" },
-    { "roman": "at", "output": "আট" },
-    { "roman": "noy", "output": "নয়" },
-    { "roman": "dosh", "output": "দশ" },
-    { "roman": "shoto", "output": "শত" },
-    { "roman": "hajar", "output": "হাজার" },
-    { "roman": "lakh", "output": "লাখ" },
-    { "roman": "koti", "output": "কোটি" },
-    { "roman": "poribar", "output": "পরিবার" },
-    { "roman": "shikkha", "output": "শিক্ষা" },
-    { "roman": "school", "output": "স্কুল" },
-    { "roman": "college", "output": "কলেজ" },
-    { "roman": "office", "output": "অফিস" },
-    { "roman": "computer", "output": "কম্পিউটার" },
-    { "roman": "phone", "output": "ফোন" },
-    { "roman": "message", "output": "মেসেজ" },
-    { "roman": "email", "output": "ইমেইল" },
-    { "roman": "internet", "output": "ইন্টারনেট" },
-    { "roman": "keyboard", "output": "কিবোর্ড" },
-    { "roman": "file", "output": "ফাইল" },
-    { "roman": "video", "output": "ভিডিও" },
-    { "roman": "pani", "output": "পানি" },
-    { "roman": "bhat", "output": "ভাত" },
-    { "roman": "mach", "output": "মাছ" },
-    { "roman": "dal", "output": "ডাল" },
-    { "roman": "cha", "output": "চা" },
-    { "roman": "dudh", "output": "দুধ" },
-    { "roman": "khabar", "output": "খাবার" },
-    { "roman": "bazar", "output": "বাজার" },
-    { "roman": "dokan", "output": "দোকান" },
-    { "roman": "bari", "output": "বাড়ি" },
-    { "roman": "ghore", "output": "ঘরে" },
-    { "roman": "baire", "output": "বাইরে" },
-    { "roman": "shohor", "output": "শহর" },
-    { "roman": "gram", "output": "গ্রাম" },
-    { "roman": "rasta", "output": "রাস্তা" },
-    { "roman": "sarkar", "output": "সরকার" },
-    { "roman": "jati", "output": "জাতি" },
-    { "roman": "bishwo", "output": "বিশ্ব" },
-    { "roman": "prithibi", "output": "পৃথিবী" },
-    { "roman": "akash", "output": "আকাশ" },
-    { "roman": "shurjo", "output": "সূর্য" },
-    { "roman": "chad", "output": "চাঁদ" },
-    { "roman": "brishti", "output": "বৃষ্টি" },
-    { "roman": "gorom", "output": "গরম" },
-    { "roman": "thanda", "output": "ঠান্ডা" },
-    { "roman": "shastho", "output": "স্বাস্থ্য" },
-    { "roman": "daktar", "output": "ডাক্তার" },
-    { "roman": "oushodh", "output": "ঔষধ" },
-    { "roman": "hospital", "output": "হাসপাতাল" },
-    { "roman": "shikkhok", "output": "শিক্ষক" },
-    { "roman": "chhatro", "output": "ছাত্র" },
-    { "roman": "car", "output": "গাড়ি" },
-    { "roman": "bus", "output": "বাস" },
-    { "roman": "train", "output": "ট্রেন" },
-    { "roman": "plane", "output": "বিমান" },
-    { "roman": "cycle", "output": "সাইকেল" },
-    { "roman": "khobor", "output": "খবর" },
-    { "roman": "potrika", "output": "পত্রিকা" },
-    { "roman": "cinema", "output": "সিনেমা" },
-    { "roman": "natok", "output": "নাটক" },
-    { "roman": "biye", "output": "বিয়ে" },
-    { "roman": "allah", "output": "আল্লাহ" },
-    { "roman": "eid", "output": "ঈদ" },
-    { "roman": "pujo", "output": "পূজা" },
-    { "roman": "dhormo", "output": "ধর্ম" },
-    { "roman": "dowa", "output": "দোয়া" },
-    { "roman": "namaz", "output": "নামাজ" },
-    { "roman": "maaf", "output": "মাফ" },
-    { "roman": "dukkhito", "output": "দুঃখিত" },
-    { "roman": "thik", "output": "ঠিক" },
-    { "roman": "shuveccha", "output": "শুভেচ্ছা" },
-    { "roman": "abhinondon", "output": "অভিনন্দন" },
-    { "roman": "shagotom", "output": "স্বাগতম" },
-    { "roman": "nam", "output": "নাম" },
-    { "roman": "boyosh", "output": "বয়স" },
-    { "roman": "thikana", "output": "ঠিকানা" },
-    { "roman": "proshno", "output": "প্রশ্ন" },
-    { "roman": "uttor", "output": "উত্তর" },
-    { "roman": "shomossha", "output": "সমস্যা" },
-    { "roman": "shomadhan", "output": "সমাধান" },
-    { "roman": "shahajjo", "output": "সাহায্য" },
-    { "roman": "doya", "output": "দয়া" }
+    {
+      "roman": "amar",
+      "output": "আমার"
+    },
+    {
+      "roman": "ami",
+      "output": "আমি"
+    },
+    {
+      "roman": "tumi",
+      "output": "তুমি"
+    },
+    {
+      "roman": "apni",
+      "output": "আপনি"
+    },
+    {
+      "roman": "amra",
+      "output": "আমরা"
+    },
+    {
+      "roman": "tara",
+      "output": "তারা"
+    },
+    {
+      "roman": "tomar",
+      "output": "তোমার"
+    },
+    {
+      "roman": "apnar",
+      "output": "আপনার"
+    },
+    {
+      "roman": "amake",
+      "output": "আমাকে"
+    },
+    {
+      "roman": "tomake",
+      "output": "তোমাকে"
+    },
+    {
+      "roman": "kemon",
+      "output": "কেমন"
+    },
+    {
+      "roman": "kivabe",
+      "output": "কিভাবে"
+    },
+    {
+      "roman": "kibhabe",
+      "output": "কিভাবে"
+    },
+    {
+      "roman": "keno",
+      "output": "কেন"
+    },
+    {
+      "roman": "kothay",
+      "output": "কোথায়"
+    },
+    {
+      "roman": "ki",
+      "output": "কী"
+    },
+    {
+      "roman": "kichu",
+      "output": "কিছু"
+    },
+    {
+      "roman": "na",
+      "output": "না"
+    },
+    {
+      "roman": "hya",
+      "output": "হ্যাঁ"
+    },
+    {
+      "roman": "bhalo",
+      "output": "ভালো"
+    },
+    {
+      "roman": "valo",
+      "output": "ভালো"
+    },
+    {
+      "roman": "kharap",
+      "output": "খারাপ"
+    },
+    {
+      "roman": "dhonnobad",
+      "output": "ধন্যবাদ"
+    },
+    {
+      "roman": "dhanyabad",
+      "output": "ধন্যবাদ"
+    },
+    {
+      "roman": "korcho",
+      "output": "করছো"
+    },
+    {
+      "roman": "korchi",
+      "output": "করছি"
+    },
+    {
+      "roman": "korchen",
+      "output": "করছেন"
+    },
+    {
+      "roman": "korlam",
+      "output": "করলাম"
+    },
+    {
+      "roman": "kore",
+      "output": "করে"
+    },
+    {
+      "roman": "korte",
+      "output": "করতে"
+    },
+    {
+      "roman": "korbo",
+      "output": "করবো"
+    },
+    {
+      "roman": "korsi",
+      "output": "করসি"
+    },
+    {
+      "roman": "hoy",
+      "output": "হয়"
+    },
+    {
+      "roman": "hobe",
+      "output": "হবে"
+    },
+    {
+      "roman": "hoyeche",
+      "output": "হয়েছে"
+    },
+    {
+      "roman": "chilo",
+      "output": "ছিল"
+    },
+    {
+      "roman": "ache",
+      "output": "আছে"
+    },
+    {
+      "roman": "nei",
+      "output": "নেই"
+    },
+    {
+      "roman": "theke",
+      "output": "থেকে"
+    },
+    {
+      "roman": "jonno",
+      "output": "জন্য"
+    },
+    {
+      "roman": "shathe",
+      "output": "সাথে"
+    },
+    {
+      "roman": "sathe",
+      "output": "সাথে"
+    },
+    {
+      "roman": "bangla",
+      "output": "বাংলা"
+    },
+    {
+      "roman": "bangladesh",
+      "output": "বাংলাদেশ"
+    },
+    {
+      "roman": "bhasha",
+      "output": "ভাষা"
+    },
+    {
+      "roman": "desh",
+      "output": "দেশ"
+    },
+    {
+      "roman": "manush",
+      "output": "মানুষ"
+    },
+    {
+      "roman": "chele",
+      "output": "ছেলে"
+    },
+    {
+      "roman": "meye",
+      "output": "মেয়ে"
+    },
+    {
+      "roman": "baba",
+      "output": "বাবা"
+    },
+    {
+      "roman": "ma",
+      "output": "মা"
+    },
+    {
+      "roman": "bhai",
+      "output": "ভাই"
+    },
+    {
+      "roman": "bon",
+      "output": "বোন"
+    },
+    {
+      "roman": "bondhu",
+      "output": "বন্ধু"
+    },
+    {
+      "roman": "dost",
+      "output": "বন্ধু"
+    },
+    {
+      "roman": "didi",
+      "output": "দিদি"
+    },
+    {
+      "roman": "dada",
+      "output": "দাদা"
+    },
+    {
+      "roman": "nana",
+      "output": "নানা"
+    },
+    {
+      "roman": "nani",
+      "output": "নানি"
+    },
+    {
+      "roman": "aj",
+      "output": "আজ"
+    },
+    {
+      "roman": "ajke",
+      "output": "আজকে"
+    },
+    {
+      "roman": "kal",
+      "output": "কাল"
+    },
+    {
+      "roman": "kalke",
+      "output": "কালকে"
+    },
+    {
+      "roman": "ekhon",
+      "output": "এখন"
+    },
+    {
+      "roman": "pore",
+      "output": "পরে"
+    },
+    {
+      "roman": "age",
+      "output": "আগে"
+    },
+    {
+      "roman": "sokale",
+      "output": "সকালে"
+    },
+    {
+      "roman": "shokale",
+      "output": "সকালে"
+    },
+    {
+      "roman": "dupure",
+      "output": "দুপুরে"
+    },
+    {
+      "roman": "bikale",
+      "output": "বিকেলে"
+    },
+    {
+      "roman": "rate",
+      "output": "রাতে"
+    },
+    {
+      "roman": "shomoy",
+      "output": "সময়"
+    },
+    {
+      "roman": "shokal",
+      "output": "সকাল"
+    },
+    {
+      "roman": "dupur",
+      "output": "দুপুর"
+    },
+    {
+      "roman": "bikol",
+      "output": "বিকেল"
+    },
+    {
+      "roman": "sondha",
+      "output": "সন্ধ্যা"
+    },
+    {
+      "roman": "rat",
+      "output": "রাত"
+    },
+    {
+      "roman": "din",
+      "output": "দিন"
+    },
+    {
+      "roman": "bochor",
+      "output": "বছর"
+    },
+    {
+      "roman": "mash",
+      "output": "মাস"
+    },
+    {
+      "roman": "shoptaho",
+      "output": "সপ্তাহ"
+    },
+    {
+      "roman": "ghonta",
+      "output": "ঘণ্টা"
+    },
+    {
+      "roman": "minute",
+      "output": "মিনিট"
+    },
+    {
+      "roman": "khub",
+      "output": "খুব"
+    },
+    {
+      "roman": "onek",
+      "output": "অনেক"
+    },
+    {
+      "roman": "beshi",
+      "output": "বেশি"
+    },
+    {
+      "roman": "kom",
+      "output": "কম"
+    },
+    {
+      "roman": "taka",
+      "output": "টাকা"
+    },
+    {
+      "roman": "kaj",
+      "output": "কাজ"
+    },
+    {
+      "roman": "pora",
+      "output": "পড়া"
+    },
+    {
+      "roman": "lekha",
+      "output": "লেখা"
+    },
+    {
+      "roman": "kotha",
+      "output": "কথা"
+    },
+    {
+      "roman": "gaan",
+      "output": "গান"
+    },
+    {
+      "roman": "boi",
+      "output": "বই"
+    },
+    {
+      "roman": "chobi",
+      "output": "ছবি"
+    },
+    {
+      "roman": "golpo",
+      "output": "গল্প"
+    },
+    {
+      "roman": "kobita",
+      "output": "কবিতা"
+    },
+    {
+      "roman": "khela",
+      "output": "খেলা"
+    },
+    {
+      "roman": "mon",
+      "output": "মন"
+    },
+    {
+      "roman": "valobasha",
+      "output": "ভালোবাসা"
+    },
+    {
+      "roman": "bhalobasha",
+      "output": "ভালোবাসা"
+    },
+    {
+      "roman": "hasi",
+      "output": "হাসি"
+    },
+    {
+      "roman": "kanna",
+      "output": "কান্না"
+    },
+    {
+      "roman": "dukkho",
+      "output": "দুঃখ"
+    },
+    {
+      "roman": "khushi",
+      "output": "খুশি"
+    },
+    {
+      "roman": "shundor",
+      "output": "সুন্দর"
+    },
+    {
+      "roman": "choto",
+      "output": "ছোট"
+    },
+    {
+      "roman": "boro",
+      "output": "বড়"
+    },
+    {
+      "roman": "notun",
+      "output": "নতুন"
+    },
+    {
+      "roman": "purano",
+      "output": "পুরানো"
+    },
+    {
+      "roman": "shob",
+      "output": "সব"
+    },
+    {
+      "roman": "koto",
+      "output": "কত"
+    },
+    {
+      "roman": "kobe",
+      "output": "কবে"
+    },
+    {
+      "roman": "kon",
+      "output": "কোন"
+    },
+    {
+      "roman": "bolbo",
+      "output": "বলবো"
+    },
+    {
+      "roman": "bolun",
+      "output": "বলুন"
+    },
+    {
+      "roman": "boli",
+      "output": "বলি"
+    },
+    {
+      "roman": "shuni",
+      "output": "শুনি"
+    },
+    {
+      "roman": "dekhi",
+      "output": "দেখি"
+    },
+    {
+      "roman": "dekhun",
+      "output": "দেখুন"
+    },
+    {
+      "roman": "jai",
+      "output": "যাই"
+    },
+    {
+      "roman": "jani",
+      "output": "জানি"
+    },
+    {
+      "roman": "parbo",
+      "output": "পারবো"
+    },
+    {
+      "roman": "pari",
+      "output": "পারি"
+    },
+    {
+      "roman": "gelam",
+      "output": "গেলাম"
+    },
+    {
+      "roman": "giye",
+      "output": "গিয়ে"
+    },
+    {
+      "roman": "ashi",
+      "output": "আসি"
+    },
+    {
+      "roman": "asbe",
+      "output": "আসবে"
+    },
+    {
+      "roman": "acho",
+      "output": "আছো"
+    },
+    {
+      "roman": "achen",
+      "output": "আছেন"
+    },
+    {
+      "roman": "khai",
+      "output": "খাই"
+    },
+    {
+      "roman": "khao",
+      "output": "খাও"
+    },
+    {
+      "roman": "kheye",
+      "output": "খেয়ে"
+    },
+    {
+      "roman": "ghum",
+      "output": "ঘুম"
+    },
+    {
+      "roman": "shopno",
+      "output": "স্বপ্ন"
+    },
+    {
+      "roman": "shuru",
+      "output": "শুরু"
+    },
+    {
+      "roman": "shesh",
+      "output": "শেষ"
+    },
+    {
+      "roman": "prothom",
+      "output": "প্রথম"
+    },
+    {
+      "roman": "ditio",
+      "output": "দ্বিতীয়"
+    },
+    {
+      "roman": "tritio",
+      "output": "তৃতীয়"
+    },
+    {
+      "roman": "ek",
+      "output": "এক"
+    },
+    {
+      "roman": "dui",
+      "output": "দুই"
+    },
+    {
+      "roman": "tin",
+      "output": "তিন"
+    },
+    {
+      "roman": "char",
+      "output": "চার"
+    },
+    {
+      "roman": "panch",
+      "output": "পাঁচ"
+    },
+    {
+      "roman": "choy",
+      "output": "ছয়"
+    },
+    {
+      "roman": "shat",
+      "output": "সাত"
+    },
+    {
+      "roman": "at",
+      "output": "আট"
+    },
+    {
+      "roman": "noy",
+      "output": "নয়"
+    },
+    {
+      "roman": "dosh",
+      "output": "দশ"
+    },
+    {
+      "roman": "shoto",
+      "output": "শত"
+    },
+    {
+      "roman": "hajar",
+      "output": "হাজার"
+    },
+    {
+      "roman": "lakh",
+      "output": "লাখ"
+    },
+    {
+      "roman": "koti",
+      "output": "কোটি"
+    },
+    {
+      "roman": "poribar",
+      "output": "পরিবার"
+    },
+    {
+      "roman": "shikkha",
+      "output": "শিক্ষা"
+    },
+    {
+      "roman": "school",
+      "output": "স্কুল"
+    },
+    {
+      "roman": "college",
+      "output": "কলেজ"
+    },
+    {
+      "roman": "office",
+      "output": "অফিস"
+    },
+    {
+      "roman": "computer",
+      "output": "কম্পিউটার"
+    },
+    {
+      "roman": "phone",
+      "output": "ফোন"
+    },
+    {
+      "roman": "message",
+      "output": "মেসেজ"
+    },
+    {
+      "roman": "email",
+      "output": "ইমেইল"
+    },
+    {
+      "roman": "internet",
+      "output": "ইন্টারনেট"
+    },
+    {
+      "roman": "keyboard",
+      "output": "কিবোর্ড"
+    },
+    {
+      "roman": "file",
+      "output": "ফাইল"
+    },
+    {
+      "roman": "video",
+      "output": "ভিডিও"
+    },
+    {
+      "roman": "pani",
+      "output": "পানি"
+    },
+    {
+      "roman": "bhat",
+      "output": "ভাত"
+    },
+    {
+      "roman": "mach",
+      "output": "মাছ"
+    },
+    {
+      "roman": "dal",
+      "output": "ডাল"
+    },
+    {
+      "roman": "cha",
+      "output": "চা"
+    },
+    {
+      "roman": "dudh",
+      "output": "দুধ"
+    },
+    {
+      "roman": "khabar",
+      "output": "খাবার"
+    },
+    {
+      "roman": "bazar",
+      "output": "বাজার"
+    },
+    {
+      "roman": "dokan",
+      "output": "দোকান"
+    },
+    {
+      "roman": "bari",
+      "output": "বাড়ি"
+    },
+    {
+      "roman": "ghore",
+      "output": "ঘরে"
+    },
+    {
+      "roman": "baire",
+      "output": "বাইরে"
+    },
+    {
+      "roman": "shohor",
+      "output": "শহর"
+    },
+    {
+      "roman": "gram",
+      "output": "গ্রাম"
+    },
+    {
+      "roman": "rasta",
+      "output": "রাস্তা"
+    },
+    {
+      "roman": "sarkar",
+      "output": "সরকার"
+    },
+    {
+      "roman": "jati",
+      "output": "জাতি"
+    },
+    {
+      "roman": "bishwo",
+      "output": "বিশ্ব"
+    },
+    {
+      "roman": "prithibi",
+      "output": "পৃথিবী"
+    },
+    {
+      "roman": "akash",
+      "output": "আকাশ"
+    },
+    {
+      "roman": "shurjo",
+      "output": "সূর্য"
+    },
+    {
+      "roman": "chad",
+      "output": "চাঁদ"
+    },
+    {
+      "roman": "brishti",
+      "output": "বৃষ্টি"
+    },
+    {
+      "roman": "gorom",
+      "output": "গরম"
+    },
+    {
+      "roman": "thanda",
+      "output": "ঠান্ডা"
+    },
+    {
+      "roman": "shastho",
+      "output": "স্বাস্থ্য"
+    },
+    {
+      "roman": "daktar",
+      "output": "ডাক্তার"
+    },
+    {
+      "roman": "oushodh",
+      "output": "ঔষধ"
+    },
+    {
+      "roman": "hospital",
+      "output": "হাসপাতাল"
+    },
+    {
+      "roman": "shikkhok",
+      "output": "শিক্ষক"
+    },
+    {
+      "roman": "chhatro",
+      "output": "ছাত্র"
+    },
+    {
+      "roman": "car",
+      "output": "গাড়ি"
+    },
+    {
+      "roman": "bus",
+      "output": "বাস"
+    },
+    {
+      "roman": "train",
+      "output": "ট্রেন"
+    },
+    {
+      "roman": "plane",
+      "output": "বিমান"
+    },
+    {
+      "roman": "cycle",
+      "output": "সাইকেল"
+    },
+    {
+      "roman": "khobor",
+      "output": "খবর"
+    },
+    {
+      "roman": "potrika",
+      "output": "পত্রিকা"
+    },
+    {
+      "roman": "cinema",
+      "output": "সিনেমা"
+    },
+    {
+      "roman": "natok",
+      "output": "নাটক"
+    },
+    {
+      "roman": "biye",
+      "output": "বিয়ে"
+    },
+    {
+      "roman": "allah",
+      "output": "আল্লাহ"
+    },
+    {
+      "roman": "eid",
+      "output": "ঈদ"
+    },
+    {
+      "roman": "pujo",
+      "output": "পূজা"
+    },
+    {
+      "roman": "dhormo",
+      "output": "ধর্ম"
+    },
+    {
+      "roman": "dowa",
+      "output": "দোয়া"
+    },
+    {
+      "roman": "namaz",
+      "output": "নামাজ"
+    },
+    {
+      "roman": "maaf",
+      "output": "মাফ"
+    },
+    {
+      "roman": "dukkhito",
+      "output": "দুঃখিত"
+    },
+    {
+      "roman": "thik",
+      "output": "ঠিক"
+    },
+    {
+      "roman": "shuveccha",
+      "output": "শুভেচ্ছা"
+    },
+    {
+      "roman": "abhinondon",
+      "output": "অভিনন্দন"
+    },
+    {
+      "roman": "shagotom",
+      "output": "স্বাগতম"
+    },
+    {
+      "roman": "nam",
+      "output": "নাম"
+    },
+    {
+      "roman": "boyosh",
+      "output": "বয়স"
+    },
+    {
+      "roman": "thikana",
+      "output": "ঠিকানা"
+    },
+    {
+      "roman": "proshno",
+      "output": "প্রশ্ন"
+    },
+    {
+      "roman": "uttor",
+      "output": "উত্তর"
+    },
+    {
+      "roman": "shomossha",
+      "output": "সমস্যা"
+    },
+    {
+      "roman": "shomadhan",
+      "output": "সমাধান"
+    },
+    {
+      "roman": "shahajjo",
+      "output": "সাহায্য"
+    },
+    {
+      "roman": "doya",
+      "output": "দয়া"
+    },
+    {
+      "roman": "achhi",
+      "output": "আছি"
+    },
+    {
+      "roman": "raat",
+      "output": "রাত"
+    },
+    {
+      "roman": "naam",
+      "output": "নাম"
+    },
+    {
+      "roman": "porichoy",
+      "output": "পরিচয়"
+    },
+    {
+      "roman": "kolkata",
+      "output": "কলকাতা"
+    },
+    {
+      "roman": "ghor",
+      "output": "ঘর"
+    },
+    {
+      "roman": "dim",
+      "output": "ডিম"
+    }
   ]
 }
