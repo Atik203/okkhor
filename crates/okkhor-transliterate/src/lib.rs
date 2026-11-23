@@ -14,6 +14,7 @@
 pub mod engine;
 pub mod error;
 pub mod normalize;
+pub mod phonetic;
 pub mod rules;
 
 pub use engine::{
@@ -21,4 +22,5 @@ pub use engine::{
 };
 pub use error::TransliterateError;
 pub use normalize::{is_bengali_script, normalize_bengali, normalize_key, normalize_roman};
+pub use phonetic::{MAX_PHONETIC_INPUT_CHARS, MAX_PHONETIC_OUTPUT_CHARS, PhoneticTransliterator};
 pub use rules::{RULE_SCHEMA, RuleId, RuleSet, TransliterationRule};

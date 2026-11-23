@@ -19,6 +19,8 @@ pub enum TransliterateError {
     DuplicateRuleId,
     #[error("rule input exceeds configured length")]
     InputTooLong,
+    #[error("transliteration pattern is invalid")]
+    InvalidPattern,
     #[error("unsupported language for transliteration")]
     UnsupportedLanguage,
 }
@@ -32,6 +34,7 @@ impl TransliterateError {
             Self::InvalidRule { .. } => "transliterate_invalid_rule",
             Self::DuplicateRuleId => "transliterate_duplicate_rule",
             Self::InputTooLong => "transliterate_input_too_long",
+            Self::InvalidPattern => "transliterate_invalid_pattern",
             Self::UnsupportedLanguage => "transliterate_unsupported_language",
         }
     }
