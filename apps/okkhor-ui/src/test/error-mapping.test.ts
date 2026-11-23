@@ -40,7 +40,18 @@ describe("typed IPC error mapping", () => {
     expect(describeError({ code: "InvalidHotkey", message: "" })).toContain("not valid");
     expect(describeError({ code: "Timeout", message: "" })).toContain("took too long");
     expect(describeError({ code: "Unsupported", message: "" })).toContain("milestone");
-    // Unknown codes surface the daemon message verbatim.
-    expect(describeError({ code: "Weird", message: "weird detail" })).toBe("weird detail");
+    expect(describeError({ code: "DuplicateWord", message: "" })).toContain("already exists");
+    expect(describeError({ code: "InvalidWord", message: "" })).toContain("word fields");
+    expect(describeError({ code: "TooManyWords", message: "" })).toContain("full");
+    expect(describeError({ code: "TextTooLong", message: "" })).toContain("insert limit");
+  });
+
+  test("unknown codes fall back to a safe generic message, never raw text", () => {
+    // Issue #72: the raw daemon message could carry user text or paths.
+    expect(
+      describeError({ code: "Weird", message: "weird detail with user words আমার" }),
+    ).toBe("Something went wrong.");
+    expect(describeError("mystery string")).toBe("Something went wrong.");
+    expect(describeError(null)).toBe("Something went wrong.");
   });
 });

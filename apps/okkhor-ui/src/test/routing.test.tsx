@@ -60,11 +60,17 @@ describe("route guard", () => {
     expect(screen.getByText(/no remote requests/i)).toBeInTheDocument();
   });
 
-  test("placeholder routes name the 0.5.1 milestone", async () => {
+  test("placeholder routes render their pages, not the status fallback", async () => {
     renderApp("#/keyboard");
     await waitFor(() => {
       expect(screen.getByText("On-screen keyboard")).toBeInTheDocument();
     });
-    expect(screen.getByText("Coming in 0.5.1")).toBeInTheDocument();
+  });
+
+  test("words route renders the word manager", async () => {
+    renderApp("#/words");
+    await waitFor(() => {
+      expect(screen.getByText("Word manager")).toBeInTheDocument();
+    });
   });
 });

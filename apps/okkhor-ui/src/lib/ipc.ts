@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ImportFormat, Word, WordsPage } from "./words";
 
 /** Settings document shape (contract §2). Unknown fields are ignored. */
 export interface Settings {
@@ -72,5 +73,28 @@ export const api = {
   },
   setPaused(paused: boolean): Promise<Status> {
     return invoke<Status>("ipc_set_paused", { paused });
+  },
+  listWords(query: string | null, offset: number, limit: number): Promise<WordsPage> {
+    return invoke<WordsPage>("ipc_list_words", { query, offset, limit });
+  },
+  addWord(roman: string, output: string, language: "bn" | "en"): Promise<Word> {
+    return invoke<Word>("ipc_add_word", { roman, output, language });
+  },
+  removeWord(id: number): Promise<boolean> {
+    return invoke<boolean>("ipc_remove_word", { id });
+  },
+  importWords(
+    format: ImportFormat,
+    data: string,
+  ): Promise<{ imported: number; skipped: number }> {
+    return invoke<{ imported: number; skipped: number }>("ipc_import_words", {
+      format,
+      data,
+    });
+  },
+  exportWords(format: ImportFormat): Promise<{ format: ImportFormat; data: string }> {
+    return invoke<{ format: ImportFormat; data: string }>("ipc_export_words", {
+      format,
+    });
   },
 };
