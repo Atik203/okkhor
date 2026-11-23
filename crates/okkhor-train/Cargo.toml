@@ -21,6 +21,7 @@ path = "src/bin/okkhor-train-fit.rs"
 [dependencies]
 okkhor-core.workspace = true
 okkhor-engine.workspace = true
+okkhor-features.workspace = true
 okkhor-lang.workspace = true
 okkhor-learn.workspace = true
 okkhor-transliterate.workspace = true

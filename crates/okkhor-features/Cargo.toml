@@ -1,0 +1,15 @@
+[package]
+name = "okkhor-features"
+description = "Shipped v1 feature vector and deterministic extraction for Okkhor. No I/O, no clock, no unsafe."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+okkhor-core.workspace = true
+okkhor-learn.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -6,6 +6,7 @@ members = [
     "crates/okkhor-compat",
     "crates/okkhor-core",
     "crates/okkhor-engine",
+    "crates/okkhor-features",
     "crates/okkhor-ipc",
     "crates/okkhor-learn",
     "crates/okkhor-lang",
@@ -24,6 +25,7 @@ publish = false
 [workspace.dependencies]
 okkhor-core = { path = "crates/okkhor-core" }
 okkhor-engine = { path = "crates/okkhor-engine" }
+okkhor-features = { path = "crates/okkhor-features" }
 okkhor-ipc = { path = "crates/okkhor-ipc" }
 okkhor-lang = { path = "crates/okkhor-lang" }
 okkhor-learn = { path = "crates/okkhor-learn" }
