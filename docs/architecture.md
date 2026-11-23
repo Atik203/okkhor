@@ -82,17 +82,20 @@ The path never performs network I/O, disk I/O, AI calls, or UI-thread waits.
 | Crate | Responsibility | Must not |
 | --- | --- | --- |
 | `okkhor-core` | language, text normalization, candidate/ranking types | touch Win32, I/O, async |
-| `okkhor-learn` | Smriti statistics, scoring, snapshots | do I/O or logging |
+| `okkhor-features` | shipped v1 feature vector and deterministic extraction | do I/O, read a clock, or use `unsafe` |
+| `okkhor-learn` | Smriti statistics, baseline scoring, snapshots, local adapter (1.0) | do I/O or logging |
 | `okkhor-storage` | snapshot load/save, future redb adapter | contain ranking policy |
 | `okkhor-win` | hook, injection, caret, focus, clipboard | contain language policy |
 | `okkhor-daemon` | composition, lifecycle, tray, workers | own algorithm internals |
-| `okkhor-engine` | embedded `OKS1` suggestion stages, ranking input | perform I/O, read a clock, or use `unsafe` |
+| `okkhor-engine` | embedded `OKS1` suggestion stages, ranker input | perform I/O, read a clock, or use `unsafe` |
+| `okkhor-model` (0.7) | model parse/validate, logistic scoring, bounded hybrid blend | read a clock, generate candidates, or use `unsafe` |
 | `okkhor-train` (dev) | dataset manifests, replay and training tooling | ship in a release |
 | `okkhor-bench` (dev) | synthetic ranking/suggestion/injection measurements | install hooks, persist user data, or ship in a release |
 | `okkhor-ui` | settings, word manager, on-screen keyboard, quick bar | sit on the hot path |
-| `okkhor-ipc` | authenticated local messages, settings, words | expose raw text broadly |
+| `okkhor-ipc` | authenticated local messages, settings, words, AI job control | expose raw text broadly |
 | `okkhor-speech` (planned) | audio capture, provider adapters | block typing |
-| `okkhor-ai` (planned) | Gemini/other providers, cache, cancellation | decide quick suggestions |
+| `okkhor-ai` (0.7) | OpenAI/other providers, cache, cancellation, policy | decide quick suggestions or hold a key |
+| `okkhor-worker` (0.7) | isolated AI job process | touch the hook or the popup |
 
 ## Data flow
 

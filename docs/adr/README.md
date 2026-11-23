@@ -17,6 +17,10 @@
 | [0013](0013-encodings-and-fonts.md) | Bangla output encodings and bundled fonts | Accepted |
 | [0014](0014-input-modes-hotkeys-fonts.md) | Input modes, one-key toggle, zero-config fonts | Accepted |
 | [0015](0015-offline-replay-and-training.md) | Offline replay harness and feature schema v1 (`okkhor-train`) | Accepted |
+| [0016](0016-suggestion-index-and-english-completion.md) | Suggestion index, English completion, and instant state | Accepted |
+| [0017](0017-feature-runtime-and-hybrid-blend.md) | Feature runtime crate and hybrid reranker blend | Proposed |
+| [0018](0018-opt-in-ai-worker.md) | Opt-in AI worker process boundary | Proposed |
+| [0019](0019-ranker-injection-and-bounded-work.md) | Ranker injection and bounded hybrid work | Proposed |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.

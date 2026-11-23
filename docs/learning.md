@@ -120,9 +120,10 @@ Rules:
 
 ### Feature contract v1 (0.6 Task 1, ADR 0015)
 
-The stable 16-field feature vector lives in the offline `okkhor-train` crate
-as `FeatureVectorV1` (`SCHEMA_VERSION = 1`), in `docs/model-roadmap.md` field
-order. The contract:
+The stable 16-field feature vector lives in the shipped
+`okkhor-features` crate (ADR 0017) and is re-exported by the offline
+`okkhor-train` crate as `FeatureVectorV1` (`SCHEMA_VERSION = 1`), in
+`docs/model-roadmap.md` field order. The contract:
 
 - `extract_features(&SuggestionRequest, &Candidate, &LearningSnapshot)` is
   deterministic and performs no I/O; allocation is bounded to small
@@ -135,6 +136,34 @@ order. The contract:
 - Any field-order, type, or encoding change requires a schema bump and a
   model migration note. Full encoding table and replay format: see
   `docs/design/replay.md`.
+
+### Hybrid blend contract (0.7, ADR 0017/0019)
+
+The Tier 1 reranker only reorders the deterministic candidate pool:
+
+```text
+baseline(c) = Smriti score for c
+model(c)    = logistic logit from the bundled model
+centred(c)  = model(c) - mean(model(x) for x in pool)
+
+evidence    = ln(1 + user_word_count)
+            + ln(1 + pair_count)
+            + 2 * acceptance_rate
+
+confidence  = 0.75 * (1 - exp(-evidence / 10))    # per candidate, 0.0..0.75
+
+final(c)    = baseline(c) + confidence * centred(c) * MODEL_WEIGHT
+```
+
+Rules:
+
+- `confidence = 0` reproduces the baseline order exactly.
+- `MODEL_WEIGHT <= 1.0`; the model cannot dominate a strong deterministic match.
+- A pool larger than 64, a missing/invalid model, or any non-finite score
+  returns the baseline order unchanged.
+- The engine does not read a clock; the bound is structural and the daemon
+  measures p99 around the call.
+- English completions keep their static path in 0.7; the hybrid is Bangla-only.
 
 ## Base + delta
 
