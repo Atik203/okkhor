@@ -528,6 +528,23 @@ mod tests {
     }
 
     #[test]
+    fn user_words_rank_first() {
+        use super::UserWord;
+
+        let engine = engine();
+        let smriti = Smriti::new();
+        let words = [UserWord {
+            roman: "myword".to_owned(),
+            bangla: "মাইওয়ার্ড".to_owned(),
+        }];
+        let rows = engine.suggest(
+            &SuggestRequest::new("myword", 8).with_user_words(&words),
+            &smriti,
+        );
+        assert_eq!(rows.first().map(|row| row.text.as_str()), Some("মাইওয়ার্ড"));
+    }
+
+    #[test]
     fn english_prefix_completions_work() {
         let engine = engine();
         let rows = engine.suggest_english("hel", 8);

@@ -2,9 +2,10 @@
 //!
 //! Layout (contract §2/§3, ADR 0012 §2):
 //!
-//! - `<home>/settings.json` — plaintext settings; the daemon is the only writer.
-//! - `<home>/data/words.bin` — DPAPI-encrypted user words.
-//! - `<home>/runtime/ipc.token` — session token (same file as
+//! - `<home>/settings.json` - plaintext settings; the daemon is the only writer.
+//! - `<home>/data/words.bin` - DPAPI-encrypted user words.
+//! - `<home>/data/learning.bin` - DPAPI-encrypted Smriti snapshot.
+//! - `<home>/runtime/ipc.token` - session token (same file as
 //!   `okkhor_ipc::auth::default_token_path`).
 //!
 //! `<home>` is `%LOCALAPPDATA%\Okkhor`, unless `OKKHOR_DATA_HOME` is set, in
@@ -55,6 +56,11 @@ pub fn settings_path() -> Result<PathBuf, PathsError> {
 /// Resolve `<home>/data/words.bin` (contract §3).
 pub fn words_path() -> Result<PathBuf, PathsError> {
     Ok(data_home()?.join("data").join("words.bin"))
+}
+
+/// Resolve `<home>/data/learning.bin` (0.6, encrypted Smriti snapshot).
+pub fn learning_path() -> Result<PathBuf, PathsError> {
+    Ok(data_home()?.join("data").join("learning.bin"))
 }
 
 /// Resolve `<home>/runtime/ipc.token` (ADR 0012 §2).

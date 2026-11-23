@@ -176,11 +176,11 @@ name = "okkhor-daemon"
 version = "0.5.1"
 dependencies = [
  "okkhor-core",
+ "okkhor-engine",
  "okkhor-ipc",
  "okkhor-lang",
  "okkhor-learn",
  "okkhor-storage",
- "okkhor-transliterate",
  "okkhor-win",
  "serde_json",
  "thiserror",

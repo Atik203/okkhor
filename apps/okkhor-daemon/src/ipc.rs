@@ -223,6 +223,7 @@ pub struct DaemonState<P> {
     popup_max_items: AtomicU8,
     toggle_sound: AtomicBool,
     learning: AtomicBool,
+    words_revision: AtomicU64,
     shutdown_requested: AtomicBool,
     rebind_requested: AtomicBool,
     apply_seq: AtomicU64,
@@ -326,6 +327,7 @@ impl<P: Protector> DaemonState<P> {
             popup_max_items: AtomicU8::new(current.popup_max_items),
             toggle_sound: AtomicBool::new(current.toggle_sound),
             learning: AtomicBool::new(current.learning_enabled),
+            words_revision: AtomicU64::new(0),
             shutdown_requested: AtomicBool::new(false),
             settings: Mutex::new(settings),
             words: Mutex::new(words),
@@ -415,6 +417,24 @@ impl<P: Protector> DaemonState<P> {
     /// Whether learning commits are queued (live mirror of the setting).
     pub fn learning(&self) -> bool {
         self.learning.load(Ordering::SeqCst)
+    }
+
+    /// Monotonic counter bumped by every words mutation.
+    pub fn words_revision(&self) -> u64 {
+        self.words_revision.load(Ordering::Relaxed)
+    }
+
+    /// Bangla user words for the key-path suggestion snapshot.
+    pub fn user_words(&self) -> Vec<okkhor_engine::UserWord> {
+        self.lock_words()
+            .snapshot()
+            .into_iter()
+            .filter(|word| word.language == okkhor_ipc::words::WordLanguage::Bn)
+            .map(|word| okkhor_engine::UserWord {
+                roman: word.roman,
+                bangla: word.output,
+            })
+            .collect()
     }
 
     /// Desired hotkey chords, or `None` when the settings lock is contended
@@ -594,14 +614,22 @@ impl<P: Protector> DaemonState<P> {
                 Response::Words(page)
             }
             Request::WordsAdd(add) => match self.lock_words().add(&add) {
-                Ok(word) => Response::Word(word),
+                Ok(word) => {
+                    self.words_revision.fetch_add(1, Ordering::Relaxed);
+                    Response::Word(word)
+                }
                 Err(error) => {
                     self.note_store_error(&error);
                     Response::error(error.code())
                 }
             },
             Request::WordsRemove(remove) => match self.lock_words().remove(remove.id) {
-                Ok(removed) => Response::Removed(WordRemoveResult { removed }),
+                Ok(removed) => {
+                    if removed {
+                        self.words_revision.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Response::Removed(WordRemoveResult { removed })
+                }
                 Err(error) => {
                     self.note_store_error(&error);
                     Response::error(error.code())
@@ -609,7 +637,12 @@ impl<P: Protector> DaemonState<P> {
             },
             Request::WordsImport(import) => {
                 match self.lock_words().import(import.format, &import.data) {
-                    Ok(imported) => Response::Import(imported),
+                    Ok(imported) => {
+                        if imported.imported > 0 {
+                            self.words_revision.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Response::Import(imported)
+                    }
                     Err(error) => {
                         self.note_store_error(&error);
                         Response::error(error.code())

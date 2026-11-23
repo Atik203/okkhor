@@ -31,6 +31,8 @@ use thiserror::Error;
 /// authenticated data for DPAPI, not a key: it binds the blob to this store
 /// so a blob from another Okkhor file cannot be swapped in.
 pub const WORDS_ENTROPY: &[u8] = b"Okkhor/words.bin/v1";
+/// Fixed scope label for the encrypted learning snapshot.
+pub const LEARNING_ENTROPY: &[u8] = b"Okkhor/learning.bin/v1";
 
 /// Word store failures. Messages are static; they never include word text,
 /// file content, or paths.
@@ -108,6 +110,14 @@ impl DpapiProtector {
     pub const fn words() -> Self {
         Self {
             entropy: WORDS_ENTROPY,
+        }
+    }
+
+    /// Protector for the encrypted learning snapshot.
+    #[must_use]
+    pub const fn learning() -> Self {
+        Self {
+            entropy: LEARNING_ENTROPY,
         }
     }
 }
@@ -206,6 +216,11 @@ impl<P: Protector> WordsStore<P> {
     #[must_use]
     pub fn len(&self) -> usize {
         self.file.words.len()
+    }
+
+    /// Clone the current words for the key-path suggestion snapshot.
+    pub fn snapshot(&self) -> Vec<Word> {
+        self.file.words.clone()
     }
 
     /// Whether the store holds no words. Test introspection only.
@@ -428,6 +443,31 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn learning_snapshot_round_trips_encrypted() {
+        use okkhor_core::Language;
+        use okkhor_learn::{LearningEvent, LearningSnapshot, Smriti, SmritiConfig};
+
+        let dir = temp_dir("learning");
+        let repository = EncryptedJsonRepository::<LearningSnapshot, _>::new(
+            dir.join("learning.bin"),
+            FakeProtector,
+        );
+        let smriti = Smriti::new();
+        smriti.observe(LearningEvent::TransliterationCommitted {
+            roman_input: "bhalo".to_owned(),
+            output: "ভালো".to_owned(),
+            language: Language::Bangla,
+            previous_word: None,
+            timestamp_ms: 2_000,
+        });
+        let snapshot = smriti.snapshot();
+        repository.save(&snapshot).expect("save");
+        let loaded = repository.load().expect("load");
+        let restored = Smriti::from_snapshot(loaded, SmritiConfig::default()).expect("restore");
+        assert_eq!(restored.snapshot(), snapshot);
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
