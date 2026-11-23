@@ -20,8 +20,8 @@ or choose fonts on first run.
 The owner supplied the legacy installation and approved read-only use of its
 layout/encoding data. The `.nmsLayout`/`.nmsEnco` files are Python pickles; they
 were parsed with a restricted, data-only unpickler (no globals, no code
-execution) and converted to JSON. The Avro, Khipro, Banglish, and Bijoy rule
-tables are publicly mirrored by the original author.
+execution) and converted to JSON. The Avro, Khipro, Banglish, and ANSI
+font-encoding rule tables are publicly mirrored by the original author.
 
 ## Decision
 
@@ -36,14 +36,21 @@ keys -> layout engine -> Unicode Bangla
 - The phonetic engine always produces **Unicode** internally.
 - `OutputEncoding` is `Unicode` or `Bijoy`. Bijoy conversion happens once, at
   commit, off the hot path.
-- Bijoy output is **ASCII text plus a font choice**; there is no private binary
-  encoding. The document's font decides rendering, so the bytes remain
-  portable.
-- The conversion table is the ordered 111-rule `Bangla to Bijoy layout` map,
-  applied exactly in its documented order (pre-base `ে`/`ৈ`/`ি` reordering,
-  `ো`/`ৌ` decomposition, `্র`/`্য`/`র্` handling, digits, taka, punctuation).
-- A best-effort inverse (`from_bijoy`) exists for paste/import, documented as
-  approximate.
+- Bijoy output is **SutonnyMJ ANSI bytes plus the SutonnyMJ font choice**;
+  there is no private binary encoding. The document's font decides rendering,
+  so the bytes remain portable as long as SutonnyMJ is the renderer.
+- The conversion table is the ordered 256-rule **`ANSI 1` font-encoding**
+  map ("for SutoniMJ font"), applied exactly in its documented order
+  (pre-base `ে`/`ৈ`/`ি` reordering with the `©` reph marker, `ো`/`ৌ`
+  decomposition, `(?<!্)`-guarded `ৃ`/`ু`/`ূ` and `্র…` families, conjunct
+  ligatures, digits, taka, punctuation).
+- A best-effort ordered inverse (`from_bijoy`, 676-rule `ANSI 1 to Unicode`
+  table applied in the same sequential way) exists for paste/import.
+- The `Bangla to Bijoy layout` 111-rule table is a **keyboard layout**
+  (which key types which char), not a font encoding, and must never be used
+  as the output encoder. Keyboard layouts drive input; font encodings drive
+  output. The 0.5 code confused the two; `bijoy-keyboard-v1.json` is kept
+  for reference only.
 
 ### 2. Layouts
 
@@ -116,10 +123,15 @@ Positive:
 Negative:
 
 - Two font families to ship and keep in sync.
-- Bijoy inverse conversion is approximate.
+- Bijoy inverse conversion is exact for the render goldens but not
+  guaranteed in general (line-start `†`/`ˆ` forms, legacy quirks).
 - Users may still need SutonnyMJ for a specific document; it is detected and
   selectable but not bundled.
 - Legacy table ordering is subtle and needs golden tests.
+- The converter depends on `fancy-regex`: the `regex` crate cannot express
+  the table's `(?<!্)` lookbehind or `\1` backreferences, and rewriting the
+  guards away would change match boundaries for overlapping sequential
+  rewrites. `fancy-regex` is MIT, pure Rust, and applies the table verbatim.
 
 ## Alternatives considered
 
@@ -127,8 +139,15 @@ Negative:
 - **Only Bijoy.** Rejected: breaks modern apps and search.
 - **Convert by mapping each Unicode codepoint independently.** Rejected:
   pre-base vowel signs and conjuncts need reordering rules.
+- **Use the `regex` crate by translating the lookbehind guards away.**
+  Rejected: capture-and-re-emit prefixes change match boundaries for
+  overlapping sequential rewrites and risk diverging from the legacy engine;
+  `fancy-regex` (MIT, pure Rust) applies the shipped table verbatim.
 - **Bundle SutonnyMJ by default.** Superseded 2026-11-23 by owner decision
   (see amendment in §3): SutonnyMJ is now staged as the default Bijoy font;
-  Kalpurush ANSI (same Bijoy byte mapping) remains the fallback.
+  Kalpurush ANSI remains the fallback for rendering. Correction 2026-11-23
+  (this change): Kalpurush ANSI is a *degraded* fallback — the converter's
+  ANSI 1 byte output is verified for SutonnyMJ only, not byte-identical
+  across Bijoy fonts.
 - **Use a font's glyph IDs as the encoding.** Rejected: non-portable and
   unmaintainable.
