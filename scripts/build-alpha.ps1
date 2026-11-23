@@ -35,7 +35,7 @@ $cargo = Join-Path $HOME '.cargo\bin\cargo.exe'
 if (-not (Test-Path $cargo)) { $cargo = 'cargo' }
 
 Write-Host "==> cargo build --release --locked -p okkhor-daemon" -ForegroundColor Cyan
-& $cargo build --release --locked -p okkhor-daemon
+& $cargo build --manifest-path (Join-Path $RepoRoot 'Cargo.toml') --release --locked -p okkhor-daemon
 if ($LASTEXITCODE -ne 0) { throw "Release build failed (exit $LASTEXITCODE)." }
 
 $Exe = Join-Path $RepoRoot 'target\release\okkhor.exe'

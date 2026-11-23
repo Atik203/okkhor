@@ -1374,9 +1374,9 @@ mod tests {
 
     #[test]
     fn encoding_selection_converts_amar_to_exact_bijoy_bytes() {
-        // Golden from `okkhor-lang::bijoy` (map-derived): আমার -> Ffmfv.
+        // Golden from `okkhor-lang::bijoy` (ANSI 1 / SutonnyMJ): আমার -> Avgvi.
         let direct = okkhor_lang::bijoy::to_bijoy("আমার").expect("golden converts");
-        assert_eq!(direct, "Ffmfv");
+        assert_eq!(direct, "Avgvi");
         assert_eq!(
             apply_encoding("আমার", OutputEncoding::Bijoy).expect("bijoy encodes"),
             direct
