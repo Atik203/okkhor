@@ -30,7 +30,9 @@ mod tray;
 mod win32;
 
 pub use inject::{InjectError, InjectionMethod, TextInjector};
-pub use input::{KeyEvent, KeyPhase, KeyboardHook};
+pub use input::{
+    KeyEvent, KeyPhase, KeyboardHook, LLKHF_INJECTED, is_injected_event, should_enqueue,
+};
 
 #[cfg(windows)]
 pub use autostart::{
@@ -52,6 +54,7 @@ pub use single_instance::{SingleInstance, SingleInstanceError};
 pub use tray::{TrayError, TrayEvent, TrayIcon};
 #[cfg(windows)]
 pub use win32::{
-    HookError, WindowsInjector, WindowsKeyboardHook, capture_enabled, set_capture_enabled,
+    HookError, MAX_SEND_BACKSPACES, WindowsInjector, WindowsKeyboardHook, capture_enabled,
+    ctrl_or_alt_pressed, foreground_window_id, inject_commit, send_backspaces, set_capture_enabled,
     toggle_capture, utf16_units,
 };

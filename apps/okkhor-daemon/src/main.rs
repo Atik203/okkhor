@@ -15,6 +15,8 @@ use okkhor_storage::JsonFileRepository;
 #[cfg(windows)]
 mod logging;
 
+mod input_session;
+
 fn main() {
     #[cfg(windows)]
     let _ = okkhor_win::enable_per_monitor_dpi_awareness();
@@ -133,12 +135,228 @@ fn parse_autostart_action(_argument: Option<&str>) -> Option<()> {
 
 #[cfg(windows)]
 fn run_daemon() -> Result<(), Box<dyn Error>> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, mpsc};
     use std::time::Duration;
 
+    use okkhor_core::Language;
+    use okkhor_learn::{LearningEvent, Smriti};
+    use okkhor_transliterate::RuleTransliterator;
     use okkhor_win::{
-        KeyboardHook, PauseHotkey, SingleInstance, SingleInstanceError, TrayEvent, TrayIcon,
-        WindowsKeyboardHook,
+        InjectError, KeyPhase, KeyboardHook, PauseHotkey, SingleInstance, SingleInstanceError,
+        SuggestionPopup, TrayEvent, TrayIcon, WindowsKeyboardHook, caret_anchor,
+        ctrl_or_alt_pressed, foreground_window_id, inject_commit, place_popup,
     };
+
+    use crate::input_session::{
+        BackspaceOutcome, Commit, InputSession, VK_BACK, VK_DOWN, VK_ESCAPE, VK_LEFT, VK_RETURN,
+        VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, default_engine, vk_to_digit_index, vk_to_letter,
+    };
+
+    /// Everything one key event needs. Kept in one struct so the hot loop
+    /// stays a thin dispatch with no globals and no cross-thread sharing.
+    struct CompositionCtx<'a> {
+        session: &'a mut InputSession<RuleTransliterator>,
+        popup: &'a mut Option<SuggestionPopup>,
+        logger: &'a logging::Logger,
+        learn_tx: &'a mpsc::SyncSender<LearningEvent>,
+        learn_dropped: &'a AtomicU64,
+        compose_window: &'a mut isize,
+    }
+
+    fn hide_popup(popup: &mut Option<SuggestionPopup>) {
+        if let Some(window) = popup {
+            window.hide();
+        }
+    }
+
+    fn refresh_popup(ctx: &mut CompositionCtx<'_>) {
+        let Some(window) = ctx.popup.as_mut() else {
+            return;
+        };
+        if !ctx.session.is_composing() || ctx.session.candidates().is_empty() {
+            window.hide();
+            return;
+        }
+        let mut text = String::new();
+        for (index, candidate) in ctx.session.candidates().iter().enumerate() {
+            use std::fmt::Write as _;
+            if index > 0 {
+                text.push('\n');
+            }
+            let marker = if index == ctx.session.selected() {
+                '>'
+            } else {
+                ' '
+            };
+            let _ = write!(text, "{marker} {}. {candidate}", index + 1);
+        }
+        match caret_anchor() {
+            Some(anchor) => {
+                let height = (36 + 24 * ctx.session.candidates().len() as i32).clamp(36, 200);
+                let placement = place_popup(&anchor, 280, height);
+                if let Err(error) = window.show(&text, placement) {
+                    ctx.logger
+                        .error(logging::Scope::Daemon, "popup_show", error.code());
+                }
+            }
+            None => window.hide(),
+        }
+    }
+
+    fn inject_code(error: &InjectError) -> Option<i32> {
+        match error {
+            InjectError::Win32 { code, .. } => Some(*code as i32),
+            _ => None,
+        }
+    }
+
+    fn now_ms() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    /// Commit path: verify focus, then erase + inject in one batch.
+    ///
+    /// Erase, Bangla text, and the optional trailing space go out in a single
+    /// `SendInput` batch, so a zero-delivery failure erases nothing and
+    /// injects nothing. A nonzero partial send can still erase a roman prefix
+    /// without replacement (inherent to Win32); retry means retyping the word.
+    /// Never logs the buffer or the committed text; failures log an
+    /// allowlisted kind plus an optional numeric code only.
+    fn do_commit(ctx: &mut CompositionCtx<'_>, commit: Commit, roman: String) {
+        if foreground_window_id() != *ctx.compose_window {
+            ctx.session.reset();
+            hide_popup(ctx.popup);
+            ctx.logger
+                .error(logging::Scope::Daemon, "focus_changed", None);
+            return;
+        }
+        if let Err(error) = inject_commit(commit.erase_chars, &commit.text, commit.trailing_space) {
+            ctx.logger
+                .error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
+            ctx.session.reset();
+            hide_popup(ctx.popup);
+            return;
+        }
+        hide_popup(ctx.popup);
+        // Queue learning for the background thread. The channel is bounded and
+        // `try_send` never blocks, so a stalled learn thread can never stall
+        // the key path; the drop is counted (a count carries no text) and
+        // reported once at shutdown. A disconnected receiver drops the same way.
+        // `Smriti::observe` performs no I/O.
+        let event = LearningEvent::TransliterationCommitted {
+            roman_input: roman,
+            output: commit.text,
+            language: Language::Bangla,
+            previous_word: None,
+            timestamp_ms: now_ms(),
+        };
+        if ctx.learn_tx.try_send(event).is_err() {
+            ctx.learn_dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn cancel_composition(ctx: &mut CompositionCtx<'_>) {
+        // `cancel` returns the raw roman buffer, which the caller deliberately
+        // drops: already-typed text stays untouched in the target.
+        let _ = ctx.session.cancel();
+        hide_popup(ctx.popup);
+    }
+
+    /// Record or re-validate the composition window around one keystroke.
+    ///
+    /// When focus moved mid-composition the stale buffer is dropped (the roman
+    /// text stays where it was typed) and the window id is refreshed.
+    fn track_focus(ctx: &mut CompositionCtx<'_>) {
+        let foreground = foreground_window_id();
+        if ctx.session.is_composing() && foreground != *ctx.compose_window {
+            ctx.session.reset();
+            hide_popup(ctx.popup);
+        }
+        if !ctx.session.is_composing() {
+            *ctx.compose_window = foreground;
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn handle_key(vk: u16, ctx: &mut CompositionCtx<'_>) {
+        if let Some(letter) = vk_to_letter(vk) {
+            // Shortcuts (Ctrl/Alt/Win chords) produce no text in the target;
+            // growing the buffer for them would erase the user's real text on
+            // commit, so the composition ends before the chord passes through.
+            if ctrl_or_alt_pressed() {
+                cancel_composition(ctx);
+                return;
+            }
+            track_focus(ctx);
+            if ctx.session.push_letter(letter) {
+                refresh_popup(ctx);
+            }
+            return;
+        }
+        if let Some(index) = vk_to_digit_index(vk) {
+            if !ctx.session.is_composing() {
+                return;
+            }
+            let roman = ctx.session.buffer().to_owned();
+            if let Some(commit) = ctx.session.select_digit(index) {
+                do_commit(ctx, commit, roman);
+            }
+            return;
+        }
+        match vk {
+            VK_BACK => {
+                // Focus is re-validated before the edit, mirroring the letter
+                // arm: a focus switch resets the stale buffer (pass-through
+                // below) instead of paying for one wasted edit + refresh.
+                // Erase-count safety never depends on this ordering — commit
+                // always uses the live buffer length, and `do_commit`
+                // re-checks focus before touching `SendInput`.
+                track_focus(ctx);
+                if !ctx.session.is_composing() {
+                    return;
+                }
+                if ctx.session.backspace() != BackspaceOutcome::Empty {
+                    refresh_popup(ctx);
+                }
+            }
+            VK_SPACE | VK_RETURN => {
+                if !ctx.session.is_composing() {
+                    return;
+                }
+                let roman = ctx.session.buffer().to_owned();
+                match ctx.session.commit(vk == VK_SPACE) {
+                    Some(commit) => do_commit(ctx, commit, roman),
+                    // No candidates: the roman text stays as typed; the Space
+                    // or Enter key itself passes through untouched.
+                    None => {
+                        ctx.session.reset();
+                        hide_popup(ctx.popup);
+                    }
+                }
+            }
+            VK_LEFT | VK_UP => {
+                if ctx.session.is_composing() {
+                    ctx.session.move_selection(-1);
+                    refresh_popup(ctx);
+                }
+            }
+            VK_RIGHT | VK_DOWN => {
+                if ctx.session.is_composing() {
+                    ctx.session.move_selection(1);
+                    refresh_popup(ctx);
+                }
+            }
+            VK_ESCAPE | VK_TAB if ctx.session.is_composing() => {
+                cancel_composition(ctx);
+            }
+            _ => {}
+        }
+    }
 
     let logger = logging::init();
     logger.startup();
@@ -180,11 +398,43 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
         }
     };
 
+    // Learning runs on a background thread: `Smriti::observe` performs no I/O,
+    // the channel is bounded (1024), and `try_send` never blocks, so a
+    // stalled learn thread drops (and counts) events instead of stalling the
+    // key path. If the thread cannot start, typing continues without learning.
+    const LEARN_QUEUE_CAP: usize = 1024;
+    let (learn_tx, learn_rx) = mpsc::sync_channel::<LearningEvent>(LEARN_QUEUE_CAP);
+    let learn_dropped = Arc::new(AtomicU64::new(0));
+    if std::thread::Builder::new()
+        .name("okkhor-learn".to_owned())
+        .spawn(move || {
+            let smriti = Smriti::new();
+            for event in learn_rx {
+                smriti.observe(event);
+            }
+        })
+        .is_err()
+    {
+        logger.error(logging::Scope::Daemon, "learn_thread", None);
+    }
+
+    let mut popup = match SuggestionPopup::new() {
+        Ok(window) => Some(window),
+        Err(error) => {
+            logger.error(logging::Scope::Daemon, "popup_create", error.code());
+            None
+        }
+    };
+
+    let mut session: InputSession<RuleTransliterator> = InputSession::new(default_engine());
+    let mut compose_window = foreground_window_id();
+
     println!("daemon: running");
     if hotkey_ready {
         println!("daemon: Ctrl+Alt+Shift+P toggles capture");
     }
-    println!("daemon: use the tray menu to pause or exit");
+    println!("daemon: type Banglish and press Space to commit Bangla");
+    println!("daemon: use the tray menu or pause hotkey to pause");
 
     'run: loop {
         while let Some(event) = tray.try_next() {
@@ -198,9 +448,36 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
             toggle_capture(&hook, &tray);
         }
 
-        // Drain and discard hook events. The daemon never logs key codes,
-        // typed text, or window state.
-        while hook.try_next().is_some() {}
+        if !hook.capture_enabled() {
+            // Pause cancels silently: already-typed roman text stays, the
+            // popup hides, and no key is swallowed (the hook passes through).
+            if session.is_composing() {
+                session.reset();
+                hide_popup(&mut popup);
+            }
+            // Drain injected and real events alike while paused.
+            while hook.try_next().is_some() {}
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        }
+
+        // Injected events (our own SendInput backspaces/text) never reach this
+        // loop: the hook skips LLKHF_INJECTED before enqueueing. Only key-down
+        // transitions drive the session; releases pass through untouched.
+        while let Some(event) = hook.try_next() {
+            if event.phase != KeyPhase::Down {
+                continue;
+            }
+            let mut ctx = CompositionCtx {
+                session: &mut session,
+                popup: &mut popup,
+                logger,
+                learn_tx: &learn_tx,
+                learn_dropped: &learn_dropped,
+                compose_window: &mut compose_window,
+            };
+            handle_key(event.virtual_key, &mut ctx);
+        }
 
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -208,6 +485,11 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
     hook.stop();
     hotkey.stop();
     tray.remove();
+    // A dropped-learn count carries no text, so it is safe to print.
+    let dropped = learn_dropped.load(Ordering::Relaxed);
+    if dropped > 0 {
+        println!("daemon: dropped {dropped} learn events (queue full)");
+    }
     Ok(())
 }
 
@@ -648,5 +930,15 @@ mod tests {
     #[test]
     fn self_check_passes() {
         super::self_check().expect("self-check");
+    }
+
+    /// Manual smoke: the zero-backspace path touches no Win32 API and installs
+    /// no hook, so it is safe to run anywhere — but it stays ignored so CI
+    /// never depends on Windows-only helpers.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "manual smoke only; needs no hook, asserts the no-op erase path"]
+    fn backspace_zero_is_noop_without_hook() {
+        okkhor_win::send_backspaces(0).expect("zero backspaces");
     }
 }
