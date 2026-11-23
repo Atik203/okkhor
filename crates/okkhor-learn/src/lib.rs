@@ -14,4 +14,4 @@ mod store;
 
 pub use config::{ConfigError, RankingWeights, SmritiConfig};
 pub use event::{CommitSource, LearningEvent};
-pub use store::{LearnError, LearningSnapshot, Smriti};
+pub use store::{BigramStat, LearnError, LearningSnapshot, PairStat, Smriti, WordStat};

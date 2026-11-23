@@ -118,6 +118,24 @@ Rules:
 - `pair_frequency` is the user's learned Romanized -> output preference.
 - Tune weights with replay data, not intuition. Record changes in an ADR.
 
+### Feature contract v1 (0.6 Task 1, ADR 0015)
+
+The stable 16-field feature vector lives in the offline `okkhor-train` crate
+as `FeatureVectorV1` (`SCHEMA_VERSION = 1`), in `docs/model-roadmap.md` field
+order. The contract:
+
+- `extract_features(&SuggestionRequest, &Candidate, &LearningSnapshot)` is
+  deterministic and performs no I/O; allocation is bounded to small
+  normalized keys.
+- Learned counters come from read-only snapshot accessors (`word_stat`,
+  `pair_stat`, `bigram_stat`, `contains_word`); when the snapshot has no
+  entry, the extractor falls back to the candidate's generator hints.
+- Recency uses the 14-day half-life decay; rates and scores are clamped to
+  finite ranges; empty or overlong inputs are errors, never silent zeros.
+- Any field-order, type, or encoding change requires a schema bump and a
+  model migration note. Full encoding table and replay format: see
+  `docs/design/replay.md`.
+
 ## Base + delta
 
 The bundled dictionary is immutable and memory-mapped. User learning is a small
