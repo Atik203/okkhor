@@ -477,6 +477,43 @@ impl SuggestionPopup {
         }
     }
 
+    /// Whether the popup currently paints anything (list or toast).
+    pub fn is_visible(&self) -> bool {
+        !matches!(self.inner.content, PopupContent::Hidden)
+    }
+
+    /// Follow a newer caret without repainting content.
+    ///
+    /// The anchor is always stored. A visible popup is moved with the same
+    /// clamping used by [`show_candidates`], but without a show/repaint: only
+    /// `SetWindowPos` runs, preserving focus and the painted rows. A hidden
+    /// popup only records the anchor for the next show or DPI change.
+    pub fn update_anchor(&mut self, anchor: &CaretAnchor) -> Result<(), PopupError> {
+        let inner = &mut *self.inner;
+        inner.anchor = Some(*anchor);
+        if matches!(inner.content, PopupContent::Hidden) {
+            return Ok(());
+        }
+        let placement = place_popup(anchor, inner.client_w, inner.client_h);
+        // SAFETY: window is live and owned by this popup; the placement is in
+        // physical pixels and no activation, show, or repaint is requested.
+        unsafe {
+            SetWindowPos(
+                inner.window,
+                None,
+                placement.x,
+                placement.y,
+                placement.width,
+                placement.height,
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            )
+        }
+        .map_err(|error| PopupError::Win32 {
+            operation: "SetWindowPos",
+            code: error.code().0,
+        })
+    }
+
     /// Drain one queued row click, if any. Pumps this window's messages first
     /// so taps land within one daemon poll; never blocks, never activates.
     pub fn try_next_click(&mut self) -> Option<usize> {
@@ -1118,6 +1155,53 @@ mod tests {
         // Selected rows stay legible on the teal fill in both themes.
         assert_eq!(light.text_selected, 255 | (255 << 8) | (255 << 16));
         assert_eq!(dark.text_selected, 255 | (255 << 8) | (255 << 16));
+    }
+
+    #[test]
+    fn hidden_popup_stores_a_new_anchor_without_touching_the_window() {
+        use super::{PopupContent, PopupInner, SuggestionPopup};
+        use crate::caret::CaretAnchor;
+        use std::collections::VecDeque;
+        use windows::Win32::Foundation::{HWND, RECT};
+
+        // A headless popup: `update_anchor` on hidden content must not call
+        // `SetWindowPos`, so a null HWND is never touched.
+        let mut popup = SuggestionPopup {
+            inner: Box::new(PopupInner {
+                window: HWND::default(),
+                content: PopupContent::Hidden,
+                font: Default::default(),
+                font_bold: Default::default(),
+                font_dpi: 96,
+                theme: PopupTheme::Light,
+                layout: layout_for_items(0, 96, 0),
+                client_w: 1,
+                client_h: 1,
+                rows: 0,
+                anchor: None,
+                pending_clicks: VecDeque::new(),
+            }),
+        };
+        let anchor = CaretAnchor {
+            rect: RECT {
+                left: 40,
+                top: 60,
+                right: 41,
+                bottom: 80,
+            },
+            dpi: 96,
+            work_area: RECT {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+        };
+        popup
+            .update_anchor(&anchor)
+            .expect("a hidden popup only stores the anchor");
+        assert_eq!(popup.inner.anchor, Some(anchor));
+        assert!(!popup.is_visible());
     }
 
     /// Manual smoke test: paints five Bengali rows near the caret for five

@@ -59,8 +59,8 @@ pub use autostart::{
 };
 #[cfg(windows)]
 pub use caret::{
-    CaretAnchor, DpiError, PopupPlacement, caret_anchor, enable_per_monitor_dpi_awareness,
-    focused_element_is_password, place_popup,
+    CaretAnchor, CaretSample, CaretTracker, DpiError, PopupPlacement, caret_anchor,
+    enable_per_monitor_dpi_awareness, focused_element_is_password, place_popup,
 };
 #[cfg(windows)]
 pub use hotkey::{GlobalHotkey, HotkeyError, HotkeySpec, ModeBinding, ModeHotkey, PauseHotkey};

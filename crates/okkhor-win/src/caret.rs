@@ -1,6 +1,7 @@
 //! Caret anchoring and popup placement.
 
 use std::mem::size_of;
+use std::sync::{Arc, Condvar, Mutex};
 
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
@@ -28,6 +29,16 @@ pub struct CaretAnchor {
     pub rect: RECT,
     pub dpi: u32,
     pub work_area: RECT,
+}
+
+/// One published caret resolve: the anchor, the password probe, and the
+/// generation that requested it. `Copy` so only this value crosses threads;
+/// the popup HWND/GDI state never leaves the daemon worker.
+#[derive(Debug, Clone, Copy)]
+pub struct CaretSample {
+    pub anchor: CaretAnchor,
+    pub password: bool,
+    pub generation: u64,
 }
 
 /// Where the popup should be placed, in physical screen coordinates.
@@ -147,6 +158,10 @@ fn gui_caret_rect(foreground: windows::Win32::Foundation::HWND) -> Option<RECT> 
 }
 
 thread_local! {
+    /// Whether COM was initialized on this thread. `CoInitializeEx` is
+    /// idempotent but returning `S_FALSE` on every resolve still costs a COM
+    /// call, so initialize once per thread.
+    static COM_INITIALIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// UIA client object per thread; COM apartments are thread-affine.
     static UIA: std::cell::RefCell<Option<IUIAutomation>> =
         const { std::cell::RefCell::new(None) };
@@ -161,13 +176,26 @@ thread_local! {
     > = const { std::cell::RefCell::new(None) };
 }
 
+/// Initialize COM once for the current thread. MTA is right for a worker that
+/// never pumps UI messages; an already-initialized apartment (`S_FALSE` or
+/// `RPC_E_CHANGED_MODE`) still supports UIA client calls.
+fn ensure_com_initialized() {
+    COM_INITIALIZED.with(|initialized| {
+        if initialized.get() {
+            return;
+        }
+        // SAFETY: a null reserved pointer is the documented form. The result
+        // is deliberately ignored: a thread already in another apartment can
+        // still call UIA, and no out parameter is written.
+        let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        initialized.set(true);
+    });
+}
+
 /// Lazily create (once per thread) the UIA client.
 #[cfg(windows)]
 fn uia_automation() -> Option<IUIAutomation> {
-    // SAFETY: a null reserved pointer is the documented form. MTA is right for
-    // a worker that never pumps UI messages; an already-initialized apartment
-    // (S_FALSE or RPC_E_CHANGED_MODE) still supports UIA client calls.
-    let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+    ensure_com_initialized();
     UIA.with(|slot| {
         let mut slot = slot.borrow_mut();
         if slot.is_none() {
@@ -249,6 +277,189 @@ pub fn focused_element_is_password() -> bool {
     unsafe { element.CurrentIsPassword() }
         .map(|value| value.as_bool())
         .unwrap_or(false)
+}
+
+/// Latest-wins caret resolver.
+///
+/// One named thread owns COM/UIA and resolves `caret_anchor()` plus the
+/// password probe. The daemon requests a resolve without blocking and later
+/// reads the newest published [`CaretSample`]; requests that arrive while a
+/// resolve is in flight coalesce to the newest generation, and a result whose
+/// generation was superseded is dropped. Only `CaretSample` (`Copy`) crosses
+/// threads, so the popup HWND and GDI state stay on the daemon worker.
+pub struct CaretTracker {
+    shared: Arc<TrackerShared>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+struct TrackerShared {
+    state: Mutex<TrackerState>,
+    signal: Condvar,
+}
+
+struct TrackerState {
+    running: bool,
+    generation: u64,
+    pending: Option<u64>,
+    latest: Option<CaretSample>,
+}
+
+impl CaretTracker {
+    /// Spawn the production resolver (UIA caret plus password probe).
+    pub fn new() -> std::io::Result<Self> {
+        Self::spawn()
+    }
+
+    /// Spawn the production resolver (UIA caret plus password probe).
+    pub fn spawn() -> std::io::Result<Self> {
+        Self::spawn_with(|| {
+            (
+                caret_anchor().unwrap_or_else(fallback_anchor),
+                focused_element_is_password(),
+            )
+        })
+    }
+
+    /// Spawn with a deterministic resolver. Test seam only: production code
+    /// must use [`CaretTracker::spawn`] so UIA stays on this one thread.
+    pub fn spawn_with<F>(resolver: F) -> std::io::Result<Self>
+    where
+        F: Fn() -> (CaretAnchor, bool) + Send + 'static,
+    {
+        let shared = Arc::new(TrackerShared {
+            state: Mutex::new(TrackerState {
+                running: true,
+                generation: 0,
+                pending: None,
+                latest: None,
+            }),
+            signal: Condvar::new(),
+        });
+        let worker_shared = Arc::clone(&shared);
+        let worker = std::thread::Builder::new()
+            .name("okkhor-caret".to_owned())
+            .spawn(move || run_tracker(worker_shared, resolver))?;
+        Ok(Self {
+            shared,
+            worker: Some(worker),
+        })
+    }
+
+    /// Ask for a new resolve without blocking. If a resolve is already
+    /// pending, the newer generation replaces it (latest wins). Returns the
+    /// queued generation, or `0` when the tracker has stopped.
+    pub fn request(&self) -> u64 {
+        let mut state = lock_state(&self.shared);
+        if !state.running {
+            return 0;
+        }
+        state.generation = state.generation.wrapping_add(1);
+        state.pending = Some(state.generation);
+        let generation = state.generation;
+        drop(state);
+        self.shared.signal.notify_one();
+        generation
+    }
+
+    /// The newest published sample, or `None` before the first resolve.
+    pub fn latest(&self) -> Option<CaretSample> {
+        lock_state(&self.shared).latest
+    }
+
+    /// Stop the resolver and wait for the thread to exit. Safe to call twice.
+    pub fn stop(&mut self) {
+        {
+            let mut state = lock_state(&self.shared);
+            state.running = false;
+            state.pending = None;
+        }
+        self.shared.signal.notify_all();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for CaretTracker {
+    fn drop(&mut self) {
+        // Signal but do not join: a UI Automation call can hang, and joining
+        // here would block daemon shutdown. The OS reclaims the thread when
+        // the process exits; `stop()` remains the explicit join used by tests.
+        {
+            let mut state = lock_state(&self.shared);
+            state.running = false;
+            state.pending = None;
+        }
+        self.shared.signal.notify_all();
+    }
+}
+
+impl TrackerState {
+    fn take_pending(&mut self) -> Option<u64> {
+        if !self.running {
+            return None;
+        }
+        self.pending.take()
+    }
+}
+
+fn lock_state(shared: &TrackerShared) -> std::sync::MutexGuard<'_, TrackerState> {
+    shared
+        .state
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
+fn run_tracker<F>(shared: Arc<TrackerShared>, resolver: F)
+where
+    F: Fn() -> (CaretAnchor, bool),
+{
+    // COM is apartment-thread-affine: initialize it once on this thread, then
+    // every resolve reuses the thread-local UIA client.
+    ensure_com_initialized();
+    // If the resolver panics, mark the tracker stopped so later requests do
+    // not queue forever behind a dead thread.
+    let _guard = RunningGuard(Arc::clone(&shared));
+    loop {
+        let generation = {
+            let mut state = lock_state(&shared);
+            loop {
+                if let Some(generation) = state.take_pending() {
+                    break generation;
+                }
+                if !state.running {
+                    return;
+                }
+                state = shared
+                    .signal
+                    .wait(state)
+                    .unwrap_or_else(|error| error.into_inner());
+            }
+        };
+        let (anchor, password) = resolver();
+        let mut state = lock_state(&shared);
+        if state.running && state.generation == generation {
+            state.latest = Some(CaretSample {
+                anchor,
+                password,
+                generation,
+            });
+        }
+    }
+}
+
+/// Marks the shared state stopped when the worker exits, including on panic.
+struct RunningGuard(Arc<TrackerShared>);
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        {
+            let mut state = lock_state(&self.0);
+            state.running = false;
+            state.pending = None;
+        }
+        self.0.signal.notify_all();
+    }
 }
 
 /// Focused element for `foreground`, cached briefly to keep typing smooth.
@@ -394,8 +605,160 @@ fn fallback_anchor() -> CaretAnchor {
 
 #[cfg(test)]
 mod tests {
-    use super::{CaretAnchor, place_popup};
+    use super::{CaretAnchor, CaretSample, CaretTracker, place_popup};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
     use windows::Win32::Foundation::RECT;
+
+    const TIMEOUT: Duration = Duration::from_secs(2);
+
+    fn test_anchor() -> CaretAnchor {
+        CaretAnchor {
+            rect: RECT {
+                left: 100,
+                top: 100,
+                right: 101,
+                bottom: 120,
+            },
+            dpi: 96,
+            work_area: RECT {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+        }
+    }
+
+    /// A tracker whose first resolve blocks until the test releases it, so the
+    /// test can deterministically queue competing generations.
+    struct GatedTracker {
+        tracker: CaretTracker,
+        started: mpsc::Receiver<()>,
+        release: mpsc::Sender<()>,
+    }
+
+    fn gated_tracker() -> GatedTracker {
+        let (started_tx, started) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        let tracker = CaretTracker::spawn_with(move || {
+            let _ = started_tx.send(());
+            let _ = release_rx.recv();
+            (test_anchor(), false)
+        })
+        .expect("caret thread starts");
+        GatedTracker {
+            tracker,
+            started,
+            release,
+        }
+    }
+
+    fn wait_for_generation(tracker: &CaretTracker, generation: u64) -> CaretSample {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            if let Some(sample) = tracker.latest() {
+                if sample.generation == generation {
+                    return sample;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no sample for generation {generation}"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn latest_is_none_before_the_first_resolve() {
+        let mut tracker =
+            CaretTracker::spawn_with(|| (test_anchor(), false)).expect("caret thread starts");
+        assert!(tracker.latest().is_none());
+        tracker.stop();
+    }
+
+    #[test]
+    fn coalesces_to_the_newest_pending_generation() {
+        let mut harness = gated_tracker();
+        let _ = harness.tracker.request();
+        harness
+            .started
+            .recv_timeout(TIMEOUT)
+            .expect("first resolve starts");
+        let _ = harness.tracker.request();
+        let _ = harness.tracker.request();
+        harness.release.send(()).expect("release first resolve");
+        harness
+            .started
+            .recv_timeout(TIMEOUT)
+            .expect("coalesced resolve starts");
+        harness.release.send(()).expect("release coalesced resolve");
+        let sample = wait_for_generation(&harness.tracker, 3);
+        assert_eq!(sample.generation, 3);
+        harness.tracker.stop();
+    }
+
+    #[test]
+    fn stale_result_is_not_published() {
+        let mut harness = gated_tracker();
+        let _ = harness.tracker.request();
+        harness
+            .started
+            .recv_timeout(TIMEOUT)
+            .expect("first resolve starts");
+        let _ = harness.tracker.request();
+        harness.release.send(()).expect("release stale resolve");
+        harness
+            .started
+            .recv_timeout(TIMEOUT)
+            .expect("newer resolve starts");
+        // The first resolve finished after generation 2 was requested, so its
+        // result must have been dropped instead of published.
+        assert!(harness.tracker.latest().is_none());
+        harness.release.send(()).expect("release newer resolve");
+        let sample = wait_for_generation(&harness.tracker, 2);
+        assert_eq!(sample.generation, 2);
+        harness.tracker.stop();
+    }
+
+    #[test]
+    fn request_returns_the_queued_generation() {
+        let mut tracker =
+            CaretTracker::spawn_with(|| (test_anchor(), false)).expect("caret thread starts");
+        assert_eq!(tracker.request(), 1);
+        assert_eq!(tracker.request(), 2);
+        tracker.stop();
+        assert_eq!(tracker.request(), 0);
+    }
+
+    #[test]
+    fn stop_joins_and_ignores_late_requests() {
+        let mut tracker =
+            CaretTracker::spawn_with(|| (test_anchor(), false)).expect("caret thread starts");
+        let _ = tracker.request();
+        tracker.stop();
+        let _ = tracker.request();
+        tracker.stop();
+    }
+
+    #[test]
+    fn slow_resolver_does_not_panic_or_block_stop() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let mut tracker = CaretTracker::spawn_with(move || {
+            let _ = started_tx.send(());
+            std::thread::sleep(Duration::from_millis(30));
+            (test_anchor(), true)
+        })
+        .expect("caret thread starts");
+        let _ = tracker.request();
+        started_rx
+            .recv_timeout(TIMEOUT)
+            .expect("slow resolve starts");
+        let stop_started = Instant::now();
+        tracker.stop();
+        assert!(stop_started.elapsed() < TIMEOUT);
+    }
 
     fn anchor(left: i32, top: i32, right: i32, bottom: i32, work: RECT) -> CaretAnchor {
         CaretAnchor {
