@@ -8,7 +8,8 @@ elevation, and session changes.
 The 0.2 matrix is [0.2-matrix.md](0.2-matrix.md). It is the written pass/fail
 record for the 0.2 input layer, not a demo script and not a substitute for
 automated tests. The 0.7 hardening matrix is [0.7-matrix.md](0.7-matrix.md);
-reuse this directory's safety, evidence, and privacy rules for it.
+its owner checklist is [0.7-checklist.md](0.7-checklist.md). Reuse this
+directory's safety, evidence, and privacy rules for both.
 
 ## Scope
 
