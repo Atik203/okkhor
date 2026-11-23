@@ -139,6 +139,7 @@ name = "okkhor-lang"
 version = "0.2.0"
 dependencies = [
  "okkhor-core",
+ "regex",
  "serde",
  "serde_json",
  "thiserror",

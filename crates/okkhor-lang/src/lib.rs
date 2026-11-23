@@ -12,6 +12,7 @@
 //! assets are read.
 
 pub mod assets;
+pub mod bijoy;
 pub mod error;
 pub mod importer;
 
@@ -19,6 +20,7 @@ pub use assets::{
     AssetKind, Dictionary, DictionaryEntry, EncodingEntry, EncodingId, EncodingTable, ImportReport,
     ImportedAsset, ImportedAssets, Layout, LayoutId, LayoutMapping, SkipReason, UnsupportedAsset,
 };
+pub use bijoy::{BijoyError, MAX_INPUT_CHARS, RULE_COUNT, from_bijoy, rule_count, to_bijoy};
 pub use error::LangError;
 pub use importer::{
     FixtureEnvelope, ImportOptions, ImportOutcome, Manifest, ManifestEntry, import_asset,
