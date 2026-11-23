@@ -62,8 +62,8 @@ fn main() {
         Some("daemon") => {
             let rest: Vec<String> = std::env::args().skip(2).collect();
             match parse_daemon_args(&rest) {
-                Ok(encoding) => {
-                    if let Err(error) = run_daemon(encoding) {
+                Ok(options) => {
+                    if let Err(error) = run_daemon(options) {
                         eprintln!("daemon failed: {error}");
                         std::process::exit(1);
                     }
@@ -131,12 +131,12 @@ fn main() {
 
 fn print_help() {
     println!(
-        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon [--encoding unicode|bijoy] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
+        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon [--encoding unicode|bijoy] [--mode bangla|english] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
          `self-check` exercises the learning engine, ranking, and persistence.\n\
          `hook-demo` installs a global hook for 5 seconds and prints key events.\n\
          `popup-demo` shows a non-activating popup near the caret for 3 seconds.\n\
          `tray-demo` shows the tray menu for 10 seconds.\n\
-         `daemon [--encoding unicode|bijoy]` runs the resident daemon with hook, pause hotkey, and tray (default encoding: unicode).\n\
+         `daemon [--encoding unicode|bijoy] [--mode bangla|english]` runs the resident daemon with hook, mode + pause hotkeys, and tray (defaults: unicode, bangla).\n\
          `inject` is a QA-only command for synthetic text; focus the target during the delay.\n\
          `autostart enable|disable|status` manages the per-user login entry.\n\
          `fonts status` lists staged font files, roles, and per-user install state (read-only, no admin).\n\
@@ -178,26 +178,95 @@ impl OutputEncoding {
 }
 
 /// Usage text for the `daemon` subcommand (also the exit-2 message).
-const DAEMON_USAGE: &str = "usage: okkhor daemon [--encoding unicode|bijoy]";
+const DAEMON_USAGE: &str =
+    "usage: okkhor daemon [--encoding unicode|bijoy] [--mode bangla|english]";
+
+/// Input mode: Bangla phonetic composition or English pass-through
+/// (contract §2, ADR 0014 §1). Default is Bangla. Pause stays separate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum InputMode {
+    #[default]
+    Bangla,
+    English,
+}
+
+impl InputMode {
+    /// Stable machine-readable name (also the CLI spelling).
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bangla => "bangla",
+            Self::English => "english",
+        }
+    }
+
+    /// Parse a CLI value; `None` for anything outside the allowlisted pair.
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "bangla" => Some(Self::Bangla),
+            "english" => Some(Self::English),
+            _ => None,
+        }
+    }
+
+    const fn toggle(self) -> Self {
+        match self {
+            Self::Bangla => Self::English,
+            Self::English => Self::Bangla,
+        }
+    }
+
+    /// Whether keystrokes feed the composition session. English passes
+    /// through untouched (pause remains a separate gate).
+    const fn allows_composition(self) -> bool {
+        matches!(self, Self::Bangla)
+    }
+}
+
+/// Parsed `okkhor daemon` options. Pure data; no I/O, no process state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DaemonOptions {
+    encoding: OutputEncoding,
+    mode: InputMode,
+}
+
+impl DaemonOptions {
+    const fn new(encoding: OutputEncoding, mode: InputMode) -> Self {
+        Self { encoding, mode }
+    }
+}
+
+/// Parse `okkhor daemon` arguments. Pure: no I/O, no process state.
+/// Accepts `--encoding <v>` / `--encoding=<v>` and `--mode <v>` /
+/// `--mode=<v>` in any order; anything else is a usage error.
+fn parse_daemon_args(args: &[String]) -> Result<DaemonOptions, &'static str> {
+    let mut encoding = OutputEncoding::Unicode;
+    let mut mode = InputMode::Bangla;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        if let Some(value) = arg.strip_prefix("--encoding=") {
+            encoding = OutputEncoding::parse(value).ok_or(DAEMON_USAGE)?;
+            index += 1;
+        } else if let Some(value) = arg.strip_prefix("--mode=") {
+            mode = InputMode::parse(value).ok_or(DAEMON_USAGE)?;
+            index += 1;
+        } else if arg == "--encoding" {
+            let value = args.get(index + 1).ok_or(DAEMON_USAGE)?;
+            encoding = OutputEncoding::parse(value).ok_or(DAEMON_USAGE)?;
+            index += 2;
+        } else if arg == "--mode" {
+            let value = args.get(index + 1).ok_or(DAEMON_USAGE)?;
+            mode = InputMode::parse(value).ok_or(DAEMON_USAGE)?;
+            index += 2;
+        } else {
+            return Err(DAEMON_USAGE);
+        }
+    }
+    Ok(DaemonOptions::new(encoding, mode))
+}
 
 /// Usage text for the `fonts` subcommand (also the exit-2 message).
 const FONTS_USAGE: &str = "usage: okkhor fonts <status|install|uninstall <name>>";
-
-/// Parse `okkhor daemon` arguments. Pure: no I/O, no process state.
-fn parse_daemon_args(args: &[String]) -> Result<OutputEncoding, &'static str> {
-    if args.is_empty() {
-        return Ok(OutputEncoding::Unicode);
-    }
-    if args.len() == 1 {
-        if let Some(value) = args[0].strip_prefix("--encoding=") {
-            return OutputEncoding::parse(value).ok_or(DAEMON_USAGE);
-        }
-    }
-    if args.len() == 2 && args[0] == "--encoding" {
-        return OutputEncoding::parse(&args[1]).ok_or(DAEMON_USAGE);
-    }
-    Err(DAEMON_USAGE)
-}
 
 /// Action selected by `okkhor fonts ...`. The uninstall target is a bundled
 /// file name (resolved by [`resolve_uninstall_target`]); anything else is
@@ -488,7 +557,7 @@ fn parse_autostart_action(_argument: Option<&str>) -> Option<()> {
 }
 
 #[cfg(windows)]
-fn run_daemon(encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
+fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
@@ -496,9 +565,9 @@ fn run_daemon(encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
     use okkhor_core::Language;
     use okkhor_learn::{LearningEvent, Smriti};
     use okkhor_win::{
-        InjectError, KeyPhase, KeyboardHook, PauseHotkey, SingleInstance, SingleInstanceError,
-        SuggestionPopup, TrayEvent, TrayIcon, WindowsKeyboardHook, caret_anchor,
-        ctrl_or_alt_pressed, foreground_window_id, inject_commit, place_popup,
+        InjectError, KeyPhase, KeyboardHook, ModeHotkey, PauseHotkey, SingleInstance,
+        SingleInstanceError, SuggestionPopup, TrayEvent, TrayIcon, TrayMode, WindowsKeyboardHook,
+        caret_anchor, ctrl_or_alt_pressed, foreground_window_id, inject_commit, place_popup,
     };
 
     use crate::input_session::{
@@ -506,6 +575,19 @@ fn run_daemon(encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
         VK_LEFT, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, default_engine, vk_to_digit_index,
         vk_to_letter,
     };
+
+    /// Allowlisted log kind for a mode toggle (no text, no codes).
+    const MODE_TOGGLE_KIND: &str = "mode_toggle";
+    /// How long the mode toast stays visible (ADR 0014 §3).
+    const MODE_TOAST_MS: u64 = 800;
+
+    /// Toast text per mode. Bangla label is a fixed literal, never user text.
+    fn mode_toast_text(mode: crate::InputMode) -> &'static str {
+        match mode {
+            crate::InputMode::Bangla => "বাংলা",
+            crate::InputMode::English => "English",
+        }
+    }
 
     /// Everything one key event needs. Kept in one struct so the hot loop
     /// stays a thin dispatch with no globals and no cross-thread sharing.
@@ -811,24 +893,139 @@ fn run_daemon(encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
     }
     let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
     let mut compose_window = foreground_window_id();
+    let encoding = options.encoding;
+    let mut mode = options.mode;
+    let mut toast_until_ms: u64 = 0;
 
-    println!("daemon: running (encoding {})", encoding.as_str());
+    fn tray_mode_of(mode: crate::InputMode) -> TrayMode {
+        match mode {
+            crate::InputMode::Bangla => TrayMode::Bangla,
+            crate::InputMode::English => TrayMode::English,
+        }
+    }
+
+    fn show_mode_toast(
+        popup: &mut Option<SuggestionPopup>,
+        logger: &logging::Logger,
+        mode: crate::InputMode,
+    ) -> bool {
+        let Some(window) = popup.as_mut() else {
+            return false;
+        };
+        let Some(anchor) = caret_anchor() else {
+            window.hide();
+            return false;
+        };
+        // Small fixed toast near the caret; never activates, never steals
+        // focus. Text is a fixed literal per mode, never user content.
+        let placement = place_popup(&anchor, 160, 48);
+        if let Err(error) = window.show(mode_toast_text(mode), placement) {
+            logger.error(logging::Scope::Daemon, "popup_show", error.code());
+            return false;
+        }
+        true
+    }
+
+    // Mode toggle: flip Bangla/English, drop any partial composition, update
+    // the tray label, and show a short non-activating toast. Never blocks the
+    // key path: no sleep, no I/O, no logging of text — one allowlisted code.
+    fn toggle_mode(
+        session: &mut InputSession<DefaultEngine>,
+        popup: &mut Option<SuggestionPopup>,
+        tray: &TrayIcon,
+        logger: &logging::Logger,
+        mode: &mut crate::InputMode,
+        toast_until_ms: &mut u64,
+    ) {
+        *mode = mode.toggle();
+        session.reset();
+        if let Some(window) = popup.as_mut() {
+            window.hide();
+        }
+        tray.set_mode(tray_mode_of(*mode));
+        if show_mode_toast(popup, logger, *mode) {
+            *toast_until_ms = now_ms().saturating_add(MODE_TOAST_MS);
+        } else {
+            *toast_until_ms = 0;
+        }
+        logger.error(logging::Scope::Daemon, MODE_TOGGLE_KIND, None);
+        println!("daemon: mode {}", mode.as_str());
+    }
+
+    tray.set_mode(tray_mode_of(mode));
+
+    println!(
+        "daemon: running (encoding {}, mode {})",
+        encoding.as_str(),
+        mode.as_str()
+    );
     if hotkey_ready {
         println!("daemon: Ctrl+Alt+Shift+P toggles capture");
     }
-    println!("daemon: type Banglish and press Space to commit Bangla");
+    // Mode hotkey: F9 by default, Ctrl+Space if F9 is already claimed.
+    let mut mode_hotkey = ModeHotkey::new();
+    let mode_hotkey_ready = match mode_hotkey.start() {
+        Ok(binding) => {
+            println!("daemon: {} toggles Bangla/English", binding.name());
+            if binding != okkhor_win::ModeBinding::F9 {
+                // One-time, text-free notice: the setting stays editable and
+                // no admin was involved.
+                logger.error(logging::Scope::Hotkey, "hotkey_fallback", None);
+                eprintln!("daemon: F9 unavailable; using Ctrl+Space for mode toggle");
+            }
+            true
+        }
+        Err(error) => {
+            logger.error(logging::Scope::Hotkey, "hotkey_start", None);
+            eprintln!("daemon: mode hotkey unavailable: {error}");
+            false
+        }
+    };
+    if mode == crate::InputMode::English {
+        println!("daemon: English mode: typing passes through (F9 toggles Bangla)");
+    } else {
+        println!("daemon: type Banglish and press Space to commit Bangla");
+    }
     println!("daemon: use the tray menu or pause hotkey to pause");
 
     'run: loop {
         while let Some(event) = tray.try_next() {
             match event {
                 TrayEvent::TogglePause => toggle_capture(&hook, &tray),
+                TrayEvent::ToggleMode => toggle_mode(
+                    &mut session,
+                    &mut popup,
+                    &tray,
+                    logger,
+                    &mut mode,
+                    &mut toast_until_ms,
+                ),
                 TrayEvent::Exit => break 'run,
             }
         }
 
         if hotkey_ready && hotkey.try_next() {
             toggle_capture(&hook, &tray);
+        }
+
+        if mode_hotkey_ready && mode_hotkey.try_next() {
+            toggle_mode(
+                &mut session,
+                &mut popup,
+                &tray,
+                logger,
+                &mut mode,
+                &mut toast_until_ms,
+            );
+        }
+
+        // Toast expiry: hide the mode toast after ~800 ms unless composition
+        // has already replaced it. Never blocks; checked once per poll.
+        if toast_until_ms != 0 && now_ms() >= toast_until_ms {
+            toast_until_ms = 0;
+            if !session.is_composing() {
+                hide_popup(&mut popup);
+            }
         }
 
         if !hook.capture_enabled() {
@@ -838,7 +1035,24 @@ fn run_daemon(encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
                 session.reset();
                 hide_popup(&mut popup);
             }
+            toast_until_ms = 0;
             // Drain injected and real events alike while paused.
+            while hook.try_next().is_some() {}
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        }
+
+        if !mode.allows_composition() {
+            // English mode: no composition, no candidates, no popup. The hook
+            // keeps passing everything through; the buffer is already clear
+            // from the toggle, and any stray state is dropped here before the
+            // drain so a mode switch can never leak a partial buffer.
+            if session.is_composing() {
+                session.reset();
+            }
+            if toast_until_ms == 0 {
+                hide_popup(&mut popup);
+            }
             while hook.try_next().is_some() {}
             std::thread::sleep(Duration::from_millis(10));
             continue;
@@ -868,6 +1082,7 @@ fn run_daemon(encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
 
     hook.stop();
     hotkey.stop();
+    mode_hotkey.stop();
     tray.remove();
     // A dropped-learn count carries no text, so it is safe to print.
     let dropped = learn_dropped.load(Ordering::Relaxed);
@@ -888,7 +1103,7 @@ fn toggle_capture(hook: &okkhor_win::WindowsKeyboardHook, tray: &okkhor_win::Tra
 }
 
 #[cfg(not(windows))]
-fn run_daemon(_encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
+fn run_daemon(_options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "daemon is only available on Windows",
@@ -1167,7 +1382,9 @@ fn tray_demo() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    println!("tray-demo: right-click the icon for the menu; stops after 10 seconds.");
+    println!(
+        "tray-demo: left-click toggles mode; right-click the icon for the menu; stops after 10 seconds."
+    );
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(10) {
         while let Some(event) = tray.try_next() {
@@ -1176,6 +1393,11 @@ fn tray_demo() -> Result<(), Box<dyn Error>> {
                     let paused = !tray.paused();
                     tray.set_paused(paused);
                     println!("tray-demo: {}", if paused { "paused" } else { "active" });
+                }
+                TrayEvent::ToggleMode => {
+                    let next = tray.mode().toggle();
+                    tray.set_mode(next);
+                    println!("tray-demo: mode {}", next.label());
                 }
                 TrayEvent::Exit => {
                     println!("tray-demo: exit");
@@ -1312,8 +1534,8 @@ fn fresh_temp_dir() -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        FontsAction, OutputEncoding, apply_encoding, parse_daemon_args, parse_fonts_args,
-        resolve_uninstall_target, select_fonts_dir,
+        DaemonOptions, FontsAction, InputMode, OutputEncoding, apply_encoding, parse_daemon_args,
+        parse_fonts_args, resolve_uninstall_target, select_fonts_dir,
     };
 
     #[test]
@@ -1336,29 +1558,80 @@ mod tests {
     }
 
     #[test]
-    fn daemon_args_default_to_unicode() {
-        assert_eq!(parse_daemon_args(&args(&[])), Ok(OutputEncoding::Unicode));
+    fn daemon_args_default_to_unicode_bangla() {
+        assert_eq!(
+            parse_daemon_args(&args(&[])),
+            Ok(DaemonOptions::new(
+                OutputEncoding::Unicode,
+                InputMode::Bangla
+            ))
+        );
         assert_eq!(OutputEncoding::Unicode.as_str(), "unicode");
         assert_eq!(OutputEncoding::Bijoy.as_str(), "bijoy");
+        assert_eq!(InputMode::Bangla.as_str(), "bangla");
+        assert_eq!(InputMode::English.as_str(), "english");
+        assert_eq!(InputMode::default(), InputMode::Bangla);
     }
 
     #[test]
     fn daemon_args_accept_space_and_equals_forms() {
         assert_eq!(
             parse_daemon_args(&args(&["--encoding", "unicode"])),
-            Ok(OutputEncoding::Unicode)
+            Ok(DaemonOptions::new(
+                OutputEncoding::Unicode,
+                InputMode::Bangla
+            ))
         );
         assert_eq!(
             parse_daemon_args(&args(&["--encoding", "bijoy"])),
-            Ok(OutputEncoding::Bijoy)
+            Ok(DaemonOptions::new(OutputEncoding::Bijoy, InputMode::Bangla))
         );
         assert_eq!(
             parse_daemon_args(&args(&["--encoding=unicode"])),
-            Ok(OutputEncoding::Unicode)
+            Ok(DaemonOptions::new(
+                OutputEncoding::Unicode,
+                InputMode::Bangla
+            ))
         );
         assert_eq!(
             parse_daemon_args(&args(&["--encoding=bijoy"])),
-            Ok(OutputEncoding::Bijoy)
+            Ok(DaemonOptions::new(OutputEncoding::Bijoy, InputMode::Bangla))
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--mode", "bangla"])),
+            Ok(DaemonOptions::new(
+                OutputEncoding::Unicode,
+                InputMode::Bangla
+            ))
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--mode", "english"])),
+            Ok(DaemonOptions::new(
+                OutputEncoding::Unicode,
+                InputMode::English
+            ))
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--mode=english"])),
+            Ok(DaemonOptions::new(
+                OutputEncoding::Unicode,
+                InputMode::English
+            ))
+        );
+        // Combined flags in either order.
+        assert_eq!(
+            parse_daemon_args(&args(&["--encoding", "bijoy", "--mode", "english"])),
+            Ok(DaemonOptions::new(
+                OutputEncoding::Bijoy,
+                InputMode::English
+            ))
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--mode=english", "--encoding=bijoy"])),
+            Ok(DaemonOptions::new(
+                OutputEncoding::Bijoy,
+                InputMode::English
+            ))
         );
     }
 
@@ -1370,6 +1643,10 @@ mod tests {
         assert!(parse_daemon_args(&args(&["--encoding", "ansi"])).is_err());
         assert!(parse_daemon_args(&args(&["--encoding="])).is_err());
         assert!(parse_daemon_args(&args(&["--encoding=BIJOY"])).is_err());
+        assert!(parse_daemon_args(&args(&["--mode"])).is_err());
+        assert!(parse_daemon_args(&args(&["--mode", "bengali"])).is_err());
+        assert!(parse_daemon_args(&args(&["--mode="])).is_err());
+        assert!(parse_daemon_args(&args(&["--mode=BANGLA"])).is_err());
         assert!(parse_daemon_args(&args(&["--other"])).is_err());
         assert!(parse_daemon_args(&args(&["--encoding", "bijoy", "extra"])).is_err());
         assert_eq!(
@@ -1378,6 +1655,72 @@ mod tests {
         );
         assert_eq!(OutputEncoding::parse("bijoy"), Some(OutputEncoding::Bijoy));
         assert_eq!(OutputEncoding::parse("ansi"), None);
+        assert_eq!(InputMode::parse("bangla"), Some(InputMode::Bangla));
+        assert_eq!(InputMode::parse("english"), Some(InputMode::English));
+        assert_eq!(InputMode::parse("bengali"), None);
+        assert_eq!(InputMode::parse(""), None);
+    }
+
+    #[test]
+    fn input_mode_toggle_and_composition_gate() {
+        // Bangla composes; English is pass-through; pause stays separate
+        // (the daemon checks `capture_enabled` before this gate).
+        assert_eq!(InputMode::Bangla.toggle(), InputMode::English);
+        assert_eq!(InputMode::English.toggle(), InputMode::Bangla);
+        assert!(InputMode::Bangla.allows_composition());
+        assert!(!InputMode::English.allows_composition());
+    }
+
+    #[test]
+    fn mode_transitions_compose_in_bangla_pass_through_in_english() {
+        use crate::input_session::{InputSession, default_engine};
+
+        let mut session: InputSession<_> = InputSession::new(default_engine());
+        let mut mode = InputMode::Bangla;
+        // Bangla: letters build the buffer and yield the table candidate.
+        for byte in *b"bhal" {
+            if mode.allows_composition() {
+                assert!(session.push_letter(byte));
+            }
+        }
+        assert!(session.is_composing());
+        // Switching to English clears the buffer (nothing to hide here; the
+        // daemon also hides the popup and drains the key queue).
+        mode = mode.toggle();
+        assert_eq!(mode, InputMode::English);
+        session.reset();
+        assert!(!session.is_composing());
+        assert_eq!(session.buffer(), "");
+        assert!(session.candidates().is_empty());
+        // English: keys are not fed to the session at all.
+        for byte in *b"bhal" {
+            if mode.allows_composition() {
+                assert!(session.push_letter(byte));
+            }
+        }
+        assert!(!session.is_composing());
+        assert_eq!(session.buffer(), "");
+        // Back to Bangla: composition works again from a clean slate.
+        mode = mode.toggle();
+        assert_eq!(mode, InputMode::Bangla);
+        for byte in *b"ami" {
+            if mode.allows_composition() {
+                assert!(session.push_letter(byte));
+            }
+        }
+        assert!(session.is_composing());
+        assert_eq!(session.buffer(), "ami");
+    }
+
+    /// Manual smoke: start the daemon, press F9 / left-click the tray, and
+    /// confirm the toast + tooltip change without typing real text into an
+    /// app. Ignored in CI so no hook is ever installed there.
+    #[test]
+    #[ignore = "manual smoke only: run `okkhor daemon --mode english`, toggle with F9/tray"]
+    fn manual_mode_toggle_smoke_note() {
+        // Steps: `okkhor daemon`, type `amar`+Space (commits আমার), press F9,
+        // confirm `English` toast + `Okkhor - English` tooltip, type (passes
+        // through), press F9 again, confirm `বাংলা` toast, type `amar`+Space.
     }
 
     #[test]

@@ -102,10 +102,33 @@ refresh) in a release build on Ryzen 7 5800H / Windows 11, 2026-11-23
 End-to-end hook→commit latency (poll quantum + one `SendInput` batch + popup)
 needs a real-key manual run and has not been measured yet.
 
+## Mode behavior (ADR 0014 §1–§3)
+
+`InputMode` (`bangla` | `english`, `--mode` flag) gates the session; pause
+(`Ctrl+Alt+Shift+P` / tray) stays a separate capture switch checked first.
+The CLI flag selects the initial mode only; persisting the last mode across
+restarts (ADR 0014 §1) arrives with the settings-store wiring (Task 3) and is
+not claimed here.
+
+- Bangla (default): letters feed `InputSession` (buffer ≤ 32, candidates ≤ 5)
+  as before.
+- English: no composition — the toggle clears the buffer, hides the popup,
+  and the worker drains the key queue without touching the session, so keys
+  pass through untouched. Pause keeps working in either mode.
+- Toggle sources: `F9` (falls back to `Ctrl+Space` when `RegisterHotKey` for
+  `F9` fails; the active binding is printed once at startup and a
+  `scope=hotkey kind=hotkey_fallback` record is logged), tray left-click
+  (`WM_LBUTTONUP`), or the `Switch to …` tray menu item. A double-click is
+  two left-clicks (net no mode change) and never pauses; pause is available
+  via the tray menu and the pause hotkey.
+- Each toggle clears/hides, updates the tray label + tooltip
+  (`Okkhor - Bangla/English (active/paused)`), shows a non-activating
+  `বাংলা` / `English` toast near the caret for ~800 ms, and logs only the
+  allowlisted `scope=daemon kind=mode_toggle` code — never text. The toast
+  expiry is checked once per 10 ms poll, so toggling never blocks the key path.
+
 ## What is intentionally not here yet
 
-- English composition mode: every letter feeds the Bangla session; type with
-  capture paused for English.
 - `Enter` on a multi-line target commits instead of inserting a newline while
   composing; `Backspace` past the buffer start is untouched.
 - No Smriti rerank of transliteration candidates yet (commits are queued for
