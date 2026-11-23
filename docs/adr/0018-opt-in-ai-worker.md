@@ -55,8 +55,10 @@ UI may ai.cancel(job_id)
 - No prompt, response, key, or window title in logs, errors, crash reports, or
   telemetry.
 - API key from `OKKHOR_OPENAI_API_KEY` only; model id from `OKKHOR_AI_MODEL`
-  with a documented default; neither is persisted, echoed, or shown beyond
-  "set/unset". Gemini remains a future provider behind the same trait.
+  with default `gpt-6-luna` (pricing checked 2026-11-24; ~$0.0002 per short
+  rewrite) and `gpt-6.1-terra` as the quality option; neither key nor model is
+  persisted, echoed, or shown beyond "set/unset". Gemini remains a future
+  provider behind the same trait.
 - The provider is behind a Cargo feature (`http`) so the default build is
   offline and CI needs no network.
 - Tests use `MockProvider` and a local fake HTTP server only.
