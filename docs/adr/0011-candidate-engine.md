@@ -81,8 +81,9 @@ are:
    matching the transliteration crate threshold) yields an empty `Vec`.
 
 6. **Determinism.** Identical assets + identical `Smriti` state + identical
-   request ⇒ byte-identical output. Tie-breaks are total
-   (`score desc, text asc, source rank asc`); no `HashMap` iteration leaks
+   request ⇒ byte-identical output. Tie-breaks follow the implemented
+   two-level rule (`score desc, text asc`, stable sort retaining merge
+   order — design doc §7.2); no `HashMap` iteration leaks
    into output order; no wall-clock, RNG, or thread timing on the query path
    (`now_ms` comes from the caller).
 
