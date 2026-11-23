@@ -51,6 +51,16 @@ export interface LayoutInfo {
   name: string;
 }
 
+export type QuickbarSnapshot = {
+  input_mode: "bangla" | "english";
+  output_encoding: "unicode" | "bijoy";
+  paused: boolean;
+  available: boolean;
+  collapsed: boolean;
+  opacity: number;
+  visible: boolean;
+};
+
 /**
  * Thin wrappers over the Tauri Rust commands. Errors arrive as
  * `{ code, message }`; see `lib/errors.ts`.
@@ -96,5 +106,29 @@ export const api = {
     return invoke<{ format: ImportFormat; data: string }>("ipc_export_words", {
       format,
     });
+  },
+  quickbarState(): Promise<QuickbarSnapshot> {
+    return invoke<QuickbarSnapshot>("quickbar_state");
+  },
+  quickbarToggleMode(): Promise<QuickbarSnapshot> {
+    return invoke<QuickbarSnapshot>("quickbar_toggle_mode");
+  },
+  quickbarCycleEncoding(): Promise<QuickbarSnapshot> {
+    return invoke<QuickbarSnapshot>("quickbar_cycle_encoding");
+  },
+  quickbarTogglePause(): Promise<QuickbarSnapshot> {
+    return invoke<QuickbarSnapshot>("quickbar_toggle_pause");
+  },
+  quickbarOpenSettings(): Promise<void> {
+    return invoke<void>("quickbar_open_settings");
+  },
+  quickbarOpenKeyboard(): Promise<void> {
+    return invoke<void>("quickbar_open_keyboard");
+  },
+  quickbarCollapse(): Promise<QuickbarSnapshot> {
+    return invoke<QuickbarSnapshot>("quickbar_collapse");
+  },
+  quickbarExpand(): Promise<QuickbarSnapshot> {
+    return invoke<QuickbarSnapshot>("quickbar_expand");
   },
 };

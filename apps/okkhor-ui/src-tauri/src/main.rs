@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 //! Okkhor settings UI shell (Tauri 2, ADR 0012).
 //!
 //! Separate process from the daemon: a UI crash must not stop typing.
@@ -7,10 +7,19 @@
 //! to it through the `okkhor-ipc` client. When the daemon is absent every
 //! command fails with `daemon_unavailable` and the WebView renders its
 //! banner + read-only mode.
+//!
+//! The quick control bar (ADR 0014 §5, as amended 2026-11-23) is a second
+//! Tauri window (`quickbar`) owed by [`quickbar`]: it never activates on
+//! Windows (`WS_EX_NOACTIVATE`), shows with `SW_SHOWNOACTIVATE`, and sits
+//! top-right of the primary monitor. `--quickbar` launches the bar only and
+//! keeps `main` hidden until `quickbar_open_settings` shows it.
 
 mod error;
+mod quickbar;
 
 use error::{map_client_error, read_session_token_hex, UiError};
+use quickbar::QuickbarState;
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Open an authenticated IPC client, completing the hello handshake.
 /// Any connection-level failure becomes `daemon_unavailable`.
@@ -24,6 +33,38 @@ async fn connect() -> Result<okkhor_ipc::transport::Client, UiError> {
     .await
     .map(|(client, _)| client)
     .map_err(|e| map_client_error(&e))
+}
+
+/// Load the full quickbar snapshot: live mode/encoding/pause from `status`
+/// plus the bar chrome (`quickbar_collapsed`, `quickbar_opacity`) from
+/// settings. `status` alone cannot supply the chrome fields, and settings
+/// alone cannot supply pause, so both round trips are needed.
+#[cfg(windows)]
+async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
+    let mut client = connect().await?;
+    let status = client.status().await.map_err(|e| map_client_error(&e))?;
+    // Chrome fields are best-effort: a settings read failure must not hide
+    // live mode state, so fall back to the contract defaults.
+    let (collapsed, opacity, visible) = client
+        .settings_get()
+        .await
+        .map(|settings| {
+            (
+                settings.quickbar_collapsed,
+                settings.quickbar_opacity,
+                settings.quickbar_visible,
+            )
+        })
+        .unwrap_or((false, 0.9, false));
+    Ok(QuickbarState {
+        input_mode: status.input_mode,
+        output_encoding: status.output_encoding,
+        paused: status.paused,
+        available: true,
+        collapsed,
+        opacity,
+        visible,
+    })
 }
 
 #[tauri::command]
@@ -251,8 +292,305 @@ async fn ipc_export_words(
     }
 }
 
+/// Quick bar snapshot: mode, encoding, pause, availability, and chrome.
+/// Reuses the IPC client, so a missing daemon surfaces `daemon_unavailable`
+/// exactly like the settings shell.
+#[tauri::command]
+async fn quickbar_state() -> Result<QuickbarState, UiError> {
+    #[cfg(windows)]
+    {
+        load_quickbar_state().await
+    }
+    #[cfg(not(windows))]
+    {
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Flip Bangla/English through `settings.update` and return the new snapshot.
+#[tauri::command]
+async fn quickbar_toggle_mode() -> Result<QuickbarState, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        let current = client
+            .settings_get()
+            .await
+            .map_err(|e| map_client_error(&e))?;
+        let next = match current.input_mode {
+            okkhor_ipc::settings::InputMode::Bangla => okkhor_ipc::settings::InputMode::English,
+            okkhor_ipc::settings::InputMode::English => okkhor_ipc::settings::InputMode::Bangla,
+        };
+        let patch = okkhor_ipc::settings::SettingsPatch {
+            input_mode: Some(next),
+            ..Default::default()
+        };
+        client
+            .settings_update(&patch)
+            .await
+            .map_err(|e| map_client_error(&e))?;
+        load_quickbar_state().await
+    }
+    #[cfg(not(windows))]
+    {
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Cycle Unicode/Bijoy through `settings.update` and return the new snapshot.
+#[tauri::command]
+async fn quickbar_cycle_encoding() -> Result<QuickbarState, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        let current = client
+            .settings_get()
+            .await
+            .map_err(|e| map_client_error(&e))?;
+        let next = match current.output_encoding {
+            okkhor_ipc::settings::OutputEncoding::Unicode => {
+                okkhor_ipc::settings::OutputEncoding::Bijoy
+            }
+            okkhor_ipc::settings::OutputEncoding::Bijoy => {
+                okkhor_ipc::settings::OutputEncoding::Unicode
+            }
+        };
+        let patch = okkhor_ipc::settings::SettingsPatch {
+            output_encoding: Some(next),
+            ..Default::default()
+        };
+        client
+            .settings_update(&patch)
+            .await
+            .map_err(|e| map_client_error(&e))?;
+        load_quickbar_state().await
+    }
+    #[cfg(not(windows))]
+    {
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Toggle capture pause through `capture.set` and return the new snapshot.
+#[tauri::command]
+async fn quickbar_toggle_pause() -> Result<QuickbarState, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        let status = client.status().await.map_err(|e| map_client_error(&e))?;
+        client
+            .set_capture(!status.paused)
+            .await
+            .map_err(|e| map_client_error(&e))?;
+        load_quickbar_state().await
+    }
+    #[cfg(not(windows))]
+    {
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Show the main window and navigate it to `route`. The bar itself
+/// never activates: only `main` is shown and focused here.
+fn show_main_at(app: &AppHandle, route: &str) -> Result<(), UiError> {
+    let Some(main) = app.get_webview_window("main") else {
+        return Err(UiError::internal());
+    };
+    main.show().map_err(|_| UiError::internal())?;
+    // Best-effort unminimize; a failure must not block showing the window.
+    let _ = main.unminimize();
+    main.set_focus().map_err(|_| UiError::internal())?;
+    main.emit("okkhor:navigate", route)
+        .map_err(|_| UiError::internal())?;
+    Ok(())
+}
+
+/// Show the settings window and navigate it to `/settings`. The bar itself
+/// never activates: only `main` is shown and focused here.
+#[tauri::command]
+async fn quickbar_open_settings(app: AppHandle) -> Result<(), UiError> {
+    show_main_at(&app, "/settings")
+}
+
+/// Show the main window at the on-screen keyboard (`/keyboard`), same
+/// pattern as [`quickbar_open_settings`].
+#[tauri::command]
+async fn quickbar_open_keyboard(app: AppHandle) -> Result<(), UiError> {
+    show_main_at(&app, "/keyboard")
+}
+
+/// Resize the bar window. The resize always applies locally; persisting
+/// `quickbar_collapsed` is best-effort so the orb still works while the
+/// daemon is down (shell stays read-only, chrome stays local).
+#[tauri::command]
+async fn quickbar_collapse(app: AppHandle) -> Result<QuickbarState, UiError> {
+    set_quickbar_collapsed(&app, true).await
+}
+
+/// Restore the bar window to the full pill. See [`quickbar_collapse`].
+#[tauri::command]
+async fn quickbar_expand(app: AppHandle) -> Result<QuickbarState, UiError> {
+    set_quickbar_collapsed(&app, false).await
+}
+
+async fn set_quickbar_collapsed(
+    app: &AppHandle,
+    collapsed: bool,
+) -> Result<QuickbarState, UiError> {
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return Err(UiError::internal());
+    };
+    let (w, h) = if collapsed {
+        (quickbar::ORB_LOGICAL, quickbar::ORB_LOGICAL)
+    } else {
+        (quickbar::QUICKBAR_LOGICAL_W, quickbar::QUICKBAR_LOGICAL_H)
+    };
+    bar.set_size(tauri::LogicalSize {
+        width: f64::from(w),
+        height: f64::from(h),
+    })
+    .map_err(|_| UiError::internal())?;
+    #[cfg(windows)]
+    {
+        // Resize preserves the ex-styles, but re-assert them as cheap
+        // insurance: the bar must never become activatable.
+        if let Ok(hwnd) = bar.hwnd() {
+            quickbar::native::apply_noactivate(hwnd);
+        }
+        // Re-apply the collapsed size's position? No: keep the user's drag
+        // position; only persist the chrome flag when the daemon is up.
+        let patch = okkhor_ipc::settings::SettingsPatch {
+            quickbar_collapsed: Some(collapsed),
+            ..Default::default()
+        };
+        if let Ok(mut client) = connect().await {
+            if let Ok(settings) = client
+                .settings_update(&patch)
+                .await
+                .map_err(|e| map_client_error(&e))
+            {
+                // Window resize already applied; report the persisted truth.
+                if let Ok(mut refreshed) = connect().await {
+                    if let Ok(status) = refreshed.status().await {
+                        return Ok(QuickbarState {
+                            input_mode: status.input_mode,
+                            output_encoding: status.output_encoding,
+                            paused: status.paused,
+                            available: true,
+                            collapsed: settings.quickbar_collapsed,
+                            opacity: settings.quickbar_opacity,
+                            visible: settings.quickbar_visible,
+                        });
+                    }
+                }
+            }
+        }
+        // Daemon down: the resize above still stands; report local truth.
+        // Opacity falls back to the contract default — the bar keeps the CSS
+        // value it already renders (follow-up: return last-known opacity).
+        Ok(QuickbarState::unavailable(collapsed, 0.9))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = collapsed;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Place the bar top-right of the primary monitor (falling back to its
+/// current monitor), scaling the logical size by the monitor's scale factor
+/// so 100/150/200% DPI all hug the corner.
+fn place_quickbar_top_right(window: &tauri::WebviewWindow) {
+    let monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten());
+    if let Some(monitor) = monitor {
+        let origin = monitor.position();
+        let size = monitor.size();
+        let (x, y) = quickbar::quickbar_top_right_physical(
+            (origin.x, origin.y),
+            (size.width, size.height),
+            (quickbar::QUICKBAR_LOGICAL_W, quickbar::QUICKBAR_LOGICAL_H),
+            monitor.scale_factor(),
+            quickbar::EDGE_MARGIN_LOGICAL,
+        );
+        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+    }
+}
+
+/// Show the bar without ever activating it. Callers must have applied
+/// [`quickbar::native::apply_noactivate`] and positioned the window first;
+/// this only flips visibility, so no frame can show before the styles land.
+#[cfg(windows)]
+fn show_bar_noactivate(bar: &tauri::WebviewWindow) {
+    if let Ok(hwnd) = bar.hwnd() {
+        quickbar::native::apply_noactivate(hwnd);
+        quickbar::native::show_noactivate(hwnd);
+    }
+}
+
+/// Apply the persisted collapsed size to a still-hidden bar (normal-launch
+/// path), keeping the setup-time position.
+fn apply_bar_chrome(bar: &tauri::WebviewWindow, collapsed: bool) {
+    let (w, h) = if collapsed {
+        (quickbar::ORB_LOGICAL, quickbar::ORB_LOGICAL)
+    } else {
+        (quickbar::QUICKBAR_LOGICAL_W, quickbar::QUICKBAR_LOGICAL_H)
+    };
+    let _ = bar.set_size(tauri::LogicalSize {
+        width: f64::from(w),
+        height: f64::from(h),
+    });
+}
+
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            // Both windows start `visible: false` in `tauri.conf.json`, so no
+            // frame can show — and no window can activate — before its styles
+            // are applied below. Exactly one show path runs per launch.
+            let args: Vec<String> = std::env::args().collect();
+            let bar_only = quickbar::is_quickbar_launch(&args);
+            if bar_only {
+                // Bar-only launch: style + position first, then show the bar
+                // without activating. `main` is never shown.
+                if let Some(bar) = app.get_webview_window("quickbar") {
+                    place_quickbar_top_right(&bar);
+                    #[cfg(windows)]
+                    show_bar_noactivate(&bar);
+                    #[cfg(not(windows))]
+                    {
+                        let _ = bar.show();
+                    }
+                }
+            } else {
+                // Settings launch: `main` shows and focuses normally …
+                if let Some(main) = app.get_webview_window("main") {
+                    let _ = main.show();
+                    let _ = main.set_focus();
+                }
+                // … and the bar follows the `quickbar_visible` setting,
+                // resolved asynchronously once the settings load.
+                // (Windows-only: `load_quickbar_state` needs the IPC client.)
+                #[cfg(windows)]
+                {
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = load_quickbar_state().await.ok();
+                        if state.as_ref().is_some_and(|s| s.visible) {
+                            if let Some(bar) = handle.get_webview_window("quickbar") {
+                                let collapsed = state.as_ref().is_some_and(|s| s.collapsed);
+                                apply_bar_chrome(&bar, collapsed);
+                                show_bar_noactivate(&bar);
+                            }
+                        }
+                    });
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ipc_status,
             ipc_get_settings,
@@ -264,7 +602,15 @@ fn main() {
             ipc_add_word,
             ipc_remove_word,
             ipc_import_words,
-            ipc_export_words
+            ipc_export_words,
+            quickbar_state,
+            quickbar_toggle_mode,
+            quickbar_cycle_encoding,
+            quickbar_toggle_pause,
+            quickbar_open_settings,
+            quickbar_open_keyboard,
+            quickbar_collapse,
+            quickbar_expand
         ])
         .run(tauri::generate_context!())
         .expect("error while running Okkhor settings UI");

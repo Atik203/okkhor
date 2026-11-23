@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "okkhor-ipc"
-version = "0.2.0"
+version = "0.5.0-alpha.1"
 dependencies = [
  "getrandom 0.3.4",
  "serde",
@@ -2240,6 +2240,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "thiserror 2.0.21",
+ "windows",
 ]
 
 [[package]]

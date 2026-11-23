@@ -110,6 +110,49 @@ menu and UI to avoid stealing a second function key.
   on the desktop.
 - High-contrast and 100–200% DPI are part of the UI QA matrix.
 
+## Amendment (2026-11-23, lead ruling): quick bar hosts in the UI process
+
+§5 above specified a **native bar owned by the daemon**, so the bar would
+survive a settings-window crash. That is superseded for 1.0:
+
+- The bar ships as a **second Tauri window (`quickbar`) in the UI process**
+  (`apps/okkhor-ui`), not a native daemon window. Rationale: a native
+  always-on-top, never-activating bar with Bengali shaping, theming, and
+  screen-reader labels duplicates the WebView stack for one 340×48 surface;
+  the Tauri window reuses IPC, settings ownership, and accessibility for
+  free, with no new process or protocol.
+- No-focus is enforced on Windows with `WS_EX_NOACTIVATE |
+  WS_EX_TOOLWINDOW | WS_EX_TOPMOST` on the bar HWND plus
+  `SW_SHOWNOACTIVATE`, `focus: false`, `decorations: false`,
+  `skipTaskbar: true`, `transparent: true`, `alwaysOnTop: true`,
+  positioned top-right of the primary monitor with per-monitor DPI scaling.
+  The bar background is a `data-tauri-drag-region`; collapse/expand resizes
+  340×48 ↔ 44×44. `okkhor-ui --quickbar` shows only the bar and keeps the
+  settings window hidden until "Open settings".
+- Accepted limitation: the bar disappears if the UI process dies (typing
+  and the daemon are unaffected). The UI crash-isolation story is unchanged
+  otherwise: no UI code is linked into the hook path. The `unsafe` Win32
+  styling lives in one explicitly-reviewed `quickbar_native` module with
+  `SAFETY` comments (ADR 0012 §5 anticipates this shape).
+- Contract §5 carve-out (lead ruling, 2026-11-23): "Exception: the
+  quick-control bar is a non-activating `WS_EX_NOACTIVATE|TOOLWINDOW|TOPMOST`
+  window owned by the UI process; it never takes focus and never displays
+  user text. No other UI window may be always-on-top." This is the single
+  approved exception; the no-always-on-top rule stands for all other UI.
+- 0.5 scope, stated honestly: the bar starts at the primary monitor's
+  top-right on every launch. Persisted `quickbar_x`/`quickbar_y` keep their
+  contract §2 schema meanings and the Settings page persists them, but the
+  bar does not honor them yet — that wiring is deferred to the
+  daemon-settings follow-up (filed in the round-1 report). Not implemented
+  and not claimed: snap-to-edges, active-monitor follow, tray menu. The bar
+  contents that are implemented: mode chip, encoding chip, pause,
+  on-screen-keyboard button (opens the main window at `/keyboard`),
+  settings, collapse, and the availability dot.
+- Settings `quickbar_visible` / `quickbar_collapsed` / `quickbar_opacity`
+  are honored (visibility gates the bar on normal launches; collapse and
+  opacity apply live). Mode/encoding/pause honor `daemon_unavailable`
+  (local chrome stays interactive, mode actions disable).
+
 ## Consequences
 
 Positive:
@@ -118,7 +161,6 @@ Positive:
 - one key to switch languages, one click for Bijoy;
 - no dependency on a proprietary font for the default path;
 - consistent behavior between tray, hotkey, and UI.
-
 Negative:
 
 - a global F9 can collide with an application; mitigated by conflict

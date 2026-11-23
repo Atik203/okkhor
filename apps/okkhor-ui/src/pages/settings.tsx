@@ -502,7 +502,8 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
             render={({ field }) => (
               <ToggleRow
                 name="quickbar_visible"
-                label="Quick control bar"
+                label="Show quick bar"
+                description="Compact always-on-top bar (launched with --quickbar)."
                 checked={field.value}
                 onChange={field.onChange}
                 disabled={readOnly}
@@ -541,20 +542,42 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
               setValue(name, value, { shouldDirty: true, shouldValidate: true })
             }
           />
-          <div className="grid gap-4 py-2 sm:grid-cols-2">
-            <Field>
-              <Label htmlFor="quickbar_opacity">Quick bar opacity (0.5 – 1.0)</Label>
-              <Input
-                id="quickbar_opacity"
-                type="number"
-                step="0.05"
-                min={0.5}
-                max={1}
-                disabled={readOnly}
-                {...register("quickbar_opacity", { valueAsNumber: true })}
-              />
-              <FieldError message={errors.quickbar_opacity?.message} />
-            </Field>
+          <div className="grid gap-2 py-2">
+            <Controller
+              name="quickbar_opacity"
+              control={control}
+              render={({ field }) => (
+                <Field>
+                  <Label htmlFor="quickbar_opacity">
+                    Quick bar opacity (0.5 – 1.0)
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      id="quickbar_opacity"
+                      type="range"
+                      min={0.5}
+                      max={1}
+                      step={0.05}
+                      disabled={readOnly}
+                      value={field.value}
+                      onChange={(event) =>
+                        field.onChange(Number(event.target.value))
+                      }
+                      className="w-full accent-teal-700"
+                      aria-describedby="quickbar_opacity_value"
+                    />
+                    <output
+                      id="quickbar_opacity_value"
+                      aria-label="Opacity value"
+                      className="w-10 shrink-0 text-right text-sm tabular-nums text-neutral-600 dark:text-neutral-300"
+                    >
+                      {Number(field.value).toFixed(2)}
+                    </output>
+                  </div>
+                  <FieldError message={errors.quickbar_opacity?.message} />
+                </Field>
+              )}
+            />
           </div>
         </CardContent>
       </Card>
