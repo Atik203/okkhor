@@ -6,6 +6,7 @@ members = [
     "crates/okkhor-compat",
     "crates/okkhor-core",
     "crates/okkhor-engine",
+    "crates/okkhor-ipc",
     "crates/okkhor-learn",
     "crates/okkhor-lang",
     "crates/okkhor-storage",
@@ -22,6 +23,7 @@ publish = false
 [workspace.dependencies]
 okkhor-core = { path = "crates/okkhor-core" }
 okkhor-engine = { path = "crates/okkhor-engine" }
+okkhor-ipc = { path = "crates/okkhor-ipc" }
 okkhor-lang = { path = "crates/okkhor-lang" }
 okkhor-learn = { path = "crates/okkhor-learn" }
 okkhor-storage = { path = "crates/okkhor-storage" }
@@ -31,6 +33,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 unicode-normalization = "0.1"
+# IPC transport only: named pipes, deadlines, shutdown sync (no full features).
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+# OS CSPRNG for the 32-byte IPC session token (ADR 0012 §2).
+getrandom = "0.3"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
