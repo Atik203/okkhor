@@ -19,12 +19,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 okkhor-ipc = { path = "../../../crates/okkhor-ipc" }
+okkhor-win = { path = "../../../crates/okkhor-win" }
 
 # Win32 no-activate styling for the quick bar window (`quickbar_native`).
 # Same major version the Tauri shell already pulls in (see Cargo.lock).
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"
 features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"]
+
+[features]
+# Required for production builds so the webview loads embedded assets instead
+# of `devUrl`. The release script passes `--features custom-protocol`.
+custom-protocol = ["tauri/custom-protocol"]
 
 [lints.rust]
 # `deny` (not `forbid`) so the single explicitly-reviewed Win32 FFI module

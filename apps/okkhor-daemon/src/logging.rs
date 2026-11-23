@@ -174,6 +174,13 @@ impl Logger {
         self.emit(&record);
     }
 
+    /// Informational daemon event with an allowlisted scope and event name.
+    pub fn info(&self, scope: Scope, event: &'static str) {
+        let mut record = Record::new(Level::Info, event);
+        record.field("scope", json!(scope.as_str()));
+        self.emit(&record);
+    }
+
     /// Record an error without its message. `kind` is a static identifier from
     /// the call site; error text is never serialized because it may embed paths
     /// or target text.

@@ -10,7 +10,7 @@ export default function AboutPage() {
   });
 
   return (
-    <div className="grid max-w-2xl gap-4">
+    <div className="grid min-w-0 max-w-2xl gap-4">
       <Card>
         <CardHeader>
           <CardTitle>About Okkhor</CardTitle>

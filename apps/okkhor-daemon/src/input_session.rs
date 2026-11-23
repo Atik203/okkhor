@@ -15,8 +15,9 @@ use okkhor_transliterate::{
 
 /// Maximum roman letters kept in the composition buffer.
 pub const MAX_BUFFER_LEN: usize = 32;
-/// Maximum candidates shown in the popup and addressable by digit keys.
-pub const MAX_CANDIDATES: usize = 5;
+/// Maximum candidates shown in the popup and addressable by digit keys
+/// (`1`-`9` and `0` for the tenth row).
+pub const MAX_CANDIDATES: usize = 10;
 
 /// Virtual-key codes handled by the session. These are plain `u16`
 /// constants so this module stays free of Win32 types.
@@ -66,12 +67,15 @@ pub fn vk_to_letter(vk: u16) -> Option<u8> {
 
 /// Map a virtual-key code to a zero-based candidate index.
 ///
-/// Accepts the `1`–`5` row keys (`0x31`–`0x35`) and the numpad `1`–`5` keys
-/// (`0x61`–`0x65`). Returns `None` for any other key.
+/// Accepts the `1`-`9` row keys (`0x31`-`0x39`) and `0` for index 9, plus the
+/// matching numpad keys (`0x61`-`0x69` and `0x60`). Returns `None` for any
+/// other key.
 pub fn vk_to_digit_index(vk: u16) -> Option<usize> {
     match vk {
-        0x31..=0x35 => Some((vk - 0x31) as usize),
-        0x61..=0x65 => Some((vk - 0x61) as usize),
+        0x31..=0x39 => Some((vk - 0x31) as usize),
+        0x30 => Some(9),
+        0x61..=0x69 => Some((vk - 0x61) as usize),
+        0x60 => Some(9),
         _ => None,
     }
 }
@@ -85,6 +89,7 @@ pub struct InputSession<E = DefaultEngine> {
     buffer: String,
     candidates: Vec<String>,
     selected: usize,
+    max_candidates: usize,
 }
 
 impl<E: TransliteratorEngine> InputSession<E> {
@@ -95,6 +100,24 @@ impl<E: TransliteratorEngine> InputSession<E> {
             buffer: String::with_capacity(MAX_BUFFER_LEN),
             candidates: Vec::with_capacity(MAX_CANDIDATES),
             selected: 0,
+            max_candidates: MAX_CANDIDATES,
+        }
+    }
+
+    /// Change the visible candidate bound (1-10) from `popup_max_items`.
+    ///
+    /// The daemon calls this from its loop, off the hook path. Shrinking drops
+    /// the tail and keeps the selection in range; the next keystroke rebuilds
+    /// the list at the new bound.
+    pub fn set_max_candidates(&mut self, max: usize) {
+        let max = max.clamp(1, MAX_CANDIDATES);
+        if max == self.max_candidates {
+            return;
+        }
+        self.max_candidates = max;
+        if self.candidates.len() > max {
+            self.candidates.truncate(max);
+            self.selected = self.selected.min(max - 1);
         }
     }
 
@@ -226,19 +249,36 @@ impl<E: TransliteratorEngine> InputSession<E> {
         if self.buffer.is_empty() {
             return;
         }
+        // Curated exact match first: it corrects common spellings the rule
+        // table gets wrong (dhonnobad, bhalo, korcho) and is the row Enter
+        // commits. Then the rule output, then prefix completions.
+        if let Some(exact) = crate::starter::exact(&self.buffer) {
+            self.candidates.push(exact);
+        }
         let options = TransliterationOptions {
-            max_candidates: MAX_CANDIDATES,
+            max_candidates: self.max_candidates,
             allow_partial: true,
         };
         for output in self
             .engine
             .transliterate(&self.buffer, &options)
             .into_iter()
-            .take(MAX_CANDIDATES)
+            .take(self.max_candidates)
         {
-            self.candidates.push(output.text);
+            push_unique(&mut self.candidates, output.text, self.max_candidates);
+        }
+        for suggestion in crate::starter::prefix(&self.buffer, self.max_candidates) {
+            push_unique(&mut self.candidates, suggestion, self.max_candidates);
         }
     }
+}
+
+/// Push `text` unless it is already present, respecting the candidate bound.
+fn push_unique(candidates: &mut Vec<String>, text: String, max: usize) {
+    if candidates.len() >= max || candidates.iter().any(|existing| existing == &text) {
+        return;
+    }
+    candidates.push(text);
 }
 
 /// Engine backing live sessions: the embedded Avro phonetic table.
@@ -425,10 +465,10 @@ mod tests {
         );
         assert_eq!(engine.rule_count(), 0);
         let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
-        type_text(&mut session, "bhalo");
+        type_text(&mut session, "qqqq");
         assert!(session.candidates().is_empty());
         assert_eq!(session.commit(true), None);
-        assert_eq!(session.buffer(), "bhalo");
+        assert_eq!(session.buffer(), "qqqq");
     }
 
     #[test]
@@ -463,9 +503,13 @@ mod tests {
         assert_eq!(session.buffer(), "bhalo");
         assert!(session.is_composing());
         assert_eq!(session.selected(), 0);
-        // Avro table form: lowercase `o` after a consonant is the inherent
-        // vowel (deleted); capital `O` would give ভালো.
-        assert_eq!(session.candidates().first().map(String::as_str), Some("ভাল"));
+        // Curated exact match wins for common words so the visible top row is
+        // the standard spelling (ভালো), not the table's inherent-vowel form.
+        assert_eq!(
+            session.candidates().first().map(String::as_str),
+            Some("ভালো")
+        );
+        assert!(session.candidates().iter().any(|word| word == "ভাল"));
     }
 
     #[test]
@@ -553,6 +597,49 @@ mod tests {
         assert_eq!(commit.erase_chars, 3);
         assert!(!commit.trailing_space);
         assert!(!session.is_composing());
+    }
+
+    #[test]
+    fn live_session_offers_multiple_curated_candidates() {
+        // The rule table yields one form, but the starter list fills rows so
+        // the caret popup has a real choice for common words and prefixes.
+        let mut exact = session();
+        type_text(&mut exact, "korcho");
+        assert_eq!(exact.candidates().first().map(String::as_str), Some("করছো"));
+        assert!(exact.candidates().len() >= 2);
+
+        let mut prefix = session();
+        type_text(&mut prefix, "ko");
+        assert!(prefix.candidates().len() >= 5, "{:?}", prefix.candidates());
+        assert_eq!(prefix.selected(), 0);
+    }
+
+    #[test]
+    fn digit_keys_cover_ten_rows_and_stop_at_the_bound() {
+        for (vk, expected) in [
+            (0x31, 0),
+            (0x35, 4),
+            (0x39, 8),
+            (0x30, 9),
+            (0x61, 0),
+            (0x65, 4),
+            (0x69, 8),
+            (0x60, 9),
+        ] {
+            assert_eq!(vk_to_digit_index(vk), Some(expected), "vk {vk:#x}");
+        }
+        for vk in [0x41, 0x2D, 0x6A, 0x20] {
+            assert_eq!(vk_to_digit_index(vk), None, "vk {vk:#x}");
+        }
+        // A session with ten candidates commits row ten via the zero key.
+        let mut session: InputSession<FixedEngine> = InputSession::new(FixedEngine::new(&[
+            "ক০", "ক১", "ক২", "ক৩", "ক৪", "ক৫", "ক৬", "ক৭", "ক৮", "ক৯",
+        ]));
+        type_text(&mut session, "kh");
+        assert_eq!(session.candidates().len(), 10);
+        let expected = session.candidates()[9].clone();
+        let commit = session.select_digit(9).expect("tenth row commits");
+        assert_eq!(commit.text, expected);
     }
 
     #[test]
@@ -727,8 +814,19 @@ mod tests {
         for (vk, index) in [(0x61, 0), (0x62, 1), (0x63, 2), (0x64, 3), (0x65, 4)] {
             assert_eq!(vk_to_digit_index(vk), Some(index));
         }
-        assert_eq!(vk_to_digit_index(0x30), None);
-        assert_eq!(vk_to_digit_index(0x36), None);
+        // Six through ten: digits 6-9 and 0 on row and numpad.
+        for (vk, index) in [
+            (0x36, 5),
+            (0x37, 6),
+            (0x38, 7),
+            (0x39, 8),
+            (0x30, 9),
+            (0x66, 5),
+            (0x69, 8),
+            (0x60, 9),
+        ] {
+            assert_eq!(vk_to_digit_index(vk), Some(index), "vk {vk:#x}");
+        }
         assert_eq!(vk_to_digit_index(0x41), None);
     }
 }

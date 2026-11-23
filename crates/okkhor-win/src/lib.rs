@@ -25,11 +25,16 @@ mod hotkey;
 #[cfg(windows)]
 mod popup;
 #[cfg(windows)]
+mod quickbar_show;
+#[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]
 mod tray;
 #[cfg(windows)]
 mod win32;
+
+/// Short feedback sounds (toggle click).
+mod sound;
 
 pub use dpapi::{DpapiError, MAX_DPAPI_BYTES, protect, unprotect};
 pub use fonts::{
@@ -59,8 +64,13 @@ pub use caret::{
 pub use hotkey::{GlobalHotkey, HotkeyError, HotkeySpec, ModeBinding, ModeHotkey, PauseHotkey};
 #[cfg(windows)]
 pub use popup::{MAX_ITEMS, PopupError, PopupMetrics, PopupTheme, SuggestionPopup};
+pub use quickbar_show::{
+    QUICKBAR_SHOW_EVENT, QuickbarShowError, QuickbarShowWaiter, signal_quickbar_show,
+    spawn_quickbar_show_listener,
+};
 #[cfg(windows)]
 pub use single_instance::{SingleInstance, SingleInstanceError};
+pub use sound::play_toggle_click;
 #[cfg(windows)]
 pub use tray::{TrayError, TrayEvent, TrayIcon, TrayMode};
 #[cfg(windows)]

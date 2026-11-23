@@ -1,3 +1,4 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![deny(unsafe_code)]
 //! Okkhor settings UI shell (Tauri 2, ADR 0012).
 //!
@@ -45,7 +46,7 @@ async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
     let status = client.status().await.map_err(|e| map_client_error(&e))?;
     // Chrome fields are best-effort: a settings read failure must not hide
     // live mode state, so fall back to the contract defaults.
-    let (collapsed, opacity, visible) = client
+    let (collapsed, opacity, visible, x, y) = client
         .settings_get()
         .await
         .map(|settings| {
@@ -53,9 +54,11 @@ async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
                 settings.quickbar_collapsed,
                 settings.quickbar_opacity,
                 settings.quickbar_visible,
+                settings.quickbar_x,
+                settings.quickbar_y,
             )
         })
-        .unwrap_or((false, 0.9, false));
+        .unwrap_or((false, 0.9, false, None, None));
     Ok(QuickbarState {
         input_mode: status.input_mode,
         output_encoding: status.output_encoding,
@@ -64,6 +67,8 @@ async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
         collapsed,
         opacity,
         visible,
+        x,
+        y,
     })
 }
 
@@ -419,6 +424,191 @@ async fn quickbar_open_keyboard(app: AppHandle) -> Result<(), UiError> {
     show_main_at(&app, "/keyboard")
 }
 
+/// Best-effort persistence of the bar visibility flag.
+#[cfg(windows)]
+async fn persist_quickbar_visible(visible: bool) {
+    if let Ok(mut client) = connect().await {
+        let patch = okkhor_ipc::settings::SettingsPatch {
+            quickbar_visible: Some(visible),
+            ..Default::default()
+        };
+        let _ = client.settings_update(&patch).await;
+    }
+}
+
+/// Hide the bar to the tray. The process (and its tray) stays alive; the tray
+/// menu's "Show quick bar" signals this process back to visibility.
+#[tauri::command]
+async fn quickbar_hide(app: AppHandle) -> Result<(), UiError> {
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return Err(UiError::internal());
+    };
+    // The bar was shown with raw ShowWindow, so Tauri's visibility state can
+    // still read "hidden" and make `bar.hide()` a no-op. Hide natively.
+    #[cfg(windows)]
+    if let Ok(hwnd) = bar.hwnd() {
+        quickbar::native::hide(hwnd);
+    }
+    #[cfg(not(windows))]
+    bar.hide().map_err(|_| UiError::internal())?;
+    #[cfg(windows)]
+    persist_quickbar_visible(false).await;
+    Ok(())
+}
+
+/// Show the bar without activating it, restoring it to the primary monitor if
+/// it was left off-screen (monitor change, resolution change).
+#[tauri::command]
+async fn quickbar_show(app: AppHandle) -> Result<(), UiError> {
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return Err(UiError::internal());
+    };
+    if !bar_is_on_screen(&bar) {
+        place_quickbar_top_right(&bar);
+    } else if let Ok(position) = bar.outer_position() {
+        let clamped = clamp_bar_position(&bar, position);
+        if clamped != position {
+            let _ = bar.set_position(tauri::Position::Physical(clamped));
+        }
+    }
+    #[cfg(windows)]
+    show_bar_noactivate(&bar);
+    #[cfg(not(windows))]
+    bar.show().map_err(|_| UiError::internal())?;
+    #[cfg(windows)]
+    persist_quickbar_visible(true).await;
+    Ok(())
+}
+
+/// Clamp a physical position so the whole bar stays on a monitor. The bar can
+/// be dragged to an edge; this keeps every control reachable instead of
+/// leaving the right buttons past the screen edge.
+fn clamp_bar_position(
+    bar: &tauri::WebviewWindow,
+    position: tauri::PhysicalPosition<i32>,
+) -> tauri::PhysicalPosition<i32> {
+    let Ok(size) = bar.outer_size() else {
+        return position;
+    };
+    let Ok(monitors) = bar.available_monitors() else {
+        return position;
+    };
+    let right = i64::from(position.x) + i64::from(size.width);
+    let bottom = i64::from(position.y) + i64::from(size.height);
+    let mut best: Option<(&tauri::Monitor, i64)> = None;
+    for monitor in &monitors {
+        let origin = monitor.position();
+        let monitor_size = monitor.size();
+        let overlap_w = (right.min(i64::from(origin.x) + i64::from(monitor_size.width))
+            - i64::from(position.x).max(i64::from(origin.x)))
+        .max(0);
+        let overlap_h = (bottom.min(i64::from(origin.y) + i64::from(monitor_size.height))
+            - i64::from(position.y).max(i64::from(origin.y)))
+        .max(0);
+        let overlap = overlap_w * overlap_h;
+        if best.is_none_or(|(_, best_overlap)| overlap > best_overlap) {
+            best = Some((monitor, overlap));
+        }
+    }
+    let Some((monitor, _)) = best else {
+        return position;
+    };
+    let origin = monitor.position();
+    let monitor_size = monitor.size();
+    let max_x = (i64::from(origin.x) + i64::from(monitor_size.width))
+        .saturating_sub(i64::from(size.width))
+        .max(i64::from(origin.x));
+    let max_y = (i64::from(origin.y) + i64::from(monitor_size.height))
+        .saturating_sub(i64::from(size.height))
+        .max(i64::from(origin.y));
+    tauri::PhysicalPosition {
+        x: i64::from(position.x).clamp(i64::from(origin.x), max_x) as i32,
+        y: i64::from(position.y).clamp(i64::from(origin.y), max_y) as i32,
+    }
+}
+
+/// True when at least the top-left corner of the bar lands on a monitor.
+fn bar_is_on_screen(bar: &tauri::WebviewWindow) -> bool {
+    let Ok(position) = bar.outer_position() else {
+        return false;
+    };
+    let Ok(monitors) = bar.available_monitors() else {
+        return false;
+    };
+    monitors.iter().any(|monitor| {
+        let origin = monitor.position();
+        let size = monitor.size();
+        let x = i64::from(position.x);
+        let y = i64::from(position.y);
+        x >= i64::from(origin.x)
+            && x < i64::from(origin.x) + i64::from(size.width)
+            && y >= i64::from(origin.y)
+            && y < i64::from(origin.y) + i64::from(size.height)
+    })
+}
+
+/// Begin a native horizontal resize at the current logical width.
+#[tauri::command]
+async fn quickbar_begin_resize(app: AppHandle, width: u32) -> Result<(), UiError> {
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return Err(UiError::internal());
+    };
+    #[cfg(windows)]
+    if let Ok(hwnd) = bar.hwnd() {
+        quickbar::native::begin_resize(hwnd, width);
+    }
+    let _ = (&bar, width);
+    Ok(())
+}
+
+/// Persist the bar's current physical position after a drag.
+#[tauri::command]
+async fn quickbar_save_position(app: AppHandle) -> Result<(), UiError> {
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return Err(UiError::internal());
+    };
+    let position = bar.outer_position().map_err(|_| UiError::internal())?;
+    let position = clamp_bar_position(&bar, position);
+    let _ = bar.set_position(tauri::Position::Physical(position));
+    #[cfg(windows)]
+    {
+        if let Ok(mut client) = connect().await {
+            let patch = okkhor_ipc::settings::SettingsPatch {
+                quickbar_x: Some(Some(position.x)),
+                quickbar_y: Some(Some(position.y)),
+                ..Default::default()
+            };
+            let _ = client.settings_update(&patch).await;
+        }
+    }
+    let _ = position;
+    Ok(())
+}
+
+/// Quit Okkhor from the bar: ask the daemon to exit cleanly, then terminate
+/// this UI process. A watchdog guarantees the bar closes even if the IPC call
+/// stalls; works when the daemon is already down.
+#[tauri::command]
+async fn quickbar_quit() -> Result<(), UiError> {
+    // Watchdog: a stuck pipe must never leave an unclosable bar behind.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        std::process::exit(0);
+    });
+    #[cfg(windows)]
+    std::thread::spawn(|| {
+        tauri::async_runtime::block_on(async {
+            if let Ok(mut client) = connect().await {
+                let _ = client.shutdown().await;
+            }
+        });
+        std::process::exit(0);
+    });
+    #[cfg(not(windows))]
+    std::process::exit(0);
+    Ok(())
+}
+
 /// Resize the bar window. The resize always applies locally; persisting
 /// `quickbar_collapsed` is best-effort so the orb still works while the
 /// daemon is down (shell stays read-only, chrome stays local).
@@ -480,6 +670,8 @@ async fn set_quickbar_collapsed(
                             collapsed: settings.quickbar_collapsed,
                             opacity: settings.quickbar_opacity,
                             visible: settings.quickbar_visible,
+                            x: settings.quickbar_x,
+                            y: settings.quickbar_y,
                         });
                     }
                 }
@@ -565,6 +757,23 @@ fn main() {
                         let _ = bar.show();
                     }
                 }
+                // The saved drag position (if any) arrives after the settings
+                // round trip; apply it without hiding the bar again.
+                #[cfg(windows)]
+                {
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = load_quickbar_state().await.ok();
+                        let saved = state.as_ref().and_then(|s| s.x.zip(s.y));
+                        if let (Some((x, y)), Some(bar)) =
+                            (saved, handle.get_webview_window("quickbar"))
+                        {
+                            let _ = bar.set_position(tauri::Position::Physical(
+                                tauri::PhysicalPosition { x, y },
+                            ));
+                        }
+                    });
+                }
             } else {
                 // Settings launch: `main` shows and focuses normally …
                 if let Some(main) = app.get_webview_window("main") {
@@ -579,15 +788,42 @@ fn main() {
                     let handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
                         let state = load_quickbar_state().await.ok();
-                        if state.as_ref().is_some_and(|s| s.visible) {
-                            if let Some(bar) = handle.get_webview_window("quickbar") {
-                                let collapsed = state.as_ref().is_some_and(|s| s.collapsed);
-                                apply_bar_chrome(&bar, collapsed);
+                        if let Some(bar) = handle.get_webview_window("quickbar") {
+                            let collapsed = state.as_ref().is_some_and(|s| s.collapsed);
+                            // A dragged position wins when it is still on a
+                            // monitor; otherwise hug the top-right corner.
+                            // Apply it even while hidden so the tray show path
+                            // never reveals the Tauri default cascade position.
+                            let saved = state.as_ref().and_then(|s| s.x.zip(s.y));
+                            if let Some((x, y)) = saved {
+                                let _ = bar.set_position(tauri::Position::Physical(
+                                    tauri::PhysicalPosition { x, y },
+                                ));
+                                // Do not clamp here: the saved width is applied
+                                // by the bar page just after mount, and
+                                // clamping with the default 460px width would
+                                // shift a legitimately wider saved position.
+                            }
+                            if saved.is_none() || !bar_is_on_screen(&bar) {
+                                place_quickbar_top_right(&bar);
+                            }
+                            apply_bar_chrome(&bar, collapsed);
+                            if state.as_ref().is_some_and(|s| s.visible) {
                                 show_bar_noactivate(&bar);
                             }
                         }
                     });
                 }
+            }
+            // The quick bar can be hidden to the tray while this process keeps
+            // running. The daemon signals a session-local event; forward it to
+            // the bar webview, which shows itself no-activate on receipt.
+            #[cfg(windows)]
+            {
+                let handle = app.handle().clone();
+                let _ = okkhor_win::spawn_quickbar_show_listener(move || {
+                    let _ = handle.emit("okkhor:quickbar-show", ());
+                });
             }
             Ok(())
         })
@@ -610,7 +846,12 @@ fn main() {
             quickbar_open_settings,
             quickbar_open_keyboard,
             quickbar_collapse,
-            quickbar_expand
+            quickbar_expand,
+            quickbar_hide,
+            quickbar_show,
+            quickbar_begin_resize,
+            quickbar_save_position,
+            quickbar_quit
         ])
         .run(tauri::generate_context!())
         .expect("error while running Okkhor settings UI");

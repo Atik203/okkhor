@@ -8,6 +8,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// jsdom has no ResizeObserver; Radix poppers (Select content) need the
+// constructor to exist even when the popup never opens.
+if (typeof globalThis.ResizeObserver !== "function") {
+  globalThis.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver;
+}
+
 // jsdom has no matchMedia; provide a system-light stub with listener hooks.
 if (typeof window.matchMedia !== "function") {
   Object.defineProperty(window, "matchMedia", {

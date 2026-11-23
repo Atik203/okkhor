@@ -220,7 +220,10 @@ pub struct DaemonState<P> {
     mode: AtomicU8,
     encoding: AtomicU8,
     popup_enabled: AtomicBool,
+    popup_max_items: AtomicU8,
+    toggle_sound: AtomicBool,
     learning: AtomicBool,
+    shutdown_requested: AtomicBool,
     rebind_requested: AtomicBool,
     apply_seq: AtomicU64,
     last_apply: Mutex<LiveApply>,
@@ -320,7 +323,10 @@ impl<P: Protector> DaemonState<P> {
             mode: AtomicU8::new(mode_to_u8(current.input_mode)),
             encoding: AtomicU8::new(encoding_to_u8(current.output_encoding)),
             popup_enabled: AtomicBool::new(current.popup_enabled),
+            popup_max_items: AtomicU8::new(current.popup_max_items),
+            toggle_sound: AtomicBool::new(current.toggle_sound),
             learning: AtomicBool::new(current.learning_enabled),
+            shutdown_requested: AtomicBool::new(false),
             settings: Mutex::new(settings),
             words: Mutex::new(words),
             sink,
@@ -389,6 +395,21 @@ impl<P: Protector> DaemonState<P> {
     /// Whether the popup may show (live mirror of the setting).
     pub fn popup_enabled(&self) -> bool {
         self.popup_enabled.load(Ordering::SeqCst)
+    }
+
+    /// Whether a mode change plays the feedback click (live mirror).
+    pub fn toggle_sound(&self) -> bool {
+        self.toggle_sound.load(Ordering::SeqCst)
+    }
+
+    /// Rows the popup may show (live mirror of `popup_max_items`, 1-10).
+    pub fn popup_max_items(&self) -> usize {
+        usize::from(self.popup_max_items.load(Ordering::SeqCst)).clamp(1, 10)
+    }
+
+    /// Whether an authenticated client asked the daemon to exit.
+    pub fn shutdown_requested(&self) -> bool {
+        self.shutdown_requested.load(Ordering::SeqCst)
     }
 
     /// Whether learning commits are queued (live mirror of the setting).
@@ -460,6 +481,7 @@ impl<P: Protector> DaemonState<P> {
         &self,
         patch: &SettingsPatch,
     ) -> Result<(Settings, LiveApply), SettingsStoreError> {
+        let previous_mode = self.mode();
         let merged = match self.lock_settings().update(patch) {
             Ok(merged) => merged,
             Err(error) => {
@@ -478,8 +500,18 @@ impl<P: Protector> DaemonState<P> {
             .store(encoding_to_u8(merged.output_encoding), Ordering::SeqCst);
         self.popup_enabled
             .store(merged.popup_enabled, Ordering::SeqCst);
+        self.popup_max_items
+            .store(merged.popup_max_items, Ordering::SeqCst);
+        self.toggle_sound
+            .store(merged.toggle_sound, Ordering::SeqCst);
         self.learning
             .store(merged.learning_enabled, Ordering::SeqCst);
+        // The bar toggles mode through `settings.update`; the hotkey and tray
+        // use the daemon-local path. Play the same click for both so feedback
+        // is consistent, and only when the mode actually changed.
+        if merged.input_mode != previous_mode && merged.toggle_sound {
+            okkhor_win::play_toggle_click();
+        }
 
         let plan = live_plan(patch);
         let mut deferred: Vec<String> = plan
@@ -595,6 +627,10 @@ impl<P: Protector> DaemonState<P> {
             Request::CaptureSet(capture) => {
                 self.set_paused(capture.paused);
                 Response::Status(self.status())
+            }
+            Request::Shutdown(_) => {
+                self.shutdown_requested.store(true, Ordering::SeqCst);
+                Response::Ok(okkhor_ipc::protocol::NoArgs {})
             }
             Request::AiComplete(_) => Response::error(ErrorCode::Unsupported),
         }
@@ -718,12 +754,25 @@ pub enum UiLaunchError {
 /// focus from the daemon). Tray Settings and `daemon --ui` share this path.
 #[cfg(windows)]
 pub fn launch_ui() -> Result<(), UiLaunchError> {
+    launch_ui_with_args(&[])
+}
+
+/// Launch the UI in bar-only mode (tray "Show quick bar" fallback when no
+/// listener is running).
+#[cfg(windows)]
+pub fn launch_quickbar_ui() -> Result<(), UiLaunchError> {
+    launch_ui_with_args(&["--quickbar"])
+}
+
+#[cfg(windows)]
+fn launch_ui_with_args(args: &[&str]) -> Result<(), UiLaunchError> {
     use std::os::windows::process::CommandExt as _;
     /// The UI must not hold a console handle on the daemon.
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     let exe = find_ui_exe().ok_or(UiLaunchError::NotFound)?;
-    std::process::Command::new(&exe)
-        .creation_flags(DETACHED_PROCESS)
+    let mut command = std::process::Command::new(&exe);
+    command.args(args).creation_flags(DETACHED_PROCESS);
+    command
         .spawn()
         .map(|_| ())
         .map_err(|_| UiLaunchError::SpawnFailed)
@@ -765,7 +814,12 @@ impl IpcServer {
                 let runtime = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()?;
-                runtime.block_on(server.run(shutdown_rx))
+                let result = runtime.block_on(server.run(shutdown_rx));
+                // Do not let a lingering client connection delay process exit:
+                // in-flight handlers had their chance, and the token is removed
+                // by the caller immediately after this join.
+                runtime.shutdown_timeout(std::time::Duration::from_millis(200));
+                result
             })?;
         Ok(Self {
             shutdown: Some(shutdown_tx),

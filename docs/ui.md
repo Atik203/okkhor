@@ -39,7 +39,7 @@ WebView (React) ──invoke──▶ src-tauri (Rust commands) ──named pipe
 | `#/settings` | Settings | every contract §2 field (incl. quickbar X/Y + Automatic toggle), live validation, dirty guard, Save/Reset, toasts |
 | `#/keyboard` | On-screen keyboard | layout selector, Unicode key table + Shift layer, reorderable groups, favorites, session recents, bundled emoji search |
 | `#/words` | Word manager | paginated table (50 default), search, add/remove, CSV/JSON import preview + export download |
-| `#/quickbar` | Quick bar | compact 340×48 pill (see below); also auto-hosted by the `quickbar` window with no nav chrome |
+| `#/quickbar` | Quick bar | compact 460×60 bar (see below); also auto-hosted by the `quickbar` window with no nav chrome |
 | `#/about` | About | versions, data locations, privacy summary, licenses pointer |
 
 Unknown hashes fall back to `#/` (status). First run shows no wizard and no
@@ -95,24 +95,50 @@ cargo test
   chips, pause, keyboard, settings, or collapse never activates the window.
   The bar is the single approved exception to contract §5's no-always-on-top
   rule (lead ruling, 2026-11-23); no other UI window may be always-on-top.
-- Geometry: 340×48 pill, collapsible to a 44×44 orb (double-click/click the
-  orb to expand). For 0.5 the bar starts top-right of the primary monitor
-  with per-monitor DPI scaling (`scale_factor`); the background is a
-  `data-tauri-drag-region` (no custom drag command), buttons stay clickable.
+- Geometry: 460×60 by default, resizable horizontally 320–720 px (right-edge
+  handle; width remembered in `localStorage`), collapsible to a 44×44 orb
+  (double-click the grip to collapse; click the orb to expand). Labels stay
+  visible down to 420 px and switch to icon-only chips below that, so 320 px
+  never clips. The bar starts top-right of the primary monitor with
+  per-monitor DPI scaling, or at the last saved drag position when it is still
+  on a monitor.
+- Moving: manual pointer-capture drag (`setPosition`) on the left grip and the
+  empty spacer — *not* `data-tauri-drag-region`. Windows' modal move loop does
+  not reliably start for a `WS_EX_NOACTIVATE` window; explicit positioning
+  works and never activates the bar. Buttons never start a drag. The new
+  position persists through `settings.update` (`quickbar_x`/`quickbar_y`).
+  While mounted, the bar locks `html`/`body`/`#root` to 100% with
+  `overflow: hidden` and a transparent background, so no scrollbar or bottom
+  line can appear.
 - Contents: mode chip (`বাংলা`/`EN`), encoding chip (`ইউনিকোড`/`বিজয়`),
   pause, on-screen keyboard (opens `main` at `/keyboard`), settings,
-  collapse; status dot (text-announced, never color-only) for daemon
-  availability; success toast on pause toggle, error toasts otherwise. No
-  text capture: the view renders static labels and never reads keystrokes.
+  hide-to-tray, and quit; status dot (text-announced, never color-only) for
+  daemon availability; success toast on pause toggle, error toasts otherwise.
+  No text capture: the view renders static labels and never reads keystrokes.
+  A short click plays on mode changes unless `toggle_sound` is off.
+- Hide to tray: `quickbar_hide` hides the window and sets `quickbar_visible`
+  to false; the process stays alive. The tray menu's **Show quick bar** signals
+  a session-local named event (`Local\Okkhor.QuickBar.Show.v1`) so the running
+  UI re-shows the bar no-activate (`quickbar_show`). If no UI is listening,
+  the daemon launches `okkhor-ui.exe --quickbar` instead.
+- Quit: the power button arms a confirmation on the first click and, on the
+  second, sends the authenticated IPC `shutdown` request (daemon exits
+  cleanly and removes the tray) then terminates the UI process. A 3-second
+  watchdog guarantees the bar closes even if the pipe stalls; when the daemon
+  is already down only the UI exits, so the bar can never become impossible to
+  close.
+- Resize: the right-edge handle starts a native poll loop in Rust that tracks
+  the physical cursor and calls `SetWindowPos` (no activation, height held at
+  60), so the pointer can leave the bar without losing the drag. The window
+  resize listener clamps to 320-720 px, switches between labelled and
+  icon-only chips at 420 px, and remembers the width locally.
 - Settings: "Show quick bar" toggle and the 0.5–1.0 opacity slider write
   the existing `quickbar_*` fields through `settings.update`. Daemon down:
   mode/encoding/pause return `daemon_unavailable` (chips disable, banner
-  rules apply) while collapse/expand/open-settings/open-keyboard stay local.
-  `quickbar_x`/`quickbar_y` persist but the bar does not honor them yet —
-  deferred to the daemon-settings wiring follow-up.
+  rules apply) while hide-to-tray/quit/open-settings/open-keyboard stay local.
 - Limitations: the bar cannot outlive the UI process; it does not
-  auto-follow the active monitor after a manual drag; snap-to-edges and a
-  tray menu are not implemented and not claimed.
+  auto-follow the active monitor while visible (it is re-homed only when
+  shown off-screen); snap-to-edges is not implemented.
 ## Suggestion popup (native Win32, `okkhor-win`)
 
 The caret-adjacent suggestion list is a native, custom-painted Win32 window
@@ -122,11 +148,15 @@ window owns sizing, painting, placement, and click queuing.
 
 ### List design
 
-- Up to 10 rows (the engine currently yields at most 5); fewer candidates
-  shrink the card, an empty list hides it. One row per candidate, row height
-  30px at 96 DPI (DPI-scaled), 8px outer padding, 22px index-badge column,
-  card width clamped to 180–380px (96-DPI basis, scaled), 6px corner radius,
-  1px border, teal selection fill, badges `1`–`9`/`0` matching the digit keys.
+- Up to 10 rows (`popup_max_items`, 1-10; default 5). The Avro rule table
+  yields one deterministic form per keystroke, so the session adds a curated
+  starter list: an exact match first (corrects common spellings such as
+  `dhonnobad` -> ধন্যবাদ), then the rule output, then prefix completions.
+  Fewer candidates shrink the card; an empty list hides it. One row per
+  candidate, row height 30px at 96 DPI (DPI-scaled), 8px outer padding, 22px
+  index-badge column, card width clamped to 180-380px (96-DPI basis, scaled),
+  6px corner radius, 1px border, teal selection fill, badges `1`-`9`/`0`
+  matching the digit keys.
 - Long words ellipsis (`DT_END_ELLIPSIS`); single-line, vertically centered,
   `NOPREFIX` (a `&` in a word never becomes an accelerator).
 - GDI `DrawTextW` with a Bengali-capable font: first installed match of
@@ -152,8 +182,9 @@ window owns sizing, painting, placement, and click queuing.
 
 ### Keyboard / mouse, focus, blocking
 
-- Keyboard is unchanged: digits `1`–`5` commit, arrows move the highlight,
-  Space/Enter commit, Esc/Tab cancel, Backspace edits (`docs/input-pipeline.md`).
+- Keyboard is unchanged: digits `1`-`9` and `0` commit (ten rows), arrows
+  move the highlight, Space/Enter commit, Esc/Tab cancel, Backspace edits
+  (`docs/input-pipeline.md`).
 - Clicking a row queues its index; the daemon drains it with
   `try_next_click()` (which pumps only this window's messages, never blocks)
   and commits through the same `select_digit` path as the digit keys —
@@ -278,3 +309,47 @@ UI's own rendering; the native popup keeps the engine's 5-candidate cap.
 - On-screen keyboard routes inserts through `text.insert` (512 UTF-16
   cap); recents stay session-only — no raw text in `localStorage` (only
   non-sensitive group order and pinned single-character favorites).
+
+## Layout rules (responsive shell)
+
+- App shell (`src/app.tsx`): fixed 240 px sidebar (`w-60 shrink-0`) plus a
+  single scroll region (`main.overflow-auto`) whose child centers content with
+  `mx-auto w-full max-w-6xl px-4 py-6 sm:px-6`. The page never scrolls
+  horizontally; the sidebar never shrinks. 960×640 stays fully usable and
+  720×520 is the supported minimum.
+- Every grid that holds cards/table wrappers carries `min-w-0` on itself and
+  `[&>*]:min-w-0` (or explicit `min-w-0` on children) so wide tables/keys can
+  scroll internally (`overflow-x-auto` on the table wrapper) instead of
+  pushing the page wider.
+- Status: `md:grid-cols-2` — status card left, words/startup + note stacked
+  right.
+- Settings: one form grid, `lg:grid-cols-2` — group cards flow into two
+  columns; the sticky Save/Reset bar is `lg:col-span-2`.
+- Words: `xl:grid-cols-5` — word-list table card `xl:col-span-3` left, a rail
+  (`xl:col-span-2`) stacking Add + Import + Export right; rail forms collapse
+  to one column (`xl:grid-cols-1`). Below `xl` everything stacks.
+- Keyboard: header card full width, key-group sections in `lg:grid-cols-2`;
+  Favorites/Recents/Emoji stay full width below.
+- About stays `max-w-2xl`. The quickbar route/window keeps its fixed 460×60
+  layout — layout work must not touch it.
+
+## Theme tokens
+
+- Light: page `neutral-100`, cards/sidebar white, borders `neutral-200`,
+  body text `neutral-900`, muted `neutral-500`. Dark: page `neutral-950`,
+  cards/sidebar `neutral-900`, borders `neutral-800`, body text
+  `neutral-100`, muted `neutral-400`. Muted-on-surface pairs hold ≥ 4.5:1;
+  red/green/amber message text uses the 700 (light) / 400 (dark) steps.
+- Accent: teal-700 fill with white text in **both** modes (≥ 5:1); the
+  settings accent preset tints only the selected sidebar item
+  (`rgb(var(--accent)/0.12)` wash + ring) and the global focus-visible ring.
+- Font: `"Segoe UI", "Kalpurush", "Noto Sans Bengali", "Hind Siliguri",
+  system-ui, sans-serif` on `body` — Latin from Segoe UI, Bangla from the
+  resident Kalpurush/Noto fonts (stack only, no bundled font files).
+- Scrollbars are thin and theme-aware (`scrollbar-width: thin` + WebKit
+  rules) and never reserve layout space.
+- Tables: header row `neutral-50`/`neutral-900`, row hover
+  `neutral-50`/`neutral-800/50`, long Bangla strings wrap
+  (`overflow-wrap: anywhere` on `td`).
+- Layout decisions are pinned by `src/test/layout.test.tsx` (shell width,
+  container cap, per-page breakpoints, table/rail spans).

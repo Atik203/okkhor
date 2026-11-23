@@ -299,6 +299,42 @@ pub struct Client {
     stream: tokio::net::windows::named_pipe::NamedPipeClient,
 }
 
+/// How long a client keeps retrying while every daemon pipe instance is busy
+/// or the daemon is still starting. The server caps concurrent clients at
+/// [`MAX_CLIENTS`]; a burst of UI queries must wait for a free slot instead of
+/// failing with `daemon_unavailable`.
+const CONNECT_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
+/// First backoff between connect attempts (doubles up to 200 ms).
+const CONNECT_RETRY_START: std::time::Duration = std::time::Duration::from_millis(25);
+const ERROR_PIPE_BUSY_CODE: i32 = 231;
+const ERROR_FILE_NOT_FOUND_CODE: i32 = 2;
+
+/// Open a client pipe, retrying transient failures (all instances busy, or the
+/// daemon has not created its first instance yet) for a bounded window.
+async fn open_with_retry(
+    pipe_name: &str,
+) -> Result<tokio::net::windows::named_pipe::NamedPipeClient, ClientError> {
+    use tokio::time::Instant;
+    let started = Instant::now();
+    let mut delay = CONNECT_RETRY_START;
+    loop {
+        match ClientOptions::new().open(pipe_name) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => {
+                let retryable = matches!(
+                    error.raw_os_error(),
+                    Some(ERROR_PIPE_BUSY_CODE | ERROR_FILE_NOT_FOUND_CODE)
+                );
+                if !retryable || started.elapsed() >= CONNECT_RETRY_WINDOW {
+                    return Err(error.into());
+                }
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(std::time::Duration::from_millis(200));
+            }
+        }
+    }
+}
+
 impl Client {
     /// Connect to the daemon pipe ([`PIPE_NAME`]).
     pub async fn connect() -> Result<Self, ClientError> {
@@ -307,7 +343,7 @@ impl Client {
 
     /// Connect to a custom pipe name (tests only).
     pub async fn connect_to(pipe_name: &str) -> Result<Self, ClientError> {
-        let stream = ClientOptions::new().open(pipe_name)?;
+        let stream = open_with_retry(pipe_name).await?;
         Ok(Self { stream })
     }
 
@@ -483,6 +519,18 @@ impl Client {
             .await?;
         Self::lift(response, |response| match response {
             Response::Status(status) => Some(status),
+            _ => None,
+        })
+    }
+
+    /// Ask the daemon to shut down cleanly (tray Exit equivalent). The daemon
+    /// replies before its loop exits.
+    pub async fn shutdown(&mut self) -> Result<(), ClientError> {
+        let response = self
+            .call(&Request::Shutdown(crate::protocol::NoArgs {}))
+            .await?;
+        Self::lift(response, |response| match response {
+            Response::Ok(_) => Some(()),
             _ => None,
         })
     }

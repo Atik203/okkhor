@@ -225,8 +225,9 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
 
   return (
     <form
+      data-testid="page-settings"
       aria-label="Settings"
-      className="grid max-w-2xl gap-4"
+      className="grid min-w-0 items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0"
       onSubmit={(event) => void handleSubmit(onSubmit)(event)}
     >
       <Card>
@@ -413,13 +414,13 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
             />
           </Field>
           <Field>
-            <Label htmlFor="popup_max_items">Max items (1 – 9)</Label>
+            <Label htmlFor="popup_max_items">Max items (1 – 10)</Label>
             <Input
               id="popup_max_items"
               type="number"
               step="1"
               min={1}
-              max={9}
+              max={10}
               disabled={readOnly}
               {...register("popup_max_items", { valueAsNumber: true })}
             />
@@ -460,6 +461,22 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
             <Label htmlFor="pause_hotkey">Pause capture</Label>
             <Input id="pause_hotkey" disabled={readOnly} {...register("pause_hotkey")} />
             <FieldError message={errors.pause_hotkey?.message} />
+          </Field>
+          <Field className="sm:col-span-2">
+            <Controller
+              name="toggle_sound"
+              control={control}
+              render={({ field }) => (
+                <ToggleRow
+                  name="toggle_sound"
+                  label="Play click on toggle"
+                  description="Short sound when Bangla/English changes from the hotkey, tray, or bar."
+                  checked={field.value}
+                  onChange={field.onChange}
+                  disabled={readOnly}
+                />
+              )}
+            />
           </Field>
         </CardContent>
       </Card>
@@ -677,7 +694,7 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
         </div>
       </details>
 
-      <div className="sticky bottom-0 flex items-center gap-2 border-t border-neutral-200 bg-white/95 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/95">
+      <div className="sticky bottom-0 flex items-center gap-2 border-t border-neutral-200 bg-white/95 py-3 backdrop-blur lg:col-span-2 dark:border-neutral-800 dark:bg-neutral-950/95">
         <Button type="submit" disabled={readOnly || isSubmitting || !isDirty}>
           {isSubmitting ? "Saving…" : "Save"}
         </Button>

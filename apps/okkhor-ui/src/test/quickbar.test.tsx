@@ -10,6 +10,31 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    outerPosition: () => Promise.resolve({ x: 0, y: 0 }),
+    setPosition: () => Promise.resolve(),
+    setSize: () => Promise.resolve(),
+    scaleFactor: () => Promise.resolve(1),
+  }),
+  PhysicalPosition: class PhysicalPosition {
+    constructor(
+      public x: number,
+      public y: number,
+    ) {}
+  },
+  LogicalSize: class LogicalSize {
+    constructor(
+      public width: number,
+      public height: number,
+    ) {}
+  },
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: () => Promise.resolve(() => undefined),
+}));
+
 const ONLINE: QuickbarSnapshot = {
   input_mode: "bangla",
   output_encoding: "unicode",
@@ -63,6 +88,12 @@ function mockOnline(snapshot: QuickbarSnapshot = ONLINE) {
         return Promise.resolve(undefined);
       case "quickbar_open_keyboard":
         return Promise.resolve(undefined);
+      case "quickbar_hide":
+      case "quickbar_show":
+      case "quickbar_save_position":
+      case "quickbar_begin_resize":
+      case "quickbar_quit":
+        return Promise.resolve(undefined);
       default:
         return Promise.reject({ code: "daemon_unavailable", message: "down" });
     }
@@ -75,7 +106,7 @@ describe("quick bar", () => {
     invokeMock.mockReset();
   });
 
-  test("renders mode/encoding chips, pause, keyboard, settings, collapse with labels", async () => {
+  test("renders mode/encoding chips, pause, keyboard, settings, hide, quit", async () => {
     mockOnline();
     renderPage();
     expect(
@@ -94,7 +125,16 @@ describe("quick bar", () => {
       screen.getByRole("button", { name: "Open on-screen keyboard" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Collapse quick bar" }),
+      screen.getByRole("button", { name: "Hide quick bar to tray" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Quit Okkhor" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Drag to move quick bar" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("separator", { name: "Resize quick bar" }),
     ).toBeInTheDocument();
     // Status is text, not color alone.
     expect(screen.getByLabelText("Daemon connected")).toBeInTheDocument();
@@ -140,11 +180,11 @@ describe("quick bar", () => {
     expect(await screen.findByText("Capture paused.")).toBeInTheDocument();
   });
 
-  test("collapse shrinks to the orb; clicking the orb expands", async () => {
+  test("double-clicking the grip collapses to the orb; clicking the orb expands", async () => {
     mockOnline();
     renderPage();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Collapse quick bar" }),
+    fireEvent.doubleClick(
+      await screen.findByRole("button", { name: "Drag to move quick bar" }),
     );
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("quickbar_collapse"),
@@ -158,6 +198,28 @@ describe("quick bar", () => {
     expect(
       await screen.findByRole("button", { name: "Switch to English" }),
     ).toBeInTheDocument();
+  });
+
+  test("hide to tray and two-click quit call their commands", async () => {
+    mockOnline();
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Hide quick bar to tray" }),
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quickbar_hide"),
+    );
+
+    const quit = screen.getByRole("button", { name: "Quit Okkhor" });
+    fireEvent.click(quit);
+    // First click only arms the confirmation; the command is not called yet.
+    expect(invokeMock).not.toHaveBeenCalledWith("quickbar_quit");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Click again to quit Okkhor" }),
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quickbar_quit"),
+    );
   });
 
   test("settings button opens the settings window", async () => {
@@ -201,7 +263,10 @@ describe("quick bar", () => {
       screen.getByRole("button", { name: "Open on-screen keyboard" }),
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", { name: "Collapse quick bar" }),
+      screen.getByRole("button", { name: "Hide quick bar to tray" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Quit Okkhor" }),
     ).toBeEnabled();
     expect(screen.getByLabelText("Daemon unavailable")).toBeInTheDocument();
   });
@@ -255,5 +320,56 @@ describe("quick bar", () => {
     await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
     const bar = container.querySelector('[role="toolbar"]');
     expect(bar?.getAttribute("style")).toContain("opacity: 0.65");
+  });
+
+  test("right-edge handle starts the native resize at the current width", async () => {
+    mockOnline();
+    renderPage();
+    const handle = await screen.findByRole("separator", { name: "Resize quick bar" });
+    fireEvent.pointerDown(handle, { button: 0, isPrimary: true });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quickbar_begin_resize", {
+        width: 460,
+      }),
+    );
+  });
+
+  test("bar is full-width 60px with no clipping and no native drag regions", async () => {
+    mockOnline();
+    const { container } = renderPage();
+    const bar = await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
+    // Responsive canvas: fills the resizable window, never scrolls.
+    expect(bar.className).toContain("w-full");
+    expect(bar.className).toContain("h-[60px]");
+    expect(bar.className).toContain("overflow-hidden");
+    expect(bar.className).toContain("flex-nowrap");
+    // Dragging is manual pointercapture; no button uses the Tauri drag region.
+    expect(container.querySelectorAll("[data-tauri-drag-region]")).toHaveLength(0);
+    const buttons = container.querySelectorAll("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(button.hasAttribute("data-tauri-drag-region")).toBe(false);
+    }
+  });
+
+  test("collapsed orb is 44x44 with its own drag ring and expand button", async () => {
+    mockOnline({ ...ONLINE, collapsed: true });
+    renderPage();
+    const orb = await screen.findByRole("button", { name: "Expand quick bar" });
+    const ring = orb.parentElement;
+    expect(ring?.className).toContain("w-[44px]");
+    expect(ring?.className).toContain("h-[44px]");
+    expect(ring?.className).toContain("overflow-hidden");
+    expect(orb.className).toContain("size-9");
+  });
+
+  test("quickbar canvas lock constrains html/body without scrollbars", async () => {
+    mockOnline();
+    renderPage();
+    await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
+    for (const element of [document.documentElement, document.body]) {
+      const style = element.getAttribute("style") ?? "";
+      expect(style).toContain("overflow:hidden");
+    }
   });
 });

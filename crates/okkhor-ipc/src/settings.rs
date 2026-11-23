@@ -25,7 +25,7 @@ pub const FONT_SCALE_MAX: f32 = 1.6;
 /// Bounds for `popup_max_items` (contract §2).
 pub const POPUP_MAX_ITEMS_MIN: u8 = 1;
 /// Bounds for `popup_max_items` (contract §2).
-pub const POPUP_MAX_ITEMS_MAX: u8 = 9;
+pub const POPUP_MAX_ITEMS_MAX: u8 = 10;
 /// Bounds for `word_manager_page_size` (contract §2).
 pub const PAGE_SIZE_MIN: u16 = 10;
 /// Bounds for `word_manager_page_size` (contract §2).
@@ -165,6 +165,9 @@ pub struct Settings {
     pub pause_hotkey: String,
     #[serde(default = "default_true")]
     pub show_toggle_toast: bool,
+    /// Play a short click when the input mode changes (hotkey, tray, bar).
+    #[serde(default = "default_true")]
+    pub toggle_sound: bool,
     #[serde(default = "default_true")]
     pub quickbar_visible: bool,
     #[serde(default)]
@@ -225,6 +228,7 @@ impl Default for Settings {
             toggle_hotkey: "F9".to_owned(),
             pause_hotkey: "Ctrl+Alt+Shift+P".to_owned(),
             show_toggle_toast: true,
+            toggle_sound: true,
             quickbar_visible: true,
             quickbar_collapsed: false,
             quickbar_x: None,
@@ -546,6 +550,9 @@ impl Settings {
         if let Some(show_toggle_toast) = patch.show_toggle_toast {
             merged.show_toggle_toast = show_toggle_toast;
         }
+        if let Some(toggle_sound) = patch.toggle_sound {
+            merged.toggle_sound = toggle_sound;
+        }
         if let Some(quickbar_visible) = patch.quickbar_visible {
             merged.quickbar_visible = quickbar_visible;
         }
@@ -619,6 +626,8 @@ pub struct SettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_toggle_toast: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toggle_sound: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quickbar_visible: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quickbar_collapsed: Option<bool>,
@@ -675,6 +684,7 @@ mod tests {
             "toggle_hotkey": "F9",
             "pause_hotkey": "Ctrl+Alt+Shift+P",
             "show_toggle_toast": true,
+            "toggle_sound": true,
             "quickbar_visible": true,
             "quickbar_collapsed": false,
             "quickbar_x": null,
@@ -843,7 +853,15 @@ mod tests {
 
     #[test]
     fn clamps_popup_max_items() {
-        for (input, expected) in [(0, 1), (1, 1), (5, 5), (9, 9), (99, 9), (u8::MAX, 9)] {
+        for (input, expected) in [
+            (0, 1),
+            (1, 1),
+            (5, 5),
+            (9, 9),
+            (10, 10),
+            (99, 10),
+            (u8::MAX, 10),
+        ] {
             let settings = Settings {
                 popup_max_items: input,
                 ..Settings::default()
@@ -1007,6 +1025,7 @@ mod tests {
         assert_eq!(settings.font_bijoy, defaults.font_bijoy);
         assert_eq!(settings.toggle_hotkey, "F9");
         assert!(settings.show_toggle_toast);
+        assert!(settings.toggle_sound);
         assert!(settings.quickbar_visible);
         assert!(!settings.quickbar_collapsed);
         assert_eq!(settings.quickbar_x, None);
@@ -1026,6 +1045,7 @@ mod tests {
                 font_bijoy: Some(FontBijoy::KalpurushAnsi),
                 toggle_hotkey: Some("Ctrl+Space".to_owned()),
                 show_toggle_toast: Some(false),
+                toggle_sound: Some(false),
                 quickbar_visible: Some(false),
                 quickbar_collapsed: Some(true),
                 quickbar_x: Some(Some(120)),
@@ -1040,6 +1060,7 @@ mod tests {
         assert_eq!(merged.font_bijoy, FontBijoy::KalpurushAnsi);
         assert_eq!(merged.toggle_hotkey, "Ctrl+Space");
         assert!(!merged.show_toggle_toast);
+        assert!(!merged.toggle_sound);
         assert!(!merged.quickbar_visible);
         assert!(merged.quickbar_collapsed);
         assert_eq!(merged.quickbar_x, Some(120));

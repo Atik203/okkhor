@@ -149,8 +149,8 @@ export default function WordsPage({ readOnly }: { readOnly: boolean }) {
   });
 
   return (
-    <div className="grid max-w-3xl gap-4">
-      <Card>
+    <div data-testid="page-words" className="grid min-w-0 items-start gap-4 xl:grid-cols-5">
+      <Card className="min-w-0 xl:col-span-3">
         <CardHeader>
           <CardTitle>Word manager</CardTitle>
           <CardDescription>
@@ -238,7 +238,7 @@ export default function WordsPage({ readOnly }: { readOnly: boolean }) {
                       words.map((word) => (
                         <tr
                           key={word.id}
-                          className="border-b border-neutral-100 last:border-0 dark:border-neutral-800"
+                          className="border-b border-neutral-100 transition-colors last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
                         >
                           <td className="px-3 py-2">{word.roman}</td>
                           <td className="px-3 py-2 text-lg">{word.output}</td>
@@ -294,6 +294,8 @@ export default function WordsPage({ readOnly }: { readOnly: boolean }) {
         </CardContent>
       </Card>
 
+      {/* Right rail at xl+: add + import + export stack beside the table. */}
+      <div className="grid min-w-0 gap-4 xl:col-span-2">
       <Card>
         <CardHeader>
           <CardTitle>Add a word</CardTitle>
@@ -301,7 +303,7 @@ export default function WordsPage({ readOnly }: { readOnly: boolean }) {
         <CardContent>
           <form
             aria-label="Add word"
-            className="grid gap-3 sm:grid-cols-2"
+            className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1"
             onSubmit={(event) => void addForm.handleSubmit((values) => addMutation.mutate(values))(event)}
           >
             <Field>
@@ -357,7 +359,7 @@ export default function WordsPage({ readOnly }: { readOnly: boolean }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             <Field>
               <Label htmlFor="import-format">Format</Label>
               <Select
@@ -411,7 +413,7 @@ export default function WordsPage({ readOnly }: { readOnly: boolean }) {
                         {preview.rows.map((row, index) => (
                           <tr
                             key={index}
-                            className="border-b border-neutral-100 last:border-0 dark:border-neutral-800"
+                            className="border-b border-neutral-100 transition-colors last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
                           >
                             <td className="px-3 py-2">{row.roman}</td>
                             <td className="px-3 py-2 text-lg">{row.output}</td>
@@ -494,6 +496,7 @@ export default function WordsPage({ readOnly }: { readOnly: boolean }) {
           )}
         </CardContent>
       </Card>
+      </div>
 
       <Dialog open={pendingRemove !== null} onOpenChange={(open) => { if (!open) setPendingRemove(null); }}>
         <DialogContent aria-label="Confirm word removal">

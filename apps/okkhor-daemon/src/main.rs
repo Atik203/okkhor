@@ -20,6 +20,7 @@ mod input_session;
 mod ipc;
 mod paths;
 mod settings_store;
+mod starter;
 mod words_store;
 
 fn main() {
@@ -52,6 +53,12 @@ fn main() {
         Some("tray-demo") => {
             if let Err(error) = tray_demo() {
                 eprintln!("tray-demo failed: {error}");
+                std::process::exit(1);
+            }
+        }
+        Some("shutdown") => {
+            if let Err(error) = shutdown_daemon() {
+                eprintln!("shutdown failed: {error}");
                 std::process::exit(1);
             }
         }
@@ -127,11 +134,12 @@ fn main() {
 
 fn print_help() {
     println!(
-        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon [--encoding unicode|bijoy] [--mode bangla|english] [--no-ipc] [--ui] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
+        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | shutdown | daemon [--encoding unicode|bijoy] [--mode bangla|english] [--no-ipc] [--ui] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
          `self-check` exercises the learning engine, ranking, and persistence.\n\
          `hook-demo` installs a global hook for 5 seconds and prints key events.\n\
          `popup-demo` shows a non-activating popup near the caret for 3 seconds.\n\
          `tray-demo` shows the tray menu for 10 seconds.\n\
+         `shutdown` asks the running daemon to exit cleanly over the owner-only pipe.\n\
          `daemon [--encoding unicode|bijoy] [--mode bangla|english]` runs the resident daemon with hook, mode + pause hotkeys, tray, and the settings-UI pipe (defaults: unicode, bangla; `--no-ipc` disables the pipe; `--ui` launches the settings UI once at startup).\n\
          `inject` is a QA-only command for synthetic text; focus the target during the delay.\n\
          `autostart enable|disable|status` manages the per-user login entry.\n\
@@ -1122,6 +1130,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     };
 
     let engine = default_engine();
+    // Parse the curated suggestion list once, off the typing path.
+    starter::warm();
     if engine.is_fallback() {
         // Embedded-table load failure: allowlisted startup record only
         // (scope + kind, never text). Typing continues with no candidates.
@@ -1204,6 +1214,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         let live = state.map(|state| &**state);
         hide_popup(popup, live);
         tray.set_mode(tray_mode_of(*mode));
+        if state.is_none_or(|state| state.toggle_sound()) {
+            okkhor_win::play_toggle_click();
+        }
         if let Some(state) = state {
             state.set_mode_live(ipc_input_mode(*mode));
             persist_mode(state, *mode);
@@ -1263,7 +1276,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 Ok(token_path) => match crate::ipc::install_token(&token_path) {
                     Ok(token) => match crate::ipc::IpcServer::start(state, token) {
                         Ok(server) => {
-                            logger.error(logging::Scope::Ipc, "ipc_start", None);
+                            logger.info(logging::Scope::Ipc, "ipc_start");
                             println!("daemon: IPC ready for the settings UI");
                             ipc_server = Some((server, token_path));
                         }
@@ -1281,6 +1294,12 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
 
     'run: loop {
+        if ipc_state
+            .as_ref()
+            .is_some_and(|state| state.shutdown_requested())
+        {
+            break 'run;
+        }
         while let Some(event) = tray.try_next() {
             match event {
                 TrayEvent::TogglePause => toggle_capture(&hook, &tray, ipc_state.as_ref()),
@@ -1294,6 +1313,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     ipc_state.as_ref(),
                 ),
                 TrayEvent::Settings => open_settings_ui(&tray, logger),
+                TrayEvent::ShowQuickBar => show_quick_bar(&tray, logger),
                 TrayEvent::Exit => break 'run,
             }
         }
@@ -1319,6 +1339,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // never meet. All reads are lock-free atomics except the hotkey chords
         // (try_lock — a contended settings write retries next poll).
         if let Some(state) = ipc_state.as_deref() {
+            session.set_max_candidates(state.popup_max_items());
             let want_enabled = !state.paused();
             if hook.capture_enabled() != want_enabled {
                 hook.set_capture_enabled(want_enabled);
@@ -1505,6 +1526,24 @@ fn toggle_capture(
 /// A missing UI shows a tray balloon and logs one allowlisted code — never a
 /// user path.
 #[cfg(windows)]
+fn show_quick_bar(tray: &okkhor_win::TrayIcon, logger: &logging::Logger) {
+    if okkhor_win::signal_quickbar_show() {
+        return;
+    }
+    match crate::ipc::launch_quickbar_ui() {
+        Ok(()) => logger.info(logging::Scope::Ipc, "quickbar_launch"),
+        Err(crate::ipc::UiLaunchError::NotFound) => {
+            logger.error(logging::Scope::Ipc, "ui_missing", None);
+            tray.show_balloon("Okkhor", "Quick bar UI was not found next to the daemon");
+        }
+        Err(crate::ipc::UiLaunchError::SpawnFailed) => {
+            logger.error(logging::Scope::Ipc, "ui_launch_failed", None);
+            tray.show_balloon("Okkhor", "Quick bar failed to start");
+        }
+    }
+}
+
+#[cfg(windows)]
 fn open_settings_ui(tray: &okkhor_win::TrayIcon, logger: &logging::Logger) {
     match crate::ipc::launch_ui() {
         Ok(()) => logger.error(logging::Scope::Ipc, "ui_launch", None),
@@ -1688,6 +1727,34 @@ fn hook_demo() -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(windows)]
+fn shutdown_daemon() -> Result<(), Box<dyn Error>> {
+    use okkhor_ipc::protocol::PIPE_NAME;
+
+    let token_path = crate::paths::token_path()?;
+    let token_hex = std::fs::read_to_string(token_path)?.trim().to_owned();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        let (mut client, _) =
+            okkhor_ipc::transport::Client::connect_to_with_token(PIPE_NAME, &token_hex).await?;
+        client.shutdown().await?;
+        Ok::<(), okkhor_ipc::ClientError>(())
+    })?;
+    println!("shutdown: requested");
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn shutdown_daemon() -> Result<(), Box<dyn Error>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "shutdown is only available on Windows",
+    )
+    .into())
+}
+
+#[cfg(windows)]
 fn popup_demo() -> Result<(), Box<dyn Error>> {
     use okkhor_win::{SuggestionPopup, caret_anchor};
     use std::time::{Duration, Instant};
@@ -1696,10 +1763,21 @@ fn popup_demo() -> Result<(), Box<dyn Error>> {
         println!("popup-demo: no caret anchor available");
         return Ok(());
     };
-    let items: Vec<String> = ["আমার", "বাংলা", "তুমি", "কেমন", "ধন্যবাদ"]
-        .iter()
-        .map(|word| word.to_string())
-        .collect();
+    let items: Vec<String> = [
+        "আমার",
+        "বাংলাদেশ",
+        "তুমি",
+        "কেমন",
+        "ধন্যবাদ",
+        "ভালোবাসা",
+        "বাংলা",
+        "শিক্ষা",
+        "স্বাধীনতা",
+        "কম্পিউটার",
+    ]
+    .iter()
+    .map(|word| word.to_string())
+    .collect();
     let mut popup = SuggestionPopup::new()?;
     let metrics = popup.show_candidates(&items, 1, &anchor)?;
     let placement = metrics.placement;
@@ -1830,6 +1908,9 @@ fn tray_demo() -> Result<(), Box<dyn Error>> {
                 }
                 TrayEvent::Settings => {
                     println!("tray-demo: settings (the daemon would launch okkhor-ui.exe)");
+                }
+                TrayEvent::ShowQuickBar => {
+                    println!("tray-demo: show quick bar (daemon would signal the UI)");
                 }
                 TrayEvent::Exit => {
                     println!("tray-demo: exit");

@@ -191,6 +191,7 @@ impl Handler for MemoryHandler {
                 Response::Status(self.status())
             }
             Request::Hello(_) => Response::error(ErrorCode::InvalidRequest),
+            Request::Shutdown(_) => Response::Ok(okkhor_ipc::protocol::NoArgs {}),
             Request::AiComplete(_) => Response::error(ErrorCode::Unsupported),
         }
     }
@@ -252,7 +253,7 @@ async fn ipc_round_trip_status_settings_words() {
     assert_eq!(updated.toggle_hotkey, "Ctrl+Space");
     assert_eq!(updated.quickbar_x, Some(120));
     assert_eq!(updated.quickbar_opacity, 1.0);
-    assert_eq!(updated.popup_max_items, 9);
+    assert_eq!(updated.popup_max_items, 10);
     assert_eq!(
         client.settings_get().await.expect("get").theme,
         okkhor_ipc::Theme::Dark
