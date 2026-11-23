@@ -17,6 +17,35 @@ Versioning once it reaches 1.0.
   importer (`import_fixture_dir`, `import_asset`) with `FixtureEnvelope`
   schema enforcement, deterministic `BTreeMap` ordering, and daemon-safe
   `LangError::kind()`/`code()` reporting. No transliteration, FFI, or Win32.
+- New `okkhor-transliterate` crate (0.3 sprint): rule-based transliteration
+  engine (`RuleTransliterator`, `RuleSet` parsed from synthetic JSON and
+  validated/sorted at construction, literal prefix matching) with
+  normalization helpers and daemon-safe `TransliterateError::kind()`/`code()`
+  reporting. Full phonetic/conjunct behavior is a later milestone.
+- New `okkhor-compat` crate (0.3 sprint): safe legacy-DLL boundary with a
+  private `cfg(windows)` FFI module, DLL path validation against the
+  daemon allowlist (`DllPathPolicy`, `ValidatedDllPath`), per-adapter Cargo
+  feature flags, a fixed 5-slot `AdapterRegistry`, and
+  `CompatError::kind()`/`code()` reporting with static `Display` strings.
+  Tests use a stubbed loader seam and synthetic nonce files; no real DLL is
+  ever opened.
+- New `okkhor-engine` crate (0.4 sprint): candidate generation pipeline
+  (`CandidateEngine::suggest`: normalize once, dictionary prefix lookup,
+  transliteration application, merge/dedup, Smriti rank, top-N truncate) with
+  per-language budgets, a synthetic golden corpus (`GoldenCorpus`,
+  `check_parity` top-1/top-5), and `EngineError::kind()`/`code()` reporting.
+  No `unsafe`, no I/O on the query path.
+- `okkhor-bench --candidates` mode (0.4 sprint): runs the golden corpus
+  through `CandidateEngine::suggest`, reports parity (`check_parity` with
+  `limit = min(5, budget max_limit)`) plus rank latency p50/p95/p99/max, and
+  writes JSON/CSV under `bench-out/`. First shared-desktop measurement is
+  recorded in `docs/performance.md`.
+- 0.3 core contracts (`docs/design/0.3-core-contracts.md`) with ADR 0010, and
+  0.4 engine contracts (`docs/design/0.4-engine-contracts.md`) with ADR 0011.
+- Lead merge gates G1–G4 closed: daemon logger scopes `lang`,
+  `transliterate`, `compat` (G1); ADR 0010 index row (G2); layout stays
+  metadata-only in the Smriti pair key (G3, `docs/learning.md`); compat
+  naming clarified as `okkhor-compat` in ADR 0005 (G4).
 - QA-only `okkhor inject <text>` command with a focus delay and forced
   `SendInput` option for manual live-app QA.
 

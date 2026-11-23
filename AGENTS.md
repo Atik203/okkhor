@@ -20,9 +20,12 @@ scope.
 
 ## Current state
 
-- This repository is **0.2.0 code-complete**. It contains the Win32 input
-  boundary, resident daemon, tray/autostart/logging, benchmark harness, and the
-  0.2 QA documentation.
+- This repository is **0.3/0.4 code-complete**. It contains the Win32 input
+  boundary, resident daemon, tray/autostart/logging, benchmark harness, the
+  0.2 QA documentation, the four new 0.3/0.4 crates (`okkhor-lang`,
+  `okkhor-transliterate`, `okkhor-compat`, `okkhor-engine`), the bench
+  `--candidates` parity/latency mode, and the 0.3/0.4 contracts with ADRs
+  0010/0011 (lead gates G1–G4 closed).
 - `okkhor-win` now contains a real Win32 low-level keyboard hook, a Unicode
   `SendInput` injector with a guarded clipboard fallback and a native-control
   `WM_CHAR` fast path, a per-user single-instance guard, a capture pause state, a
@@ -31,7 +34,8 @@ scope.
   JSON-lines logging and a resident `daemon` mode. `okkhor-bench` measures
   Smriti ranking and both injection paths without installing a hook. The Settings
   tray action, full suggestion rendering, hook-level end-to-end benchmarks, UI,
-  speech, and AI workers are **not implemented yet**. Do not pretend they are.
+  IPC, speech, AI workers, and the learned model are **not implemented yet**.
+  Do not pretend they are.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - **Never run the legacy executable or its installer.** Use static analysis or
@@ -148,6 +152,10 @@ crates/okkhor-core/      language, text, candidate, ranking primitives
 crates/okkhor-learn/     Smriti: personalization and ranking
 crates/okkhor-storage/   snapshot persistence and future redb adapter
 crates/okkhor-win/       Win32 hook and Unicode injection boundary
+crates/okkhor-lang/      0.3 layouts, encodings, dictionaries + fixture importer
+crates/okkhor-transliterate/  0.3 rule-based transliteration engine
+crates/okkhor-compat/    0.3 legacy-DLL compatibility boundary
+crates/okkhor-engine/    0.4 candidate generation + golden-corpus parity
 docs/                    architecture, roadmap, learning, performance, security
 docs/adr/                architecture decisions
 assets/                  import instructions; proprietary binaries are not committed
@@ -156,7 +164,8 @@ scripts/                 developer checks and importers
 ```
 
 Planned but not created yet: `okkhor-ui`, `okkhor-ipc`, `okkhor-speech`,
-`okkhor-ai`, `okkhor-license`, `okkhor-update`. Create them only when the
+`okkhor-ai`, `okkhor-model`, `okkhor-train`, `okkhor-worker`,
+`okkhor-license`, `okkhor-update`. Create them only when the
 roadmap reaches them.
 
 ## Build and test

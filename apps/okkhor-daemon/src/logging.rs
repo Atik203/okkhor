@@ -64,6 +64,9 @@ pub enum Scope {
     Transliterate,
     #[allow(dead_code)]
     Compat,
+    // 0.4 §11.3: constructed by engine daemon wiring (follow-up); allow until then.
+    #[allow(dead_code)]
+    Engine,
 }
 
 impl Scope {
@@ -78,6 +81,31 @@ impl Scope {
             Self::Lang => "lang",
             Self::Transliterate => "transliterate",
             Self::Compat => "compat",
+            Self::Engine => "engine",
+        }
+    }
+
+    /// Parse a stable scope name back into a `Scope`.
+    ///
+    /// Returns `None` for anything outside the allowlisted set, so a caller
+    /// can never smuggle free-form text into the `scope` field (see 0.4
+    /// §11.3: the engine construction-failure call site logs
+    /// `scope=engine` with `kind()`/`code()`).
+    // 0.4 §11.3: used by the engine daemon wiring (follow-up); allow until then.
+    #[allow(dead_code)]
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "daemon" => Some(Self::Daemon),
+            "single_instance" => Some(Self::SingleInstance),
+            "hook" => Some(Self::Hook),
+            "hotkey" => Some(Self::Hotkey),
+            "tray" => Some(Self::Tray),
+            "registry" => Some(Self::Registry),
+            "lang" => Some(Self::Lang),
+            "transliterate" => Some(Self::Transliterate),
+            "compat" => Some(Self::Compat),
+            "engine" => Some(Self::Engine),
+            _ => None,
         }
     }
 }
@@ -295,5 +323,56 @@ mod tests {
         assert_eq!(Scope::Lang.as_str(), "lang");
         assert_eq!(Scope::Transliterate.as_str(), "transliterate");
         assert_eq!(Scope::Compat.as_str(), "compat");
+        assert_eq!(Scope::Engine.as_str(), "engine");
+    }
+
+    #[test]
+    fn scope_names_round_trip_through_parse() {
+        for scope in [
+            Scope::Daemon,
+            Scope::SingleInstance,
+            Scope::Hook,
+            Scope::Hotkey,
+            Scope::Tray,
+            Scope::Registry,
+            Scope::Lang,
+            Scope::Transliterate,
+            Scope::Compat,
+            Scope::Engine,
+        ] {
+            assert_eq!(Scope::parse(scope.as_str()), Some(scope));
+        }
+        // Free-form text never parses: the scope field stays allowlisted.
+        for rejected in ["", "ENGINE", "engine ", "user text", "hook;drop"] {
+            assert_eq!(Scope::parse(rejected), None, "{rejected} must not parse");
+        }
+    }
+
+    #[test]
+    fn engine_errors_map_to_allowed_kind_and_code() {
+        // Mirrors the 0.4 §6 `EngineError::kind()` strings and the always-`None`
+        // `code()` through the §11.3 call shape
+        // `logger.error(Scope::Engine, kind, code)`, without depending on the
+        // engine crate: only allowlisted fields may serialize, and no code
+        // key appears when `code` is `None`.
+        for kind in [
+            "engine_invalid_budget",
+            "engine_missing_component",
+            "engine_unsupported_schema",
+            "engine_invalid_golden",
+        ] {
+            let mut record = Record::new(Level::Error, "error");
+            record.field("scope", json!(Scope::Engine.as_str()));
+            record.field("kind", json!(kind));
+
+            let parsed: Value = serde_json::from_str(&record.to_json()).expect("valid JSON");
+            let object = parsed.as_object().expect("object");
+            for key in object.keys() {
+                assert!(is_allowed_field(key), "unexpected field: {key}");
+            }
+            assert_eq!(object.get("scope"), Some(&json!("engine")));
+            assert_eq!(object.get("kind"), Some(&json!(kind)));
+            assert!(!object.contains_key("code"), "engine code is always None");
+        }
     }
 }
