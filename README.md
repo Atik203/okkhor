@@ -123,9 +123,10 @@ separate settings UI observes and configures it. Full contract:
   `--no-ipc` disables the settings-UI pipe (typing, tray, and hotkeys keep
   working); `--ui` launches the settings UI once at startup. Either way a
   store/token failure degrades to typing-without-IPC, never a dead daemon.
-- The tray menu has Bangla/English, Pause/Resume, **Settings** (launches
-  `okkhor-ui.exe` from next to the daemon, `OKKHOR_UI_PATH` override; a
-  missing UI shows a tray balloon), and Exit. Token file:
+- The tray menu has Bangla/English, Pause/Resume, **Settings** (launches the
+  UI at the artifact root as `Okkhor.exe`, then a sibling `okkhor-ui.exe`,
+  `OKKHOR_UI_PATH` override; a missing UI shows a tray balloon), and Exit.
+  Token file:
   `%LOCALAPPDATA%\Okkhor\runtime\ipc.token` (rotated per start, removed on
   clean shutdown; `OKKHOR_DATA_HOME` override for tests/dev/portable).
 - `status` reports version, `paused`, `language`/`layout`, `input_mode`,

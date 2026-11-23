@@ -4,7 +4,7 @@
 
 [package]
 name = "okkhor-ui"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 rust-version = "1.85"
 publish = false
@@ -20,6 +20,9 @@ serde_json = "1"
 thiserror = "2"
 okkhor-ipc = { path = "../../../crates/okkhor-ipc" }
 okkhor-win = { path = "../../../crates/okkhor-win" }
+# Sleep between engine-start probes (single-entry-point launch). Tokio is
+# already in the tree through Tauri; only the timer feature is added here.
+tokio = { version = "1", features = ["time"] }
 
 # Win32 no-activate styling for the quick bar window (`quickbar_native`).
 # Same major version the Tauri shell already pulls in (see Cargo.lock).

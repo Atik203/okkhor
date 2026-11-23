@@ -440,10 +440,10 @@ fn select_fonts_dir(exe_fonts: &Path, dev_fonts: &Path) -> PathBuf {
     exe_fonts.to_path_buf()
 }
 
-/// Locate the staged-font directory: `<exe-dir>\fonts` first, else the
-/// development checkout's `assets/fonts` (found by walking up from the
-/// executable, then from the working directory). Never contains hardcoded
-/// absolute paths or user names.
+/// Locate the staged-font directory: `<exe-dir>\fonts` first, then the
+/// portable folder root (`bin\..\fonts`), else the development checkout's
+/// `assets/fonts` (found by walking up from the executable, then from the
+/// working directory). Never contains hardcoded absolute paths or user names.
 fn locate_fonts_dir() -> PathBuf {
     let exe_fonts = std::env::current_exe()
         .ok()
@@ -451,6 +451,19 @@ fn locate_fonts_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("fonts"));
     if exe_fonts.is_dir() {
         return exe_fonts;
+    }
+    // Portable beta layout: the engine lives in `bin\` and the fonts are a
+    // sibling of `bin`, next to the user-facing `Okkhor.exe`.
+    let parent_fonts = std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.parent()
+                .and_then(Path::parent)
+                .map(|root| root.join("fonts"))
+        })
+        .unwrap_or_else(|| PathBuf::from("fonts"));
+    if parent_fonts.is_dir() {
+        return parent_fonts;
     }
     if let Ok(exe) = std::env::current_exe() {
         let mut cursor = exe.parent().map(Path::to_path_buf);
@@ -640,8 +653,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
 
     use crate::input_session::{
         BackspaceOutcome, Commit, DefaultEngine, InputSession, VK_BACK, VK_DOWN, VK_ESCAPE,
-        VK_LEFT, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, default_engine, vk_to_digit_index,
-        vk_to_letter,
+        VK_LEFT, VK_OEM_PERIOD, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, default_engine,
+        digit_char, is_modifier_key, vk_to_digit_index, vk_to_letter,
     };
 
     /// Allowlisted log kind for a mode toggle (no text, no codes).
@@ -764,13 +777,18 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     /// unchanged and logs the allowlisted `encoding_fallback` code.
     /// Never logs the buffer or the committed text; failures log an
     /// allowlisted kind plus an optional numeric code only.
-    fn do_commit(ctx: &mut CompositionCtx<'_>, commit: Commit, roman: String) {
+    fn do_commit(
+        ctx: &mut CompositionCtx<'_>,
+        commit: Commit,
+        roman: String,
+        newline: bool,
+    ) -> bool {
         if foreground_window_id() != *ctx.compose_window {
             ctx.session.reset();
             hide_popup(ctx.popup, ctx.state);
             ctx.logger
                 .error(logging::Scope::Daemon, "focus_changed", None);
-            return;
+            return false;
         }
         // Unicode original for learning: Smriti maps roman input to Unicode
         // output, so Bijoy bytes must never enter the learning path.
@@ -799,11 +817,19 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 .error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
             ctx.session.reset();
             hide_popup(ctx.popup, ctx.state);
-            return;
+            return false;
+        }
+        // Enter is swallowed by the hook while composing, so the newline the
+        // target never received is re-emitted here, after the replacement.
+        if newline {
+            if let Err(error) = okkhor_win::send_enter() {
+                ctx.logger
+                    .error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
+            }
         }
         hide_popup(ctx.popup, ctx.state);
         if !ctx.learning_enabled {
-            return;
+            return true;
         }
         // Queue learning for the background thread. The channel is bounded and
         // `try_send` never blocks, so a stalled learn thread can never stall
@@ -820,6 +846,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if ctx.learn_tx.try_send(event).is_err() {
             ctx.learn_dropped.fetch_add(1, Ordering::Relaxed);
         }
+        true
     }
 
     fn cancel_composition(ctx: &mut CompositionCtx<'_>) {
@@ -857,16 +884,45 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             track_focus(ctx);
             if ctx.session.push_letter(letter) {
                 refresh_popup(ctx);
+            } else {
+                // Buffer full (or unusable letter): the target received this
+                // character but the session cannot track it, so the erase
+                // count would drift. End the composition; the roman text stays
+                // as typed and the next letter starts a new buffer.
+                cancel_composition(ctx);
             }
             return;
         }
         if let Some(index) = vk_to_digit_index(vk) {
             if !ctx.session.is_composing() {
+                // Idle digit in Bangla Unicode: the hook swallowed it so the
+                // app gets a Bengali numeral (১২৩) instead of ASCII.
+                if ctx.encoding == crate::OutputEncoding::Unicode {
+                    let text = digit_char(index, true).to_string();
+                    if let Err(error) = okkhor_win::inject_commit(0, &text, false) {
+                        ctx.logger.error(
+                            logging::Scope::Daemon,
+                            "inject_commit",
+                            inject_code(&error),
+                        );
+                    }
+                }
                 return;
             }
             let roman = ctx.session.buffer().to_owned();
             if let Some(commit) = ctx.session.select_digit(index) {
-                do_commit(ctx, commit, roman);
+                do_commit(ctx, commit, roman, false);
+            } else {
+                // Out-of-range selection: the hook swallowed the digit, so
+                // re-emit it as text after ending the composition.
+                ctx.session.reset();
+                hide_popup(ctx.popup, ctx.state);
+                let text =
+                    digit_char(index, ctx.encoding == crate::OutputEncoding::Unicode).to_string();
+                if let Err(error) = okkhor_win::inject_commit(0, &text, false) {
+                    ctx.logger
+                        .error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
+                }
             }
             return;
         }
@@ -891,13 +947,28 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     return;
                 }
                 let roman = ctx.session.buffer().to_owned();
+                let newline = vk == VK_RETURN;
                 match ctx.session.commit(vk == VK_SPACE) {
-                    Some(commit) => do_commit(ctx, commit, roman),
-                    // No candidates: the roman text stays as typed; the Space
-                    // or Enter key itself passes through untouched.
+                    Some(commit) => {
+                        do_commit(ctx, commit, roman, newline);
+                    }
+                    // No candidates: the roman text stays as typed. The key
+                    // was swallowed by the hook, so re-emit it explicitly.
                     None => {
                         ctx.session.reset();
                         hide_popup(ctx.popup, ctx.state);
+                        let injected = if newline {
+                            okkhor_win::send_enter()
+                        } else {
+                            okkhor_win::inject_commit(0, "", true)
+                        };
+                        if let Err(error) = injected {
+                            ctx.logger.error(
+                                logging::Scope::Daemon,
+                                "inject_commit",
+                                inject_code(&error),
+                            );
+                        }
                     }
                 }
             }
@@ -916,7 +987,42 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             VK_ESCAPE | VK_TAB if ctx.session.is_composing() => {
                 cancel_composition(ctx);
             }
-            _ => {}
+            VK_OEM_PERIOD if ctx.encoding == crate::OutputEncoding::Unicode => {
+                // Bangla Unicode: the hook swallowed this `.` so the sentence
+                // ends with the Bengali danda (।). Commit any live composition
+                // first, then emit the danda on its own.
+                let roman = ctx.session.buffer().to_owned();
+                let ready = if ctx.session.is_composing() {
+                    match ctx.session.commit(false) {
+                        Some(commit) => do_commit(ctx, commit, roman, false),
+                        None => {
+                            ctx.session.reset();
+                            hide_popup(ctx.popup, ctx.state);
+                            true
+                        }
+                    }
+                } else {
+                    true
+                };
+                if ready {
+                    if let Err(error) = okkhor_win::inject_commit(0, "।", false) {
+                        ctx.logger.error(
+                            logging::Scope::Daemon,
+                            "inject_commit",
+                            inject_code(&error),
+                        );
+                    }
+                }
+            }
+            _ => {
+                // Any other key (punctuation, Home/End, Delete, function keys)
+                // would shift the target text relative to the buffer. End the
+                // composition and let the key act normally, so a later commit
+                // can never erase the wrong characters.
+                if !is_modifier_key(vk) {
+                    cancel_composition(ctx);
+                }
+            }
         }
     }
 
@@ -1404,9 +1510,11 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 hide_popup(&mut popup, ipc_state.as_deref());
             }
             toast_until_ms = 0;
+            // Nothing may be swallowed while capture is off.
+            hook.set_composition_state(false, false, false);
             // Drain injected and real events alike while paused.
             while hook.try_next().is_some() {}
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(5));
             continue;
         }
 
@@ -1421,10 +1529,22 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             if toast_until_ms == 0 {
                 hide_popup(&mut popup, ipc_state.as_deref());
             }
+            hook.set_composition_state(false, false, false);
             while hook.try_next().is_some() {}
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(5));
             continue;
         }
+
+        // Publish the state the hook uses to swallow commit keys. Done before
+        // the drain so a key arriving during this poll sees the last buffer,
+        // and again after it so the next poll sees the new one.
+        let bangla_unicode =
+            mode.allows_composition() && encoding == crate::OutputEncoding::Unicode;
+        hook.set_composition_state(
+            mode.allows_composition(),
+            session.is_composing(),
+            bangla_unicode,
+        );
 
         // Mouse selection: a popup click (queued without activation) commits
         // that row through the same select_digit path as the digit keys. The
@@ -1456,7 +1576,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     injection: &injection_lock,
                 };
                 if let Some(commit) = ctx.session.select_digit(index) {
-                    do_commit(&mut ctx, commit, roman);
+                    do_commit(&mut ctx, commit, roman, false);
                 }
             }
         }
@@ -1483,7 +1603,12 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             handle_key(event.virtual_key, &mut ctx);
         }
 
-        std::thread::sleep(Duration::from_millis(10));
+        hook.set_composition_state(
+            mode.allows_composition(),
+            session.is_composing(),
+            bangla_unicode,
+        );
+        std::thread::sleep(Duration::from_millis(5));
     }
 
     hook.stop();

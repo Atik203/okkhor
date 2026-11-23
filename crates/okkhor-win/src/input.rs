@@ -9,6 +9,60 @@ use serde::{Deserialize, Serialize};
 /// `LLKHF_UP = 0x80`).
 pub const LLKHF_INJECTED: u32 = 0x0000_0010;
 
+/// Virtual key of the full stop (`.` on the main row).
+pub const VK_OEM_PERIOD: u16 = 0xBE;
+
+/// Whether a `.` key-down must be swallowed to emit the Bengali danda (।).
+///
+/// Only for Bangla **Unicode** output without Shift: `>` stays available and
+/// English mode keeps the ASCII full stop. In Bijoy mode the period passes
+/// through (legacy documents own their punctuation).
+pub const fn should_swallow_danda(
+    capture_enabled: bool,
+    bangla_mode: bool,
+    bangla_unicode: bool,
+    chord_pressed: bool,
+    shift_pressed: bool,
+    injected: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && bangla_mode
+        && bangla_unicode
+        && !chord_pressed
+        && !shift_pressed
+        && !injected
+        && vk == VK_OEM_PERIOD
+}
+
+/// Whether a digit key is a candidate selector or a Bengali numeral.
+///
+/// Row `0`-`9` and numpad `0`-`9`. While composing these are commit keys
+/// (handled by [`should_swallow`]); while idle Bangla Unicode turns them into
+/// `০`-`৯`, so they must be swallowed and re-emitted by the daemon too.
+pub const fn is_digit_key(vk: u16) -> bool {
+    matches!(vk, 0x30..=0x39 | 0x60..=0x69)
+}
+
+/// Whether an idle digit must be swallowed for Bangla Unicode numerals.
+pub const fn should_swallow_numeral(
+    capture_enabled: bool,
+    bangla_mode: bool,
+    bangla_unicode: bool,
+    composing: bool,
+    chord_pressed: bool,
+    injected: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && bangla_mode
+        && bangla_unicode
+        && !composing
+        && !chord_pressed
+        && !injected
+        && is_digit_key(vk)
+}
+
 /// Whether a low-level hook event was injected via `SendInput`.
 ///
 /// The hook must skip such events so our own backspace/text injection is never
@@ -28,6 +82,47 @@ pub const fn is_injected_event(flags: u32) -> bool {
 /// `CallNextHookEx` forward. Allocation-free by construction.
 pub const fn should_enqueue(capture_enabled: bool, flags: u32) -> bool {
     capture_enabled && !is_injected_event(flags)
+}
+
+/// Virtual keys the daemon handles while a composition is active, and whose
+/// physical press must therefore **not** reach the target application.
+///
+/// Letters and Backspace stay visible: one target character per buffer
+/// character keeps the erase count exact. Space/Enter/digits commit a
+/// candidate; the arrows move the highlight. If those reached the target they
+/// would append characters (space, digit) or move the caret, so the commit's
+/// backspaces would delete the wrong text — the exact "amar my word" bug where
+/// the roman text survived next to the Bangla.
+///
+/// Coverage is numeric so the predicate stays platform-free for tests:
+/// Enter/numpad Enter `0x0D`, Space `0x20`, arrows `0x25..=0x28`, row digits
+/// `0x30..=0x39`, numpad digits `0x60..=0x69`.
+pub const fn is_composition_key(vk: u16) -> bool {
+    matches!(vk, 0x0D | 0x20 | 0x25..=0x28 | 0x30..=0x39 | 0x60..=0x69)
+}
+
+/// Whether the low-level hook must swallow this key-down event.
+///
+/// Swallowing happens only for a real Bangla composition: capture on, Bangla
+/// mode, a non-empty buffer, no Ctrl/Alt/Win chord, a key from
+/// [`is_composition_key`], and never for our own injected events (the commit
+/// re-emits Space/Enter through `SendInput`; swallowing that would lose the
+/// keypress and set up a phantom key-up). The event is still enqueued for the
+/// worker — the hook swallows delivery to the target, not the decision itself.
+pub const fn should_swallow(
+    capture_enabled: bool,
+    bangla_mode: bool,
+    composing: bool,
+    chord_pressed: bool,
+    injected: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && bangla_mode
+        && composing
+        && !chord_pressed
+        && !injected
+        && is_composition_key(vk)
 }
 
 /// Whether a key transition is a press or a release.
@@ -59,7 +154,10 @@ pub trait KeyboardHook {
 
 #[cfg(test)]
 mod tests {
-    use super::{KeyEvent, KeyPhase, LLKHF_INJECTED, is_injected_event, should_enqueue};
+    use super::{
+        KeyEvent, KeyPhase, LLKHF_INJECTED, VK_OEM_PERIOD, is_composition_key, is_injected_event,
+        should_enqueue, should_swallow, should_swallow_danda, should_swallow_numeral,
+    };
 
     #[test]
     fn key_event_is_copy_and_comparable() {
@@ -126,5 +224,145 @@ mod tests {
                 "flags {flags:#06X} must enqueue"
             );
         }
+    }
+
+    #[test]
+    fn composition_keys_are_the_commit_and_arrow_set() {
+        for vk in [
+            0x0D, // Enter
+            0x20, // Space
+            0x25, 0x26, 0x27, 0x28, // arrows
+            0x30, 0x35, 0x39, // row digits
+            0x60, 0x65, 0x69, // numpad digits
+        ] {
+            assert!(is_composition_key(vk), "vk {vk:#04X} must be a commit key");
+        }
+        // Letters and Backspace stay visible and stay in sync one-for-one.
+        for vk in [0x41, 0x5A, 0x08, 0x09, 0x1B] {
+            assert!(!is_composition_key(vk), "vk {vk:#04X} must pass through");
+        }
+    }
+
+    #[test]
+    fn swallow_matrix_requires_a_live_bangla_composition() {
+        let space = 0x20;
+        // The only case that swallows: all conditions true.
+        assert!(should_swallow(true, true, true, false, false, space));
+        // Paused capture, English mode, idle buffer, or a chord: pass through.
+        assert!(!should_swallow(false, true, true, false, false, space));
+        assert!(!should_swallow(true, false, true, false, false, space));
+        assert!(!should_swallow(true, true, false, false, false, space));
+        assert!(!should_swallow(true, true, true, true, false, space));
+        // Our own injected commit keys are never swallowed.
+        assert!(!should_swallow(true, true, true, false, true, 0x0D));
+        // A letter is never swallowed even mid-composition.
+        assert!(!should_swallow(true, true, true, false, false, 0x41));
+    }
+
+    #[test]
+    fn danda_swallow_matrix() {
+        // Bangla Unicode, unshifted, no chord: the `.` becomes `।`.
+        assert!(should_swallow_danda(
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            VK_OEM_PERIOD
+        ));
+        // Shift keeps `>`, English mode keeps `.`, Bijoy keeps legacy bytes.
+        assert!(!should_swallow_danda(
+            true,
+            true,
+            true,
+            false,
+            true,
+            false,
+            VK_OEM_PERIOD
+        ));
+        assert!(!should_swallow_danda(
+            true,
+            false,
+            true,
+            false,
+            false,
+            false,
+            VK_OEM_PERIOD
+        ));
+        assert!(!should_swallow_danda(
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            VK_OEM_PERIOD
+        ));
+        // Chords, paused capture, injected events, and other keys pass.
+        assert!(!should_swallow_danda(
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            VK_OEM_PERIOD
+        ));
+        assert!(!should_swallow_danda(
+            false,
+            true,
+            true,
+            false,
+            false,
+            false,
+            VK_OEM_PERIOD
+        ));
+        assert!(!should_swallow_danda(
+            true,
+            true,
+            true,
+            false,
+            false,
+            true,
+            VK_OEM_PERIOD
+        ));
+        assert!(!should_swallow_danda(
+            true, true, true, false, false, false, 0x41
+        ));
+    }
+
+    #[test]
+    fn numeral_swallow_matrix() {
+        // Idle Bangla Unicode: digits become Bengali numerals.
+        assert!(should_swallow_numeral(
+            true, true, true, false, false, false, 0x31
+        ));
+        assert!(should_swallow_numeral(
+            true, true, true, false, false, false, 0x60
+        ));
+        // While composing they are commit keys, not numerals.
+        assert!(!should_swallow_numeral(
+            true, true, true, true, false, false, 0x31
+        ));
+        // English, Bijoy, chords, injected, paused, letters: pass through.
+        assert!(!should_swallow_numeral(
+            true, false, true, false, false, false, 0x31
+        ));
+        assert!(!should_swallow_numeral(
+            true, true, false, false, false, false, 0x31
+        ));
+        assert!(!should_swallow_numeral(
+            true, true, true, false, true, false, 0x31
+        ));
+        assert!(!should_swallow_numeral(
+            true, true, true, false, false, true, 0x31
+        ));
+        assert!(!should_swallow_numeral(
+            false, true, true, false, false, false, 0x31
+        ));
+        assert!(!should_swallow_numeral(
+            true, true, true, false, false, false, 0x41
+        ));
     }
 }

@@ -2,10 +2,14 @@
 #![deny(unsafe_code)]
 //! Okkhor settings UI shell (Tauri 2, ADR 0012).
 //!
-//! Separate process from the daemon: a UI crash must not stop typing.
+//! This process is the user-facing entry point: the portable folder ships it
+//! as `Okkhor.exe` and keeps the resident engine in `bin\`. On launch it calls
+//! [`daemon_ensure`], which starts the engine when it is not already running,
+//! so nobody has to know that typing and settings live in separate processes.
+//! Separate processes remain deliberate: a UI crash must not stop typing.
 //! Rust commands below are async, typed, and never `unwrap` on user input.
 //! The daemon is the single writer of `settings.json`; this shell only talks
-//! to it through the `okkhor-ipc` client. When the daemon is absent every
+//! to it through the `okkhor-ipc` client. When the engine cannot start, every
 //! command fails with `daemon_unavailable` and the WebView renders its
 //! banner + read-only mode.
 //!
@@ -34,6 +38,124 @@ async fn connect() -> Result<okkhor_ipc::transport::Client, UiError> {
     .await
     .map(|(client, _)| client)
     .map_err(|e| map_client_error(&e))
+}
+
+/// Locate the resident engine for the single-entry-point launch.
+///
+/// The portable folder ships one user-facing executable (`Okkhor.exe`, this
+/// UI) and keeps the engine in `bin\`. Older 0.5.0 folders and dev builds keep
+/// it as a sibling, so those are still accepted. `OKKHOR_ENGINE_PATH`
+/// overrides everything (dev/QA only).
+#[cfg(windows)]
+fn find_engine_exe() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("OKKHOR_ENGINE_PATH") {
+        let path = std::path::PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    [
+        dir.join("bin").join("okkhor-engine.exe"),
+        dir.join("okkhor-engine.exe"),
+        dir.join("okkhor.exe"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+}
+
+/// Start the resident engine detached and console-free. The engine's own
+/// single-instance guard makes a duplicate spawn a no-op, so a racing launch
+/// (UI opened twice) is harmless.
+#[cfg(windows)]
+fn spawn_engine() -> Result<(), UiError> {
+    use std::os::windows::process::CommandExt as _;
+    /// Detach from this process's console and never create a new one.
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let exe = find_engine_exe().ok_or_else(UiError::engine_missing)?;
+    std::process::Command::new(exe)
+        .arg("daemon")
+        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+        .spawn()
+        .map(|_| ())
+        .map_err(|_| UiError::engine_missing())
+}
+
+/// Show the quick bar after a cold engine start when the setting says it
+/// should be visible.
+///
+/// First launch used to resolve `quickbar_visible` in `setup` before the
+/// engine had created its pipe, so the default-on bar silently stayed hidden.
+/// This runs after `daemon_ensure` and applies the saved position, chrome, and
+/// visibility exactly like the tray show path.
+#[cfg(windows)]
+async fn reveal_quickbar_if_configured(app: &AppHandle) {
+    let Ok(state) = load_quickbar_state().await else {
+        return;
+    };
+    if !state.visible {
+        return;
+    }
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return;
+    };
+    if let Some((x, y)) = state.x.zip(state.y) {
+        let _ = bar.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+    }
+    if !bar_is_on_screen(&bar) {
+        place_quickbar_top_right(&bar);
+    }
+    apply_bar_chrome(&bar, state.collapsed);
+    show_bar_noactivate(&bar);
+}
+
+/// Ensure the engine is running, starting it next to this UI when needed.
+///
+/// `Okkhor.exe` is the only executable a user launches: it starts the engine
+/// itself, then waits (bounded, ~8 s) for the authenticated pipe before the
+/// WebView renders read-only. Two webviews (settings + quick bar) can request
+/// this at once, so spawns are rate-limited instead of relying on the engine's
+/// single-instance guard alone. A later retry can still restart a dead engine.
+#[tauri::command]
+async fn daemon_ensure(app: AppHandle) -> Result<bool, UiError> {
+    #[cfg(windows)]
+    {
+        use std::time::{Duration, Instant};
+
+        if ipc_status().await.is_ok() {
+            reveal_quickbar_if_configured(&app).await;
+            return Ok(true);
+        }
+        // At most one spawn per 5 s across every window of this process.
+        static LAST_SPAWN: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+        let should_spawn = match LAST_SPAWN.lock() {
+            Ok(mut last) => match *last {
+                Some(at) if at.elapsed() < Duration::from_secs(5) => false,
+                _ => {
+                    *last = Some(Instant::now());
+                    true
+                }
+            },
+            Err(_) => true,
+        };
+        if should_spawn {
+            spawn_engine()?;
+        }
+        // Engine start includes hook install, tray creation, token write, and
+        // the pipe listener. Cold start on a slow disk is the slow case; the
+        // loop is bounded and cheap (one local connect per 160 ms).
+        for _ in 0..50 {
+            tokio::time::sleep(Duration::from_millis(160)).await;
+            if ipc_status().await.is_ok() {
+                reveal_quickbar_if_configured(&app).await;
+                return Ok(true);
+            }
+        }
+        Err(UiError::daemon_unavailable())
+    }
+    #[cfg(not(windows))]
+    {
+        Err(UiError::daemon_unavailable())
+    }
 }
 
 /// Load the full quickbar snapshot: live mode/encoding/pause from `status`
@@ -828,6 +950,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            daemon_ensure,
             ipc_status,
             ipc_get_settings,
             ipc_update_settings,

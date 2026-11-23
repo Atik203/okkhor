@@ -724,19 +724,29 @@ pub const UI_ENV_OVERRIDE: &str = "OKKHOR_UI_PATH";
 /// Settings UI file name next to the daemon executable.
 pub const UI_EXE_NAME: &str = "okkhor-ui.exe";
 
-/// Locate the settings UI: `OKKHOR_UI_PATH` override first, else
-/// `okkhor-ui.exe` next to the daemon executable. Returns `None` (never a
-/// path string in an error) when it is not a file.
+/// Locate the settings UI.
+///
+/// Portable beta layout: the user-facing `Okkhor.exe` sits at the folder root
+/// and this engine in `bin\`, so the parent folder is checked too. Dev builds
+/// and 0.5.0 folders keep a sibling `okkhor-ui.exe`. `OKKHOR_UI_PATH`
+/// overrides every probe. Returns `None` (never a path string in an error)
+/// when nothing is a file.
 #[must_use]
 pub fn find_ui_exe() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(UI_ENV_OVERRIDE) {
         let path = PathBuf::from(path);
         return path.is_file().then_some(path);
     }
-    std::env::current_exe()
+    let dir = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join(UI_EXE_NAME)))
-        .filter(|path| path.is_file())
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))?;
+    [
+        dir.join(UI_EXE_NAME),
+        dir.join("..").join("Okkhor.exe"),
+        dir.join("..").join(UI_EXE_NAME),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
 }
 
 /// Settings UI launch failures. Static messages only — never paths.

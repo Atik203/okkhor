@@ -48,7 +48,9 @@ describe("route guard", () => {
       expect(screen.getByText("Status unavailable")).toBeInTheDocument();
     });
     expect(
-      screen.getByText("Okkhor daemon is not running. Settings are read-only until it starts."),
+      screen.getByText(
+        "Okkhor engine is not running. Settings are read-only until it starts.",
+      ),
     ).toBeInTheDocument();
   });
 

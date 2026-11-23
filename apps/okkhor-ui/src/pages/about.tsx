@@ -1,6 +1,32 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getVersion } from "@tauri-apps/api/app";
 import { api } from "../lib/ipc";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+
+/** The UI version comes from `tauri.conf.json` at runtime, never a literal. */
+function useUiVersion(): string {
+  const [version, setVersion] = useState("…");
+  useEffect(() => {
+    let cancelled = false;
+    getVersion()
+      .then((value) => {
+        if (!cancelled) {
+          setVersion(value);
+        }
+      })
+      .catch(() => {
+        // Browser dev (no Tauri host): there is no bundle version to read.
+        if (!cancelled) {
+          setVersion("dev");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return version;
+}
 
 export default function AboutPage() {
   const statusQuery = useQuery({
@@ -8,6 +34,7 @@ export default function AboutPage() {
     queryFn: () => api.status(),
     retry: false,
   });
+  const uiVersion = useUiVersion();
 
   return (
     <div className="grid min-w-0 max-w-2xl gap-4">
@@ -18,7 +45,7 @@ export default function AboutPage() {
         <CardContent className="grid gap-2 text-sm">
           <p>
             <span className="text-neutral-500 dark:text-neutral-400">UI version: </span>
-            0.5.0
+            {uiVersion}
           </p>
           <p>
             <span className="text-neutral-500 dark:text-neutral-400">Daemon version: </span>

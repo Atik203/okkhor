@@ -4,7 +4,7 @@
 //! surface small and document every block.
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -15,7 +15,7 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LWIN,
-    VK_MENU, VK_RWIN,
+    VK_MENU, VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
@@ -51,6 +51,30 @@ pub fn toggle_capture() -> bool {
     let previous = CAPTURE_ENABLED.fetch_xor(true, Ordering::AcqRel);
     !previous
 }
+
+/// Whether the active input mode composes Bangla (published by the daemon).
+static BANGLA_MODE: AtomicBool = AtomicBool::new(true);
+
+/// Whether a composition buffer is non-empty (published by the daemon).
+static COMPOSING: AtomicBool = AtomicBool::new(false);
+
+/// Virtual key of the last key-down the hook swallowed, so its key-up is
+/// swallowed too. Zero means none pending.
+static LAST_SWALLOWED_VK: AtomicU16 = AtomicU16::new(0);
+
+/// Publish the composition state the hook needs to decide swallowing.
+///
+/// Called by the daemon after every key batch (and on mode/encoding changes).
+/// Relaxed stores: a one-poll stale value can only make a key pass through; it
+/// is corrected by the next publish.
+pub fn set_composition_state(bangla_mode: bool, composing: bool, bangla_unicode: bool) {
+    BANGLA_MODE.store(bangla_mode, Ordering::Release);
+    COMPOSING.store(composing, Ordering::Release);
+    BANGLA_UNICODE.store(bangla_unicode, Ordering::Release);
+}
+
+/// Whether Bangla **Unicode** output is active (danda and Bengali numerals).
+static BANGLA_UNICODE: AtomicBool = AtomicBool::new(true);
 
 #[derive(Debug, thiserror::Error)]
 pub enum HookError {
@@ -103,6 +127,11 @@ impl WindowsKeyboardHook {
     /// Whether capture is currently enabled.
     pub fn capture_enabled(&self) -> bool {
         capture_enabled()
+    }
+
+    /// Publish the Bangla/composing state used for key swallowing.
+    pub fn set_composition_state(&self, bangla_mode: bool, composing: bool, bangla_unicode: bool) {
+        set_composition_state(bangla_mode, composing, bangla_unicode);
     }
 
     /// Toggle capture and return the new state.
@@ -246,19 +275,77 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         };
 
         if let (Some(queue), Some(phase)) = (HOOK_TX.get(), phase) {
+            let capture = CAPTURE_ENABLED.load(Ordering::Relaxed);
+            let virtual_key = data.vkCode as u16;
             // Anti-loop gate, decided by the pure `should_enqueue` seam
             // (matrix-tested in `input.rs`): our own SendInput erase/inject
-            // carries LLKHF_INJECTED and is never re-captured. Pass-through is
-            // unaffected — every event is still forwarded below. No hook is
-            // installed in tests; this decision's execution coverage lives in
-            // the `should_enqueue` unit tests.
-            if crate::input::should_enqueue(CAPTURE_ENABLED.load(Ordering::Relaxed), data.flags.0) {
+            // carries LLKHF_INJECTED and is never re-captured.
+            if crate::input::should_enqueue(capture, data.flags.0) {
                 let _ = queue.try_send(KeyEvent {
-                    virtual_key: data.vkCode as u16,
+                    virtual_key,
                     scan_code: data.scanCode as u16,
                     phase,
                     timestamp_ms: u64::from(data.time),
                 });
+            }
+            // Commit keys (Space/Enter/digits/arrows) must not reach the
+            // target while composing: the app already holds the roman letters,
+            // and an extra space/digit or a caret move would make the commit's
+            // backspaces erase the wrong characters. Letters and Backspace
+            // still pass through one-for-one with the buffer.
+            let swallow = match phase {
+                KeyPhase::Down => {
+                    let injected = crate::input::is_injected_event(data.flags.0);
+                    let chord = ctrl_or_alt_pressed();
+                    let bangla = BANGLA_MODE.load(Ordering::Relaxed);
+                    let composing = COMPOSING.load(Ordering::Relaxed);
+                    let unicode = BANGLA_UNICODE.load(Ordering::Relaxed);
+                    let decision = !injected
+                        && (crate::input::should_swallow(
+                            capture,
+                            bangla,
+                            composing,
+                            chord,
+                            false,
+                            virtual_key,
+                        ) || crate::input::should_swallow_danda(
+                            capture,
+                            bangla,
+                            unicode,
+                            chord,
+                            shift_pressed(),
+                            false,
+                            virtual_key,
+                        ) || crate::input::should_swallow_numeral(
+                            capture,
+                            bangla,
+                            unicode,
+                            composing,
+                            chord,
+                            false,
+                            virtual_key,
+                        ));
+                    if decision {
+                        LAST_SWALLOWED_VK.store(virtual_key, Ordering::Relaxed);
+                    }
+                    decision
+                }
+                // Swallow the matching release so the target never sees an
+                // unmatched key-up after we hid its key-down. Injected events
+                // are never swallowed (the commit's own re-emitted keys).
+                KeyPhase::Up => {
+                    if !crate::input::is_injected_event(data.flags.0)
+                        && LAST_SWALLOWED_VK.load(Ordering::Relaxed) == virtual_key
+                    {
+                        LAST_SWALLOWED_VK.store(0, Ordering::Relaxed);
+                        true
+                    } else {
+                        false
+                    }
+                }
+            };
+            if swallow {
+                return LRESULT(1);
             }
         }
     }
@@ -400,6 +487,34 @@ pub fn send_backspaces(count: usize) -> Result<(), InjectError> {
     inject_commit(count, "", false)
 }
 
+/// Send one Enter press (down + up) after a commit.
+///
+/// Enter is a swallowed composition key: the daemon must re-emit the newline
+/// the target never received. Sharing `SendInput` keeps the ordering after
+/// [`inject_commit`] deterministic. Failures use the same typed mapping.
+pub fn send_enter() -> Result<(), InjectError> {
+    let inputs = [
+        virtual_key_input(VK_RETURN, KEYBD_EVENT_FLAGS(0)),
+        virtual_key_input(VK_RETURN, KEYEVENTF_KEYUP),
+    ];
+    // SAFETY: inputs is a valid, fully initialized INPUT slice and the
+    // structure size is provided to SendInput.
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent as usize == inputs.len() {
+        Ok(())
+    } else {
+        let code = last_error_code();
+        if sent == 0 && code == 5 {
+            Err(InjectError::Blocked)
+        } else {
+            Err(InjectError::Win32 {
+                operation: "SendInput",
+                code,
+            })
+        }
+    }
+}
+
 /// Identifier of the current foreground window for the composition guard.
 ///
 /// The daemon records this when a composition starts and refuses to erase when
@@ -425,6 +540,12 @@ pub fn ctrl_or_alt_pressed() -> bool {
             || GetAsyncKeyState(i32::from(VK_LWIN.0)) < 0
             || GetAsyncKeyState(i32::from(VK_RWIN.0)) < 0
     }
+}
+
+/// Whether Shift is currently held (used to keep `>` a real `>`).
+pub fn shift_pressed() -> bool {
+    // SAFETY: GetAsyncKeyState has no pointer preconditions.
+    unsafe { GetAsyncKeyState(i32::from(VK_SHIFT.0)) < 0 }
 }
 
 fn inject_unicode(text: &str) -> Result<(), InjectError> {

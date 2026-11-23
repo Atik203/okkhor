@@ -313,6 +313,13 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
               )}
             />
             <FieldError message={errors.output_encoding?.message} />
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              <strong className="font-medium">Unicode</strong> is right for browsers, chat,
+              and modern editors. <strong className="font-medium">Bijoy</strong> writes
+              ANSI bytes for documents that use the SutonnyMJ font (legacy forms); without
+              that font the app shows Latin letters. Pick Bijoy only when the field itself
+              is set to SutonnyMJ.
+            </p>
           </Field>
         </CardContent>
       </Card>

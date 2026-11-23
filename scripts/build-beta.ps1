@@ -8,11 +8,11 @@
   SHA256SUMS.txt. Fonts are copied from assets/fonts/ (stage them first with
   scripts/fetch-fonts.ps1); a missing font warns, a missing binary fails.
 
-  Run from anywhere:  .\scripts\build-beta.ps1 -Version 0.5.0
+  Run from anywhere:  .\scripts\build-beta.ps1 -Version 0.5.1
 #>
 [CmdletBinding()]
 param(
-  [string]$Version = '0.5.0',
+  [string]$Version = '0.5.1',
   [switch]$SkipFonts,
   [switch]$SkipUi
 )
@@ -77,8 +77,14 @@ if (-not $SkipUi) {
 if (Test-Path $StageDir) { Remove-Item $StageDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 
-Copy-Item $DaemonExe (Join-Path $StageDir 'okkhor.exe') -Force
-if ($UiExe) { Copy-Item $UiExe (Join-Path $StageDir 'okkhor-ui.exe') -Force }
+# Portable beta layout: one user-facing executable at the folder root
+# (`Okkhor.exe`, the Tauri UI) and the resident engine hidden in `bin\`.
+# The UI starts the engine itself (single entry point); the engine still finds
+# its neighbors and fonts relative to the artifact root.
+$BinDir = Join-Path $StageDir 'bin'
+New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+Copy-Item $DaemonExe (Join-Path $BinDir 'okkhor-engine.exe') -Force
+if ($UiExe) { Copy-Item $UiExe (Join-Path $StageDir 'Okkhor.exe') -Force }
 
 $Icon = Join-Path $RepoRoot 'assets\branding\okkhor.ico'
 if (Test-Path $Icon) { Copy-Item $Icon (Join-Path $StageDir 'okkhor.ico') -Force }
