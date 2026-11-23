@@ -13,10 +13,14 @@ import { applyTheme, watchSystemTheme } from "./lib/theme";
 import { cn } from "./lib/utils";
 import { ConnectionBanner, useConnection } from "./components/connection-banner";
 import StatusPage from "./pages/status";
-import SettingsPage from "./pages/settings";
-import KeyboardPage from "./pages/keyboard";
-import WordsPage from "./pages/words";
 import AboutPage from "./pages/about";
+
+// Route-level code splitting: the settings form (react-hook-form + zod), the
+// keyboard (Unicode table + emoji list), and the word manager load on demand,
+// keeping the initial JS bundle under the 350 KiB gzip budget.
+const SettingsPage = React.lazy(() => import("./pages/settings"));
+const KeyboardPage = React.lazy(() => import("./pages/keyboard"));
+const WordsPage = React.lazy(() => import("./pages/words"));
 
 export type Route = "/" | "/settings" | "/keyboard" | "/words" | "/about";
 
@@ -123,9 +127,17 @@ export default function App() {
         <ConnectionBanner connection={connection} />
         <main className="min-h-0 flex-1 overflow-auto p-5">
           {route === "/" && <StatusPage readOnly={readOnly} />}
-          {route === "/settings" && <SettingsPage readOnly={readOnly} />}
-          {route === "/keyboard" && <KeyboardPage />}
-          {route === "/words" && <WordsPage />}
+          <React.Suspense
+            fallback={
+              <div aria-label="Loading page" className="grid max-w-2xl animate-pulse gap-3">
+                <div className="h-32 rounded-lg bg-neutral-100 dark:bg-neutral-800" />
+              </div>
+            }
+          >
+            {route === "/settings" && <SettingsPage readOnly={readOnly} />}
+            {route === "/keyboard" && <KeyboardPage readOnly={readOnly} />}
+            {route === "/words" && <WordsPage readOnly={readOnly} />}
+          </React.Suspense>
           {route === "/about" && <AboutPage />}
         </main>
       </div>

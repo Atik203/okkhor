@@ -5,7 +5,8 @@
 //! pipe, missing/unreadable token, framing I/O) maps to `daemon_unavailable`
 //! so the UI can render its banner + read-only mode instead of crashing.
 //! Daemon `error` responses pass their protocol `ErrorCode` name through
-//! verbatim as `code` with the daemon's static message.
+//! verbatim as `code` with the code's static message (never the daemon's
+//! message string, which could carry user text).
 
 use serde::Serialize;
 
@@ -44,13 +45,20 @@ impl UiError {
 }
 
 /// Map an `okkhor-ipc` transport failure to a typed [`UiError`].
+///
+/// Daemon `error` responses pass their protocol `ErrorCode` name through
+/// verbatim as `code`, but the message is always the code's static text —
+/// never the daemon's message string, which could carry user text or paths
+/// (issue #72 follow-up).
 #[cfg(windows)]
 #[must_use]
 pub fn map_client_error(error: &okkhor_ipc::transport::ClientError) -> UiError {
     use okkhor_ipc::transport::ClientError;
     match error {
         ClientError::Io(_) | ClientError::Frame(_) => UiError::daemon_unavailable(),
-        ClientError::Server(body) => UiError::new(format!("{:?}", body.code), body.message.clone()),
+        ClientError::Server(body) => {
+            UiError::new(format!("{:?}", body.code), body.code.message().to_owned())
+        }
         ClientError::Protocol => UiError::internal(),
     }
 }
@@ -135,6 +143,50 @@ mod tests {
             let mapped = map_client_error(&server);
             assert_eq!(mapped.code, format!("{code:?}"));
             assert!(!mapped.message.is_empty());
+        }
+    }
+
+    /// Unknown/hostile daemon messages are never echoed: the mapped message is
+    /// always the code's static text, even when the daemon's message carries
+    /// user text, tokens, or paths (issue #72 follow-up).
+    #[cfg(windows)]
+    #[test]
+    fn server_errors_use_static_messages_never_daemon_text() {
+        use okkhor_ipc::transport::ClientError;
+        for code in [
+            okkhor_ipc::ErrorCode::InvalidWord,
+            okkhor_ipc::ErrorCode::DuplicateWord,
+            okkhor_ipc::ErrorCode::TooManyWords,
+            okkhor_ipc::ErrorCode::TextTooLong,
+            okkhor_ipc::ErrorCode::ExportTooLarge,
+            okkhor_ipc::ErrorCode::InvalidSettings,
+            okkhor_ipc::ErrorCode::Internal,
+        ] {
+            let hostile = okkhor_ipc::protocol::ErrorBody {
+                code,
+                message: "user secret আমার C:\\Users\\someone words leak".to_owned(),
+            };
+            let mapped = map_client_error(&ClientError::Server(hostile));
+            assert_eq!(mapped.code, format!("{code:?}"));
+            assert_eq!(mapped.message, code.message());
+            assert!(!mapped.message.contains("secret"));
+            assert!(!mapped.message.contains("আমার"));
+        }
+    }
+
+    /// A wire `error` with an unrecognized code name cannot deserialize into
+    /// `Response`, so it surfaces as `Protocol` -> `internal`, never raw text.
+    #[test]
+    fn unknown_wire_error_code_maps_to_internal() {
+        use okkhor_ipc::transport::ClientError;
+        let raw = r#"{"error":{"code":"Nope","message":"user words leak here"}}"#;
+        let parsed = serde_json::from_str::<okkhor_ipc::protocol::Response>(raw);
+        assert!(parsed.is_err(), "unknown code must not parse");
+        #[cfg(windows)]
+        {
+            let mapped = map_client_error(&ClientError::Protocol);
+            assert_eq!(mapped.code, "internal");
+            assert!(!mapped.message.contains("leak"));
         }
     }
 

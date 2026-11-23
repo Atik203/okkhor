@@ -34,9 +34,9 @@ WebView (React) ──invoke──▶ src-tauri (Rust commands) ──named pipe
 | Hash | Page | Notes |
 | --- | --- | --- |
 | `#/` | Status | version, paused toggle, mode, language/layout, encoding, word count, autostart, "UI is separate from typing" note |
-| `#/settings` | Settings | every contract §2 field, live validation, dirty guard, Save/Reset, toasts |
-| `#/keyboard` | On-screen keyboard | **coming in 0.5.1** placeholder |
-| `#/words` | Word manager | **coming in 0.5.1** placeholder |
+| `#/settings` | Settings | every contract §2 field (incl. quickbar X/Y + Automatic toggle), live validation, dirty guard, Save/Reset, toasts |
+| `#/keyboard` | On-screen keyboard | layout selector, Unicode key table + Shift layer, reorderable groups, favorites, session recents, bundled emoji search |
+| `#/words` | Word manager | paginated table (50 default), search, add/remove, CSV/JSON import preview + export download |
 | `#/about` | About | versions, data locations, privacy summary, licenses pointer |
 
 Unknown hashes fall back to `#/` (status). First run shows no wizard and no
@@ -68,15 +68,59 @@ cargo test
 ## Rust commands (`src-tauri/src/main.rs`)
 
 `ipc_status`, `ipc_get_settings`, `ipc_update_settings`,
-`ipc_list_layouts`, `ipc_insert_text`, `ipc_set_paused` — all async, typed
+`ipc_list_layouts`, `ipc_insert_text`, `ipc_set_paused`,
+`ipc_list_words`, `ipc_add_word`, `ipc_remove_word`,
+`ipc_import_words`, `ipc_export_words` — all async, typed
 `UiError { code, message }`, no `unwrap` on user paths.
+
+## On-screen keyboard (`#/keyboard`)
+
+- Layout selector sourced from `ipc_list_layouts` (Avro, Khipro, Banglish,
+  Bijoy, …), falling back to a bundled code list when the daemon is
+  unreachable. The layout applies to hardware typing; the table below always
+  inserts Unicode text.
+- The grid is a static Unicode Bangla table (vowels, consonants, vowel
+  signs/marks, digits, punctuation/symbols, common conjuncts) with a Shift
+  layer for digits/symbols. Per-layout roman keystroke maps are intentionally
+  not bundled (no invented mappings); a layout with no table shows an explicit
+  "layout table not bundled" state instead of guessing.
+- Clicking a key calls `ipc_insert_text` with the key's Unicode text, capped
+  by the daemon at 512 UTF-16 units. A "Bijoy bytes" note explains that Bijoy
+  output is chosen via Output encoding in Settings.
+- Groups are collapsible; group order is reorderable by drag-and-drop and by
+  keyboard-operable up/down buttons, persisted in `localStorage` under the
+  versioned, non-sensitive key `okkhor.osk.v1.groupOrder` (ids only — no user
+  text). Favorites (pinned single keys, capped) persist under
+  `okkhor.osk.v1.favorites`; recents are session-only in-memory state and are
+  never persisted.
+- A bundled emoji list (~120 entries with English/Bengali keywords, no
+  network) supports search and click-to-insert through the same path.
+- Daemon unavailable: all keys disable with an explanation; every insert shows
+  a toast only on error. All keys are real `<button>` elements with labels, a
+  visible focus ring, and full tab order.
+
+## Word manager (`#/words`)
+
+- Paginated table (page size from `word_manager_page_size`, default 50),
+  search, add form (roman/output/language) with client validation mirroring
+  contract §3 (the daemon re-validates authoritatively), remove with a
+  confirm dialog, CSV/JSON import with a first-20-rows preview plus
+  imported/skipped estimates, and CSV/JSON export as a client-side blob
+  download (no Tauri dialog plugin added, keeping capabilities minimal).
+- Duplicate/too-many-words/control-character failures render inline as static
+  text; unknown daemon codes render a safe generic message (issue #72).
+  Words are never written to logs and never leave the encrypted store except
+  through an explicit user export download.
+
+## UI rules (contract §5)
 
 - Token: `%LOCALAPPDATA%\Okkhor\runtime\ipc.token` via
   `okkhor-ipc::auth` helpers (`OKKHOR_DATA_HOME` override honored for tests).
 - Error mapping (`src/error.rs`): pipe/token/connection failures →
   `daemon_unavailable`; daemon `error` responses pass the protocol `ErrorCode`
-  name through verbatim; local protocol violations → `internal`. Messages are
-  static; no tokens, paths, or user text.
+  name through verbatim as `code` with the code's static message (never the
+  daemon's message string); unrecognized codes and local protocol violations
+  → `internal`/generic. Messages are static; no tokens, paths, or user text.
 
 ## UI rules (contract §5)
 
@@ -89,5 +133,6 @@ cargo test
   status, honors `prefers-reduced-motion`.
 - DPI 100/150/200: resizable window (960×640 default, 720×520 min), no clipped
   controls; window size persistence (if added) lives in `localStorage` only.
-- On-screen keyboard (0.5.1) must route through `text.insert` (512 UTF-16
-  cap); recents stay session-only — no raw text in `localStorage`.
+- On-screen keyboard routes inserts through `text.insert` (512 UTF-16
+  cap); recents stay session-only — no raw text in `localStorage` (only
+  non-sensitive group order and pinned single-character favorites).

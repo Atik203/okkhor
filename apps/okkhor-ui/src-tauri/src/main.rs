@@ -130,6 +130,127 @@ async fn ipc_set_paused(paused: bool) -> Result<okkhor_ipc::protocol::Status, Ui
     }
 }
 
+#[tauri::command]
+async fn ipc_list_words(
+    query: Option<String>,
+    offset: u64,
+    limit: u64,
+) -> Result<okkhor_ipc::protocol::WordsPage, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .words_list(&okkhor_ipc::protocol::WordsListQuery {
+                query,
+                offset,
+                limit,
+            })
+            .await
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (query, offset, limit);
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+#[tauri::command]
+async fn ipc_add_word(
+    roman: String,
+    output: String,
+    language: okkhor_ipc::words::WordLanguage,
+) -> Result<okkhor_ipc::words::Word, UiError> {
+    // Empty fields are rejected locally so we never open the pipe for
+    // nothing; the daemon re-validates lengths, control characters, and
+    // duplicates authoritatively (contract §3).
+    if roman.is_empty() || output.is_empty() {
+        return Err(UiError::new(
+            "invalid_settings",
+            "Word fields must not be empty.",
+        ));
+    }
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .words_add(&okkhor_ipc::protocol::WordAdd {
+                roman,
+                output,
+                language,
+            })
+            .await
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = language;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+#[tauri::command]
+async fn ipc_remove_word(id: u64) -> Result<bool, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .words_remove(id)
+            .await
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = id;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+#[tauri::command]
+async fn ipc_import_words(
+    format: okkhor_ipc::protocol::ImportFormat,
+    data: String,
+) -> Result<okkhor_ipc::protocol::WordsImported, UiError> {
+    if data.is_empty() {
+        return Err(UiError::new(
+            "invalid_settings",
+            "Import payload must not be empty.",
+        ));
+    }
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .words_import(&okkhor_ipc::protocol::WordsImport { format, data })
+            .await
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = format;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+#[tauri::command]
+async fn ipc_export_words(
+    format: okkhor_ipc::protocol::ImportFormat,
+) -> Result<okkhor_ipc::protocol::WordsExported, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .words_export(format)
+            .await
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = format;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -138,7 +259,12 @@ fn main() {
             ipc_update_settings,
             ipc_list_layouts,
             ipc_insert_text,
-            ipc_set_paused
+            ipc_set_paused,
+            ipc_list_words,
+            ipc_add_word,
+            ipc_remove_word,
+            ipc_import_words,
+            ipc_export_words
         ])
         .run(tauri::generate_context!())
         .expect("error while running Okkhor settings UI");

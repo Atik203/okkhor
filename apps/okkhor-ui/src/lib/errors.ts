@@ -1,11 +1,11 @@
 /**
  * Typed IPC error mapping.
  *
- * The Rust shell returns `{ code, message }` where `code` is one of:
- * `daemon_unavailable` (pipe/token/connection failure), the daemon's
- * protocol `ErrorCode` name verbatim (e.g. `InvalidLayout`), or
- * `internal`. This module maps those codes to UI behavior without
- * ever carrying user text.
+ * The Rust shell returns `{ code, message }` where `code` is the daemon's
+ * protocol `ErrorCode` name. This module maps codes to static UI text without
+ * ever carrying user text. Unknown codes fall back to a safe generic message
+ * (issue #72): the raw daemon message is never echoed, since it could carry
+ * user text or paths.
  */
 
 export const DAEMON_UNAVAILABLE = "daemon_unavailable" as const;
@@ -60,11 +60,29 @@ export function describeError(error: unknown): string {
       return "That hotkey is not valid.";
     case "InvalidSettings":
       return "One or more settings values are invalid.";
+    case "InvalidWord":
+      return "One or more word fields are invalid.";
+    case "DuplicateWord":
+      return "That word already exists.";
+    case "TooManyWords":
+      return "The word list is full.";
+    case "TextTooLong":
+      return "That text exceeds the insert limit.";
+    case "ExportTooLarge":
+      return "The export is too large.";
+    case "InvalidRequest":
+      return "The request was malformed.";
+    case "UnknownMethod":
+      return "That action is not supported.";
     case "Timeout":
       return "The daemon took too long to respond.";
     case "Unsupported":
       return "Not available in this milestone.";
+    case "internal":
+      return "Something went wrong.";
     default:
-      return getErrorMessage(error);
+      // Unknown daemon code: never echo the raw message (it could carry user
+      // text or paths); use the safe generic message instead.
+      return "Something went wrong.";
   }
 }

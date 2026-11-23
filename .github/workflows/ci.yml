@@ -70,6 +70,14 @@ jobs:
         run: npm test -- --run
         working-directory: apps/okkhor-ui
 
+      - name: Format UI shell
+        run: cargo fmt -- --check
+        working-directory: apps/okkhor-ui/src-tauri
+
+      - name: Clippy UI shell
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: apps/okkhor-ui/src-tauri
+
       - name: Test UI shell
         run: cargo test
         working-directory: apps/okkhor-ui/src-tauri

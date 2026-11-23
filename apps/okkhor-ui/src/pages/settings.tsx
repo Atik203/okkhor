@@ -57,6 +57,71 @@ function ToggleRow({
   );
 }
 
+/**
+ * Quick bar position: an explicit "Automatic (top-right)" toggle that clears
+ * X/Y to null, plus numeric X/Y inputs when manual (issue #72).
+ */
+function QuickbarPosition({
+  readOnly,
+  x,
+  y,
+  xError,
+  yError,
+  onAuto,
+  onChange,
+}: {
+  readOnly: boolean;
+  x: number | null | undefined;
+  y: number | null | undefined;
+  xError?: string;
+  yError?: string;
+  onAuto: (automatic: boolean) => void;
+  onChange: (name: "quickbar_x" | "quickbar_y", value: number | null) => void;
+}) {
+  const automatic = x == null && y == null;
+  const numberField = (
+    name: "quickbar_x" | "quickbar_y",
+    value: number | null | undefined,
+    error: string | undefined,
+    label: string,
+  ) => (
+    <Field>
+      <Label htmlFor={name}>{label}</Label>
+      <Input
+        id={name}
+        type="number"
+        step="1"
+        min={-100_000}
+        max={100_000}
+        disabled={readOnly || automatic}
+        value={value ?? ""}
+        onChange={(event) =>
+          onChange(name, event.target.value === "" ? null : Number(event.target.value))
+        }
+      />
+      <FieldError message={error} />
+    </Field>
+  );
+  return (
+    <div className="grid gap-2 py-1.5">
+      <ToggleRow
+        name="quickbar_auto"
+        label="Automatic position (top-right)"
+        description="On keeps X/Y empty; off lets you set them explicitly."
+        checked={automatic}
+        onChange={onAuto}
+        disabled={readOnly}
+      />
+      {!automatic && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {numberField("quickbar_x", x, xError, "Quick bar X (px)")}
+          {numberField("quickbar_y", y, yError, "Quick bar Y (px)")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
@@ -74,7 +139,7 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
     resolver: zodResolver(settingsSchema),
     defaultValues: undefined,
   });
-  const { control, register, handleSubmit, reset, watch, formState } = form;
+  const { control, register, handleSubmit, reset, watch, setValue, formState } = form;
   const { isDirty, isSubmitting, errors } = formState;
 
   // Populate once loaded; keep user edits afterwards.
@@ -456,6 +521,25 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
                 disabled={readOnly}
               />
             )}
+          />
+          <QuickbarPosition
+            readOnly={readOnly}
+            x={watch("quickbar_x")}
+            y={watch("quickbar_y")}
+            xError={errors.quickbar_x?.message}
+            yError={errors.quickbar_y?.message}
+            onAuto={(automatic) => {
+              if (automatic) {
+                setValue("quickbar_x", null, { shouldDirty: true });
+                setValue("quickbar_y", null, { shouldDirty: true });
+              } else {
+                setValue("quickbar_x", 0, { shouldDirty: true });
+                setValue("quickbar_y", 0, { shouldDirty: true });
+              }
+            }}
+            onChange={(name, value) =>
+              setValue(name, value, { shouldDirty: true, shouldValidate: true })
+            }
           />
           <div className="grid gap-4 py-2 sm:grid-cols-2">
             <Field>
