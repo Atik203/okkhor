@@ -648,9 +648,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use okkhor_learn::{LearningEvent, LearningSnapshot, Smriti, SmritiConfig};
     use okkhor_storage::{EncryptedJsonRepository, StorageError};
     use okkhor_win::{
-        InjectError, KeyPhase, KeyboardHook, ModeHotkey, PauseHotkey, SingleInstance,
-        SingleInstanceError, SuggestionPopup, TrayEvent, TrayIcon, TrayMode, WindowsKeyboardHook,
-        caret_anchor, ctrl_or_alt_pressed, focused_element_is_password, foreground_window_id,
+        CaretAnchor, CaretTracker, InjectError, KeyPhase, KeyboardHook, ModeHotkey, PauseHotkey,
+        SingleInstance, SingleInstanceError, SuggestionPopup, TrayEvent, TrayIcon, TrayMode,
+        WindowsKeyboardHook, caret_anchor, ctrl_or_alt_pressed, foreground_window_id,
         inject_commit, place_popup, send_tab,
     };
 
@@ -689,6 +689,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         learning_enabled: bool,
         state: Option<&'a ProdState>,
         injection: &'a std::sync::Mutex<()>,
+        caret: Option<&'a CaretTracker>,
+        caret_generation: &'a mut u64,
     }
 
     fn hide_popup(popup: &mut Option<SuggestionPopup>, state: Option<&ProdState>) {
@@ -697,6 +699,46 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
         if let Some(state) = state {
             state.set_popup_visible(false);
+        }
+    }
+
+    /// Use the tracker's newest sample, or fall back to the synchronous probe
+    /// only when the tracker has not published a sample yet.
+    fn caret_for_popup(caret: Option<&CaretTracker>, generation: &mut u64) -> Option<CaretAnchor> {
+        if let Some(tracker) = caret {
+            if let Some(sample) = tracker.latest() {
+                *generation = (*generation).max(sample.generation);
+                return Some(sample.anchor);
+            }
+        }
+        caret_anchor()
+    }
+
+    /// Move an already-visible popup to a newer caret without re-showing it.
+    fn apply_caret_anchor(
+        popup: &mut Option<SuggestionPopup>,
+        caret: Option<&CaretTracker>,
+        logger: &logging::Logger,
+        generation: &mut u64,
+    ) {
+        let Some(tracker) = caret else {
+            return;
+        };
+        let Some(window) = popup.as_mut() else {
+            return;
+        };
+        if !window.is_visible() {
+            return;
+        }
+        let Some(sample) = tracker.latest() else {
+            return;
+        };
+        if sample.generation <= *generation {
+            return;
+        }
+        *generation = sample.generation;
+        if let Err(error) = window.update_anchor(&sample.anchor) {
+            logger.error(logging::Scope::Daemon, "popup_anchor", error.code());
         }
     }
 
@@ -722,7 +764,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             return;
         }
-        match caret_anchor() {
+        // A key changed the composition or selection: ask the dedicated UIA
+        // thread for a fresh caret without blocking this worker.
+        if let Some(tracker) = ctx.caret {
+            let _ = tracker.request();
+        }
+        let anchor = caret_for_popup(ctx.caret, ctx.caret_generation);
+        match anchor {
             Some(anchor) => {
                 if let Err(error) = window.show_candidates(candidates, selected, &anchor) {
                     ctx.logger
@@ -744,10 +792,17 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
 
     /// Show or hide the English completion popup at the caret.
+    ///
+    /// With a tracker present, the popup is only shown once a sample for the
+    /// latest request exists: a sample from the previous field may carry a
+    /// stale `password == false`, so an older generation stays hidden.
     fn refresh_english_popup(
         popup: &mut Option<SuggestionPopup>,
         english: &EnglishSession,
         state: Option<&ProdState>,
+        caret: Option<&CaretTracker>,
+        caret_generation: &mut u64,
+        last_caret_request: u64,
     ) {
         let Some(window) = popup.as_mut() else {
             return;
@@ -759,7 +814,22 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             return;
         }
-        match caret_anchor() {
+        if let Some(tracker) = caret {
+            let fresh = last_caret_request == 0
+                || tracker
+                    .latest()
+                    .is_some_and(|sample| sample.generation >= last_caret_request);
+            if !fresh {
+                // Never show with a password flag from the previous field;
+                // wait (without blocking) for the queued resolve.
+                window.hide();
+                if let Some(state) = state {
+                    state.set_popup_visible(false);
+                }
+                return;
+            }
+        }
+        match caret_for_popup(caret, caret_generation) {
             Some(anchor) => {
                 if window
                     .show_candidates(english.suggestions(), english.selected(), &anchor)
@@ -1347,6 +1417,22 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     };
 
+    // One dedicated thread owns COM/UIA for caret and password probes. The
+    // daemon only reads the newest published sample, so typing never waits on
+    // UI Automation. A spawn failure degrades to the old synchronous fallback.
+    let caret_tracker = match CaretTracker::spawn() {
+        Ok(tracker) => Some(tracker),
+        Err(_) => {
+            logger.error(logging::Scope::Daemon, "caret_thread", None);
+            None
+        }
+    };
+    let mut last_anchor_generation: u64 = 0;
+    let mut last_caret_request: u64 = 0;
+    let mut last_english_token = String::new();
+    let mut last_english_visible = false;
+    let mut last_english_foreground = foreground_window_id();
+
     let engine = default_engine(Arc::clone(&smriti));
     if let Some(kind) = engine.fallback_kind() {
         // Load failure or a disabled dictionary: allowlisted startup record
@@ -1385,11 +1471,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         logger: &logging::Logger,
         mode: crate::InputMode,
         state: Option<&ProdState>,
+        caret: Option<&CaretTracker>,
+        caret_generation: &mut u64,
     ) -> bool {
         let Some(window) = popup.as_mut() else {
             return false;
         };
-        let Some(anchor) = caret_anchor() else {
+        let Some(anchor) = caret_for_popup(caret, caret_generation) else {
             window.hide();
             if let Some(state) = state {
                 state.set_popup_visible(false);
@@ -1417,6 +1505,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     // key path: no sleep, no I/O, no logging of text — one allowlisted code.
     // The last mode also persists through the IPC state (mirror first, file
     // write on a throwaway thread).
+    #[allow(clippy::too_many_arguments)]
     fn toggle_mode(
         session: &mut InputSession<DefaultEngine>,
         popup: &mut Option<SuggestionPopup>,
@@ -1425,6 +1514,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         mode: &mut crate::InputMode,
         toast_until_ms: &mut u64,
         state: Option<&Arc<ProdState>>,
+        caret: Option<&CaretTracker>,
+        caret_generation: &mut u64,
     ) {
         *mode = mode.toggle();
         let _ = okkhor_win::signal_state_changed();
@@ -1439,7 +1530,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             state.set_mode_live(ipc_input_mode(*mode));
             persist_mode(state, *mode);
         }
-        if show_mode_toast(popup, logger, *mode, live) {
+        if show_mode_toast(popup, logger, *mode, live, caret, caret_generation) {
             *toast_until_ms = now_ms().saturating_add(MODE_TOAST_MS);
         } else {
             *toast_until_ms = 0;
@@ -1529,6 +1620,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     &mut mode,
                     &mut toast_until_ms,
                     ipc_state.as_ref(),
+                    caret_tracker.as_ref(),
+                    &mut last_anchor_generation,
                 ),
                 TrayEvent::Settings => open_settings_ui(&tray, logger),
                 TrayEvent::ShowQuickBar => show_quick_bar(&tray, logger),
@@ -1549,6 +1642,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 &mut mode,
                 &mut toast_until_ms,
                 ipc_state.as_ref(),
+                caret_tracker.as_ref(),
+                &mut last_anchor_generation,
             );
         }
 
@@ -1710,10 +1805,54 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
             }
 
-            if english.is_visible() && focused_element_is_password() {
+            // Requests are event-driven: one per changed English token while a
+            // popup is visible, when a popup first becomes visible, or when the
+            // foreground window changes (same token, different field), never one
+            // per 5 ms poll.
+            let english_visible = english.is_visible();
+            let token_changed = last_english_token != english.token();
+            if token_changed {
+                last_english_token.clear();
+                last_english_token.push_str(english.token());
+            }
+            let became_visible = english_visible && !last_english_visible;
+            last_english_visible = english_visible;
+            let foreground = foreground_window_id();
+            let foreground_changed = foreground != last_english_foreground;
+            last_english_foreground = foreground;
+            if english_visible && (token_changed || became_visible || foreground_changed) {
+                if let Some(tracker) = caret_tracker.as_ref() {
+                    last_caret_request = tracker.request();
+                }
+            }
+            let sample = caret_tracker.as_ref().and_then(CaretTracker::latest);
+            // The password flag is only trusted when the sample answers the
+            // latest request: an older sample may belong to the previous field,
+            // and `refresh_english_popup` keeps the popup hidden until a fresh
+            // one lands.
+            let password = last_caret_request != 0
+                && sample.is_some_and(|sample| {
+                    sample.generation >= last_caret_request && sample.password
+                });
+            if english_visible && password {
                 english.dismiss();
             }
-            refresh_english_popup(&mut popup, &english, ipc_state.as_deref());
+            refresh_english_popup(
+                &mut popup,
+                &english,
+                ipc_state.as_deref(),
+                caret_tracker.as_ref(),
+                &mut last_anchor_generation,
+                last_caret_request,
+            );
+            if english.is_visible() {
+                apply_caret_anchor(
+                    &mut popup,
+                    caret_tracker.as_ref(),
+                    logger,
+                    &mut last_anchor_generation,
+                );
+            }
             hook.set_english_popup(english.is_visible());
             hook.set_composition_state(false, false, false);
             if !english.is_visible() && toast_until_ms == 0 {
@@ -1764,6 +1903,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     learning_enabled,
                     state: ipc_state.as_deref(),
                     injection: &injection_lock,
+                    caret: caret_tracker.as_ref(),
+                    caret_generation: &mut last_anchor_generation,
                 };
                 if let Some(commit) = ctx.session.select_digit(index) {
                     do_commit(&mut ctx, commit, roman, false, previous_word);
@@ -1790,8 +1931,19 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 learning_enabled,
                 state: ipc_state.as_deref(),
                 injection: &injection_lock,
+                caret: caret_tracker.as_ref(),
+                caret_generation: &mut last_anchor_generation,
             };
             handle_key(event.virtual_key, &mut ctx);
+        }
+
+        if session.is_composing() {
+            apply_caret_anchor(
+                &mut popup,
+                caret_tracker.as_ref(),
+                logger,
+                &mut last_anchor_generation,
+            );
         }
 
         hook.set_composition_state(
@@ -1805,6 +1957,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     hook.stop();
     hotkey.stop();
     mode_hotkey.stop();
+    if let Some(mut tracker) = caret_tracker {
+        tracker.stop();
+    }
     if let Some((mut server, token_path)) = ipc_server {
         server.stop();
         logger.error(logging::Scope::Ipc, "ipc_stop", None);
