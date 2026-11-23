@@ -55,8 +55,26 @@ encoding data is imported from owner-supplied JSON (see
 
 ## Layout / encoding data
 
-- `crates/okkhor-lang/assets/encodings/bijoy-v1.json` (111 ordered rules),
-  `assets/layouts/khipro-v1.json` (288 rules), and
+- `crates/okkhor-lang/assets/encodings/sutonnymj-ansi-v1.json` (256 ordered
+  forward rules, from legacy `ANSI 1` v1.4 "for SutoniMJ font") and
+  `crates/okkhor-lang/assets/encodings/sutonnymj-ansi-reverse-v1.json`
+  (676 ordered reverse rules, from legacy `ANSI 1 to Unicode` v1.12) carry
+  per-file provenance (`source`, `source_version`, `developer`,
+  `developer_contact`, `github_link`) and the license note
+  "owner-supplied legacy data, publicly mirrored". Only the legacy
+  `keyMap` order and entries were extracted; no other legacy-app metadata
+  was copied.
+- `crates/okkhor-lang/assets/encodings/bijoy-keyboard-v1.json` (111 rules,
+  `Bangla to Bijoy layout`) is a **keyboard layout**, kept for reference
+  only and never used as the output encoder.
+- `assets/layouts/khipro-v1.json` (288 rules) and
   `assets/layouts/banglish-v1.json` (256 rules) carry per-file provenance
-  (`source`, `developer`, `github_link`) and the license note
-  "owner-supplied legacy data, publicly mirrored".
+  and the same license note.
+
+## Runtime dependencies with license relevance
+
+- `fancy-regex` 0.20 (MIT, pure Rust, no native code) powers the
+  SutonnyMJ converter: the ANSI 1 tables require negative lookbehind
+  (`(?<!্)`) and `\1`/`\2` backreferences, which the `regex` crate omits.
+  Replacements are expanded manually from match captures, so table text can
+  never be misread as engine directives.

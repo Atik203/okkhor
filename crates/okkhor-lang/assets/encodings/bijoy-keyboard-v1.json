@@ -1,12 +1,13 @@
 {
- "name": "bijoy-v1",
+ "name": "bijoy-keyboard-v1",
  "version": "1",
+ "kind": "keyboard-layout",
  "source": "Bangla to Bijoy layout",
  "source_version": "1.1",
  "developer": "Md Nabil Mostofa",
  "github_link": "https://github.com/nabil-bot/Layouts-and-Encodings-/raw/refs/heads/main/Bangla%20to%20Bijoy%20layout.nmsEnco",
  "license": "owner-supplied legacy data, publicly mirrored",
- "description": "Ordered Unicode-to-Bijoy (Sutonny/Kalpurush-ANSI byte layout) rewrite rules. Apply sequentially in array order; replacements use legacy backslash-group syntax (\\\\1 = group 1).",
+ "description": "KEYBOARD LAYOUT (which key types which char), NOT a font encoding. Retained for reference only; it is never used as the Unicode-to-SutonnyMJ output encoder. The output encoder is sutonnymj-ansi-v1 (ANSI 1, for SutonnyMJ font). Ordered key rules; replacements use legacy backslash-group syntax (\\\\1 = group 1).",
  "rule_count": 111,
  "rules": [
   {

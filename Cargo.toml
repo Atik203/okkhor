@@ -29,6 +29,7 @@ okkhor-learn = { path = "crates/okkhor-learn" }
 okkhor-storage = { path = "crates/okkhor-storage" }
 okkhor-transliterate = { path = "crates/okkhor-transliterate" }
 okkhor-win = { path = "crates/okkhor-win" }
+fancy-regex = "0.20"
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
