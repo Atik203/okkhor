@@ -12,6 +12,7 @@ members = [
     "crates/okkhor-storage",
     "crates/okkhor-win",
     "crates/okkhor-transliterate",
+    "crates/okkhor-train",
 ]
 
 [workspace.package]

@@ -244,6 +244,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "okkhor-train"
+version = "0.5.0-alpha.1"
+dependencies = [
+ "okkhor-core",
+ "okkhor-engine",
+ "okkhor-lang",
+ "okkhor-learn",
+ "okkhor-transliterate",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "okkhor-transliterate"
 version = "0.5.0-alpha.1"
 dependencies = [

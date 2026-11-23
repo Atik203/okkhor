@@ -16,6 +16,7 @@
 | [0012](0012-ui-ipc-and-settings.md) | UI process, IPC, settings ownership, encrypted store | Accepted |
 | [0013](0013-encodings-and-fonts.md) | Bangla output encodings and bundled fonts | Accepted |
 | [0014](0014-input-modes-hotkeys-fonts.md) | Input modes, one-key toggle, zero-config fonts | Accepted |
+| [0015](0015-offline-replay-and-training.md) | Offline replay harness and feature schema v1 (`okkhor-train`) | Accepted |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.

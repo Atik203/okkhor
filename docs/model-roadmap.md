@@ -118,6 +118,19 @@ Rules:
 - Training and inference must use the same normalization and tokenization.
 - Never include raw text in a feature vector sent to a global trainer.
 
+Replay notes (0.6 Task 1, ADR 0015): the schema is implemented as
+`FeatureVectorV1` (`SCHEMA_VERSION = 1`) in the offline `okkhor-train` crate,
+in the exact field order of the table above (the optional `trigram_score` is
+out of v1). Categorical fields use stable codes (`candidate_source`:
+dictionary 0, transliteration 1, user-history 2, recent 3, context 4, AI 5;
+`language`: English 0, Bangla 1; `layout`: none 0, avro 1, bijoy 2, national
+3, probhat 4, banglish 5, khipro 6, unibijoy 7, other 8; `context_language`:
+none 0, English 1, Bangla 2, mixed 3). Extraction is
+`extract_features(&SuggestionRequest, &Candidate, &LearningSnapshot)` with no
+I/O. The frozen synthetic replay set and the engine/Smriti baselines are
+documented in `docs/design/replay.md` with numbers in `docs/performance.md`;
+all 0.6 results carry the **synthetic-only** caveat.
+
 ## Data strategy
 
 ### Default

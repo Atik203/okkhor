@@ -123,6 +123,57 @@ impl LearningSnapshot {
     pub fn is_empty(&self) -> bool {
         self.words.is_empty() && self.pairs.is_empty() && self.bigrams.is_empty()
     }
+
+    /// Look up aggregate stats for one normalized word.
+    ///
+    /// Returns `None` for empty input or an unknown word. Used by the
+    /// offline feature extractor (`okkhor-train`); never on the typing path.
+    pub fn word_stat(&self, language: Language, word: &str) -> Option<WordStat> {
+        let key = WordKey::new(language, word)?;
+        self.words
+            .iter()
+            .find(|(existing, _)| *existing == key)
+            .map(|(_, stat)| stat.clone())
+    }
+
+    /// Whether the snapshot already contains `word` for `language`.
+    pub fn contains_word(&self, language: Language, word: &str) -> bool {
+        self.word_stat(language, word)
+            .is_some_and(|stat| stat.count > 0)
+    }
+
+    /// Look up one Romanized-input -> output pair.
+    pub fn pair_stat(
+        &self,
+        language: Language,
+        roman_input: &str,
+        output: &str,
+    ) -> Option<PairStat> {
+        let key = PairKey::new(language, roman_input, output)?;
+        self.pairs
+            .iter()
+            .find(|(existing, _)| *existing == key)
+            .map(|(_, stat)| stat.clone())
+    }
+
+    /// Look up one adjacent word-pair count (`previous` -> `current`).
+    pub fn bigram_stat(
+        &self,
+        language: Language,
+        previous: &str,
+        current: &str,
+    ) -> Option<BigramStat> {
+        let previous_key = WordKey::new(language, previous)?;
+        let current_key = WordKey::new(language, current)?;
+        self.bigrams
+            .iter()
+            .find(|(existing, _)| {
+                existing.language == language
+                    && existing.first == previous_key.text
+                    && existing.second == current_key.text
+            })
+            .map(|(_, stat)| stat.clone())
+    }
 }
 
 #[derive(Debug, Error)]
@@ -369,6 +420,62 @@ impl Smriti {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .pairs
             .len()
+    }
+
+    /// Look up one word's aggregate stats. Additive query for the offline
+    /// feature extractor; the typing path uses [`Smriti::score`] instead.
+    pub fn word_stat(&self, language: Language, word: &str) -> Option<WordStat> {
+        let key = WordKey::new(language, word)?;
+        self.inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .words
+            .get(&key)
+            .cloned()
+    }
+
+    /// Whether `word` has a positive learned count for `language`.
+    pub fn contains_word(&self, language: Language, word: &str) -> bool {
+        self.word_stat(language, word)
+            .is_some_and(|stat| stat.count > 0)
+    }
+
+    /// Look up one Romanized-input -> output pair.
+    pub fn pair_stat(
+        &self,
+        language: Language,
+        roman_input: &str,
+        output: &str,
+    ) -> Option<PairStat> {
+        let key = PairKey::new(language, roman_input, output)?;
+        self.inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pairs
+            .get(&key)
+            .cloned()
+    }
+
+    /// Look up one adjacent word-pair (`previous` -> `current`).
+    pub fn bigram_stat(
+        &self,
+        language: Language,
+        previous: &str,
+        current: &str,
+    ) -> Option<BigramStat> {
+        let previous_key = WordKey::new(language, previous)?;
+        let current_key = WordKey::new(language, current)?;
+        let key = BigramKey {
+            language,
+            first: previous_key.text,
+            second: current_key.text,
+        };
+        self.inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .bigrams
+            .get(&key)
+            .cloned()
     }
 
     pub fn bigram_count(&self) -> usize {
