@@ -5,6 +5,10 @@
 - Related: ADR 0007 (hybrid learning-to-rank), ADR 0015 (offline replay and
   feature schema v1), ADR 0019 (ranker injection and bounded work), epic #98,
   #101
+- Implementation note (2026-11-24): the `okkhor-features` crate extraction
+  landed (`FeatureVectorV1` + `extract_features`, re-exported by
+  `okkhor-train`); the hybrid blend, `okkhor-model`, and ranker injection are
+  not implemented yet.
 
 ## Context
 

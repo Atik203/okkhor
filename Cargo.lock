@@ -201,6 +201,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "okkhor-features"
+version = "0.6.0"
+dependencies = [
+ "okkhor-core",
+ "okkhor-learn",
+ "thiserror",
+]
+
+[[package]]
 name = "okkhor-ipc"
 version = "0.6.0"
 dependencies = [
@@ -250,6 +259,7 @@ version = "0.6.0"
 dependencies = [
  "okkhor-core",
  "okkhor-engine",
+ "okkhor-features",
  "okkhor-lang",
  "okkhor-learn",
  "okkhor-transliterate",

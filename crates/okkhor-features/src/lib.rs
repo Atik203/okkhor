@@ -1,10 +1,15 @@
 #![forbid(unsafe_code)]
-//! Feature schema v1: stable, ordered, cheap to compute, no I/O.
+//! Shipped feature schema v1: stable, ordered, cheap to compute, no I/O.
+//!
+//! This crate is the single source of truth for `FeatureVectorV1` and
+//! `extract_features`. It is a shipped component: it performs no I/O and reads
+//! no clock, so inference can call it on the suggestion path. The offline
+//! `okkhor-train` crate re-exports these names for replay and training.
 //!
 //! Field order is normative and matches `docs/model-roadmap.md` §"Feature
 //! schema v1" (minus the optional `trigram_score`, which is explicitly out of
 //! v1). Any insertion, removal, or reorder requires a schema bump and a model
-//! migration note. See ADR 0015.
+//! migration note. See ADR 0015 and ADR 0017.
 
 use okkhor_core::{Candidate, CandidateSource, Language, SuggestionRequest, contains_bengali};
 use okkhor_learn::LearningSnapshot;

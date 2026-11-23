@@ -149,6 +149,7 @@ apps/okkhor-bench/       non-hook ranking/suggestion/injection benchmarks
 apps/okkhor-daemon/      resident daemon, tray/logging wiring, and demos
 apps/okkhor-ui/          Tauri settings + quick bar + on-screen keyboard
 crates/okkhor-core/      language, text, candidate, ranking primitives
+crates/okkhor-features/  shipped v1 feature vector and deterministic extraction
 crates/okkhor-ipc/       named-pipe protocol, settings, words
 crates/okkhor-engine/    suggestion engine + embedded OKS1 index
 crates/okkhor-train/     offline dataset/replay tooling (not shipped)
@@ -166,9 +167,9 @@ benchmarks/              harness notes and future corpora
 scripts/                 developer checks and importers
 ```
 
-Planned but not created yet: `okkhor-features`, `okkhor-speech`, `okkhor-ai`,
-`okkhor-model`, `okkhor-worker`, `okkhor-license`, `okkhor-update`. Create them
-only when the roadmap reaches them.
+Planned but not created yet: `okkhor-speech`, `okkhor-ai`, `okkhor-model`,
+`okkhor-worker`, `okkhor-license`, `okkhor-update`. Create them only when the
+roadmap reaches them.
 
 ## Build and test
 
