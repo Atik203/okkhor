@@ -362,6 +362,49 @@ This is a development-machine number, not a reference-machine claim. The
 3 ms p99 budget in `AGENTS.md` is met with headroom; re-measure on the release
 candidate before tagging.
 
+## 0.7 Tier 1 hybrid reranker A/B — synthetic replay, 2026-11-24
+
+Labeled 0.7 synthetic row. **Synthetic-only, not a real-world quality claim.**
+The frozen replay set (`crates/okkhor-train/data/synthetic-replay.jsonl`,
+240 cases, seed `20261123`, sha256 `a0d932469fc474332622ee6d4304917ad4069759fa71aae4f15364013b54046f`)
+carries no learning snapshot, so every candidate's `confidence` is `0` and the
+hybrid blend is an exact baseline identity. These numbers measure the bounded
+pipeline and prove the identity/fallback contract; the set was not used for
+tuning.
+
+Environment: shared Windows 11 desktop, `--release`, GNU host toolchain (same
+caveats as the 0.6 blocks above). Model:
+`crates/okkhor-model/assets/reranker-v1.json`, sha256
+`e5a6ce0b3b7e5aa506b48af0a123629b2988b5c01d42ea8153e478eaf4ff6440`, fitted from
+the same replay with `okkhor-train-fit --trained-at 2026-11-24T00:00:00Z`.
+
+```powershell
+cargo run --release -p okkhor-train --bin okkhor-replay -- --replay crates/okkhor-train/data/synthetic-replay.jsonl --hybrid --model crates/okkhor-model/assets/reranker-v1.json --json --out bench-out/replay-hybrid.json
+```
+
+`--hybrid` also writes `bench-out/replay-hybrid-baseline.json` on the same
+closed candidate pool.
+
+| Ranker | Top-1 | Top-5 | MRR | Rank p50 | p95 | p99 | max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline (`Smriti`, closed 5-candidate pool) | 0.2708 | 1.0000 | 0.5096 | 4,400 ns | 8,000 ns | 12,100 ns | 23,400 ns |
+| Hybrid (`baseline + confidence * centred`, bundled v1) | 0.2708 | 1.0000 | 0.5096 | 11,800 ns | 19,300 ns | 26,100 ns | 52,200 ns |
+
+Segments are identical: Bangla 191 cases top-1 0.2775 / MRR 0.5096; English 49
+cases top-1 0.2449 / MRR 0.5095; layouts range top-1 0.2364–0.3182.
+
+Shared-desktop noise: three further hybrid runs gave p99 35.6 µs, 35.8 µs, and
+41.9 µs (baseline 11.1–13.0 µs); the table keeps the first recorded run.
+
+Result: **hybrid does not beat baseline on this dataset** — it is identical by
+construction (no learning evidence). The hybrid p99 (26.1 µs first run,
+≤ 41.9 µs across all four runs) is inside the < 1 ms hybrid gate and the
+< 3 ms local-candidate budget. `--ranker baseline` remains the default until an
+A/B on real or licensed data shows a gain.
+
+No network was used. No real user text, no downloaded corpus, and no legacy
+executable were involved.
+
 ## Scenarios
 
 | Scenario | Corpus |

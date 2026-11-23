@@ -20,9 +20,10 @@ scope.
 
 ## Current state
 
-- This repository is **0.6 code-complete**. The live typing path is the Win32
-  hook, the resident daemon, the Avro phonetic table, and the embedded `OKS1`
-  suggestion engine (184k Bangla words, 114k roman pairs, curated corrections,
+- This repository is **0.6 code-complete**, with the 0.7 model slice landed in
+  the `feat/0.7-model` worktree. The live typing path is the Win32 hook, the
+  resident daemon, the Avro phonetic table, and the embedded `OKS1` suggestion
+  engine (184k Bangla words, 114k roman pairs, curated corrections,
   `wordfreq` popularity). English mode offers prefix completions (Tab/click,
   never auto-replace). The quick bar receives pushed mode/pause/encoding
   state. Learning is persisted to an encrypted `data/learning.bin`.
@@ -30,9 +31,15 @@ scope.
   DPAPI-encrypted word store, on-screen keyboard, quick bar, tray, autostart,
   and the packaged `Okkhor.exe` + `bin\okkhor-engine.exe` layout. 0.6 adds the
   full local dictionary, eight rows, English completions, and instant state.
-- The AI worker, learned logistic reranker, speech, installer, updater, and
-  code signing are **not implemented yet**. 0.6 is a personal/QA beta; 1.0
-  needs the installer and signature. Do not claim those exist.
+- The **Tier 1 logistic reranker exists** in `okkhor-model` and is selectable
+  with `okkhor daemon --ranker hybrid`; the **default is `--ranker baseline`**
+  (deterministic Smriti) until an A/B on real or licensed data is accepted. On
+  the frozen synthetic replay the hybrid is an exact baseline identity (no
+  learning evidence) and does not claim a quality gain. A missing or invalid
+  bundled model logs `model_load` and falls back to baseline; typing continues.
+- The AI worker, speech, installer, updater, and code signing are **not
+  implemented yet**. 0.6 is a personal/QA beta; 1.0 needs the installer and
+  signature. Do not claim those exist.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - The legacy application is a read-only reference installation supplied by the
@@ -154,6 +161,7 @@ crates/okkhor-ipc/       named-pipe protocol, settings, words
 crates/okkhor-engine/    suggestion engine + embedded OKS1 index
 crates/okkhor-train/     offline dataset/replay tooling (not shipped)
 crates/okkhor-learn/     Smriti: personalization and ranking
+crates/okkhor-model/     Tier 1 logistic reranker runtime + bounded hybrid blend
 crates/okkhor-storage/   snapshot persistence and future redb adapter
 crates/okkhor-win/       Win32 hook and Unicode injection boundary
 crates/okkhor-lang/      0.3 layouts, encodings, dictionaries + fixture importer
@@ -167,9 +175,9 @@ benchmarks/              harness notes and future corpora
 scripts/                 developer checks and importers
 ```
 
-Planned but not created yet: `okkhor-speech`, `okkhor-ai`, `okkhor-model`,
-`okkhor-worker`, `okkhor-license`, `okkhor-update`. Create them only when the
-roadmap reaches them.
+Planned but not created yet: `okkhor-speech`, `okkhor-ai`, `okkhor-worker`,
+`okkhor-license`, `okkhor-update`. Create them only when the roadmap reaches
+them.
 
 ## Build and test
 

@@ -219,19 +219,28 @@ Illustrative shape:
 }
 ```
 
-The runtime must verify the checksum and signature before loading. On failure,
-keep the previous model and report a non-blocking error.
+The 0.7 runtime verifies the SHA-256 checksum before loading; signing is a 1.0
+feature. On failure, stay on the deterministic baseline and report a
+non-blocking error.
 
 ## Rust integration
 
-Planned crates:
+Status (0.7 model slice): `okkhor-features` and `okkhor-model` exist. The
+bundled 16-feature logistic model loads from an embedded, checksum-verified
+asset; `HybridRanker` implements the centred, evidence-scaled blend with a
+structural 64-candidate bound. The daemon exposes `--ranker hybrid|baseline`
+and **defaults to `baseline`**. On the frozen synthetic replay the hybrid is an
+exact baseline identity (no learning evidence), so no quality gain is claimed.
+
+Crates:
 
 - `okkhor-features`: shipped, dependency-light `FeatureVectorV1` and
   `extract_features` (ADR 0017); re-exported by `okkhor-train`.
-- `okkhor-model`: manifest, checksum/signature, logistic inference, bounded
-  work and baseline fallback (ADR 0017/0019).
-- `okkhor-learn`: Smriti baseline and later the local adapter.
-- `okkhor-train`: offline training and replay (not shipped).
+- `okkhor-model`: checksum-verified logistic inference, the `HybridRanker`
+  blend, bounded work and baseline fallback (ADR 0017/0019).
+- `okkhor-learn`: Smriti baseline, `score_pool`, and later the local adapter.
+- `okkhor-train`: offline training and replay (not shipped; its
+  `okkhor-replay --hybrid --model` runs the A/B).
 - `okkhor-core`: `Ranker`/`Candidate`/`SuggestionRequest` traits and types.
 
 Runtime shape:
@@ -239,8 +248,9 @@ Runtime shape:
 ```rust
 struct HybridRanker {
     baseline: Arc<Smriti>,
-    global: Option<Model>,
-    local: Option<LocalAdapter>, // 1.0
+    model: LogisticModel, // bundled, checksum-verified v1
+    model_weight: f32,    // <= 1.0
+    // local: Option<LocalAdapter>, // 1.0
 }
 ```
 
@@ -252,7 +262,8 @@ Rules:
   (ADR 0019), and the daemon measures p99 around the call.
 - The model only reorders the existing pool; it never adds or removes
   candidates.
-- Model weights are swapped atomically with `arc-swap`.
+- 0.7 loads the bundled model once at startup behind an `Arc`; atomic
+  hot-swapping and signed packages are 1.0 work.
 - Cache key includes prefix, context, language, layout, feature schema, and
   model version.
 - Inference memory is preallocated; no unbounded allocation per keystroke.
@@ -283,7 +294,7 @@ Online:
 |---|---|
 | 0.4 | Smriti v1 counts/linear; stable feature schema; replay harness |
 | 0.6 | suggestion dictionary and English completions; feature schema and replay landed (reranker deferred) |
-| 0.7 | dataset manifests/trainer; Tier 1 local logistic reranker; pure Rust; A/B against baseline |
+| 0.7 | dataset manifests/trainer; Tier 1 local logistic reranker implemented behind `--ranker hybrid`, default `baseline`; synthetic-only A/B |
 | 1.0 | Global prior from public corpora; local adapter; signed model packages |
 | 1.x | Optional Tier 2 GBDT/MLP for next-word; cache and deadline tuning |
 | 2.0 | Federated/DP pilot; Tier 3 transformer for idle suggestions |

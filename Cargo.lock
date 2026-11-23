@@ -595,6 +595,7 @@ dependencies = [
  "okkhor-ipc",
  "okkhor-lang",
  "okkhor-learn",
+ "okkhor-model",
  "okkhor-storage",
  "okkhor-win",
  "serde_json",
@@ -658,6 +659,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "okkhor-model"
+version = "0.6.0"
+dependencies = [
+ "okkhor-core",
+ "okkhor-features",
+ "okkhor-learn",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "okkhor-storage"
 version = "0.6.0"
 dependencies = [
@@ -677,6 +691,7 @@ dependencies = [
  "okkhor-features",
  "okkhor-lang",
  "okkhor-learn",
+ "okkhor-model",
  "okkhor-transliterate",
  "serde",
  "serde_json",

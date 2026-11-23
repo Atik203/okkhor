@@ -11,8 +11,8 @@
 
 use std::sync::Arc;
 
+use okkhor_core::Ranker;
 use okkhor_engine::{IndexCounts, SuggestRequest, SuggestionEngine, UserWord};
-use okkhor_learn::Smriti;
 
 /// Maximum roman letters kept in the composition buffer.
 pub const MAX_BUFFER_LEN: usize = 32;
@@ -336,23 +336,35 @@ impl<P: SuggestionProvider> InputSession<P> {
     }
 }
 
-/// Live engine: the staged suggestion engine plus the shared Smriti.
+/// Live engine: the staged suggestion engine plus the shared ranker.
 ///
 /// Construction happens once at daemon startup. A phonetic or index load
 /// failure yields [`DefaultEngine::Empty`], which produces no candidates so
 /// keys pass through untouched; the daemon logs the static failure kind.
-#[derive(Debug)]
 pub enum DefaultEngine {
-    /// Live path: embedded index + phonetic table + shared learning store.
+    /// Live path: embedded index + phonetic table + the injected ranker
+    /// (deterministic Smriti or a hybrid reranker).
     Suggest {
         engine: Box<SuggestionEngine>,
-        smriti: Arc<Smriti>,
+        ranker: Arc<dyn Ranker + Send + Sync>,
     },
     /// Load-failure fallback: yields no candidates.
     Empty {
         /// Allowlisted `kind` string for the daemon startup log.
         kind: &'static str,
     },
+}
+
+impl std::fmt::Debug for DefaultEngine {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Suggest { engine, .. } => formatter
+                .debug_struct("Suggest")
+                .field("engine", engine)
+                .finish_non_exhaustive(),
+            Self::Empty { kind } => formatter.debug_struct("Empty").field("kind", kind).finish(),
+        }
+    }
 }
 
 impl DefaultEngine {
@@ -393,7 +405,7 @@ impl SuggestionProvider for DefaultEngine {
         user_words: &[UserWord],
     ) -> Vec<String> {
         match self {
-            Self::Suggest { engine, smriti } => {
+            Self::Suggest { engine, ranker } => {
                 let request = SuggestRequest {
                     roman,
                     limit,
@@ -402,7 +414,7 @@ impl SuggestionProvider for DefaultEngine {
                     user_words,
                 };
                 engine
-                    .suggest(&request, smriti)
+                    .suggest_with_ranker(&request, ranker.as_ref())
                     .into_iter()
                     .map(|suggestion| suggestion.text)
                     .collect()
@@ -424,11 +436,11 @@ impl SuggestionProvider for DefaultEngine {
 /// Never panics: a load failure yields the empty fallback (no candidates,
 /// keys pass through) and the daemon logs [`DefaultEngine::fallback_kind`]
 /// once at startup.
-pub fn default_engine(smriti: Arc<Smriti>) -> DefaultEngine {
+pub fn default_engine(ranker: Arc<dyn Ranker + Send + Sync>) -> DefaultEngine {
     match SuggestionEngine::from_embedded() {
         Ok(engine) => DefaultEngine::Suggest {
             engine: Box::new(engine),
-            smriti,
+            ranker,
         },
         Err(_) => DefaultEngine::Empty {
             kind: "engine_load",

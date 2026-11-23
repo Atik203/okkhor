@@ -127,6 +127,19 @@ impl SuggestionEngine {
 
     /// Bangla suggestions for a roman buffer.
     pub fn suggest(&self, request: &SuggestRequest<'_>, smriti: &Smriti) -> Vec<Suggestion> {
+        self.suggest_with_ranker(request, smriti)
+    }
+
+    /// Bangla suggestions for a roman buffer, with an injected ranker.
+    ///
+    /// The daemon passes the deterministic `Smriti` baseline or a hybrid
+    /// reranker; the staging body is identical and the injected ranker owns
+    /// only the final ordering and truncation.
+    pub fn suggest_with_ranker(
+        &self,
+        request: &SuggestRequest<'_>,
+        ranker: &dyn Ranker,
+    ) -> Vec<Suggestion> {
         let roman = request.roman.trim();
         if roman.is_empty() {
             return Vec::new();
@@ -160,7 +173,7 @@ impl SuggestionEngine {
             suggestion_request = suggestion_request.with_context([previous]);
         }
         suggestion_request = suggestion_request.with_roman_input(roman);
-        smriti.rank(&suggestion_request, staged)
+        ranker.rank(&suggestion_request, staged)
     }
 
     /// English prefix completions, lowercase. The caller preserves the token's

@@ -1,14 +1,15 @@
 # ADR 0017: Feature runtime crate and hybrid reranker blend
 
-- Status: **Proposed** (owner decision D1/D2, 2026-11-24)
+- Status: **Accepted** (owner approved the model slice, 2026-11-24)
 - Date: 2026-11-24
 - Related: ADR 0007 (hybrid learning-to-rank), ADR 0015 (offline replay and
   feature schema v1), ADR 0019 (ranker injection and bounded work), epic #98,
   #101
 - Implementation note (2026-11-24): the `okkhor-features` crate extraction
   landed (`FeatureVectorV1` + `extract_features`, re-exported by
-  `okkhor-train`); the hybrid blend, `okkhor-model`, and ranker injection are
-  not implemented yet.
+  `okkhor-train`), and the hybrid blend, `okkhor-model`, and ranker injection
+  are now implemented. The bundled model ships behind `--ranker hybrid`; the
+  default remains `--ranker baseline` until a real-data A/B is accepted.
 
 ## Context
 
@@ -90,6 +91,10 @@ Rules:
   and its limits.
 - If hybrid does not beat baseline, ship it disabled and record the negative
   result. Do not tune on the evaluation set.
+- Result (2026-11-24, synthetic replay only): hybrid ties baseline exactly
+  (top-1 0.2708, top-5 1.0000, MRR 0.5096) because the frozen set carries no
+  learning evidence (`confidence = 0`). The default stays `baseline`; see
+  `docs/performance.md`.
 
 ## Consequences
 
