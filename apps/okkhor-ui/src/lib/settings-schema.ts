@@ -99,7 +99,7 @@ export const settingsSchema = z.object({
     .number()
     .int()
     .min(1, "At least 1 popup item.")
-    .max(9, "At most 9 popup items."),
+    .max(10, "At most 10 popup items."),
   toggle_hotkey: z
     .string()
     .min(1, "Toggle hotkey is required.")
@@ -110,6 +110,7 @@ export const settingsSchema = z.object({
     .min(1, "Pause hotkey is required.")
     .refine(isValidPauseHotkey, { message: "Invalid pause hotkey." }),
   show_toggle_toast: z.boolean(),
+  toggle_sound: z.boolean(),
   quickbar_visible: z.boolean(),
   quickbar_collapsed: z.boolean(),
   quickbar_x: z
@@ -151,6 +152,7 @@ export function toForm(settings: Settings): SettingsForm {
     toggle_hotkey: settings.toggle_hotkey,
     pause_hotkey: settings.pause_hotkey,
     show_toggle_toast: settings.show_toggle_toast,
+    toggle_sound: settings.toggle_sound,
     quickbar_visible: settings.quickbar_visible,
     quickbar_collapsed: settings.quickbar_collapsed,
     quickbar_x: settings.quickbar_x,

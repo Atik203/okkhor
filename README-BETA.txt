@@ -48,15 +48,20 @@ The daemon creates a per-user IPC token under
 
 4. USE
 ------
-- Type Banglish and press Space to commit Bangla. Digits 1-5 select a
-  candidate; arrows move; Backspace edits; Esc keeps the roman text.
-- **F9** toggles Bangla/English. If F9 is already taken, Okkhor falls back to
+- Type Banglish and press Space to commit Bangla. Digits 1-9 and 0 select a
+  candidate (up to ten); arrows move; Backspace edits; Esc keeps the roman
+  text. The caret list offers a curated correction first, then alternatives.
+- **F9** toggles Bangla/English and plays a short click (disable in Settings
+  > Hotkeys). If F9 is already taken, Okkhor falls back to
   Ctrl+Space and tells you once.
 - Tray: left-click toggles language; right-click opens the menu
-  (language, pause, settings, exit). Double-click no longer pauses.
+  (language, pause, show quick bar, settings, exit). Double-click no longer
+  pauses.
 - **Ctrl+Alt+Shift+P** pauses/resumes capture.
 - Quick bar: language, output encoding (Unicode/Bijoy), pause, on-screen
-  keyboard, settings, collapse. It never takes focus.
+  keyboard, settings, hide to tray, quit. Drag the grip/spacer to move; drag
+  the right edge to resize; double-click the grip to collapse. It never takes
+  focus. Use the tray's Show quick bar to bring it back after hiding.
 - Settings → Output encoding: Unicode (browsers/editors) or Bijoy (official
   forms; select SutonnyMJ in the document).
 - Settings → Words, Keyboard, Show quick bar, theme, font scale, autostart.

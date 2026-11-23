@@ -414,13 +414,13 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
             />
           </Field>
           <Field>
-            <Label htmlFor="popup_max_items">Max items (1 – 9)</Label>
+            <Label htmlFor="popup_max_items">Max items (1 – 10)</Label>
             <Input
               id="popup_max_items"
               type="number"
               step="1"
               min={1}
-              max={9}
+              max={10}
               disabled={readOnly}
               {...register("popup_max_items", { valueAsNumber: true })}
             />
@@ -461,6 +461,22 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
             <Label htmlFor="pause_hotkey">Pause capture</Label>
             <Input id="pause_hotkey" disabled={readOnly} {...register("pause_hotkey")} />
             <FieldError message={errors.pause_hotkey?.message} />
+          </Field>
+          <Field className="sm:col-span-2">
+            <Controller
+              name="toggle_sound"
+              control={control}
+              render={({ field }) => (
+                <ToggleRow
+                  name="toggle_sound"
+                  label="Play click on toggle"
+                  description="Short sound when Bangla/English changes from the hotkey, tray, or bar."
+                  checked={field.value}
+                  onChange={field.onChange}
+                  disabled={readOnly}
+                />
+              )}
+            />
           </Field>
         </CardContent>
       </Card>

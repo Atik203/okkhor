@@ -20,6 +20,7 @@ mod input_session;
 mod ipc;
 mod paths;
 mod settings_store;
+mod starter;
 mod words_store;
 
 fn main() {
@@ -1122,6 +1123,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     };
 
     let engine = default_engine();
+    // Parse the curated suggestion list once, off the typing path.
+    starter::warm();
     if engine.is_fallback() {
         // Embedded-table load failure: allowlisted startup record only
         // (scope + kind, never text). Typing continues with no candidates.
@@ -1204,6 +1207,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         let live = state.map(|state| &**state);
         hide_popup(popup, live);
         tray.set_mode(tray_mode_of(*mode));
+        if state.is_none_or(|state| state.toggle_sound()) {
+            okkhor_win::play_toggle_click();
+        }
         if let Some(state) = state {
             state.set_mode_live(ipc_input_mode(*mode));
             persist_mode(state, *mode);
@@ -1281,6 +1287,12 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
 
     'run: loop {
+        if ipc_state
+            .as_ref()
+            .is_some_and(|state| state.shutdown_requested())
+        {
+            break 'run;
+        }
         while let Some(event) = tray.try_next() {
             match event {
                 TrayEvent::TogglePause => toggle_capture(&hook, &tray, ipc_state.as_ref()),
@@ -1294,6 +1306,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     ipc_state.as_ref(),
                 ),
                 TrayEvent::Settings => open_settings_ui(&tray, logger),
+                TrayEvent::ShowQuickBar => show_quick_bar(&tray, logger),
                 TrayEvent::Exit => break 'run,
             }
         }
@@ -1319,6 +1332,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // never meet. All reads are lock-free atomics except the hotkey chords
         // (try_lock — a contended settings write retries next poll).
         if let Some(state) = ipc_state.as_deref() {
+            session.set_max_candidates(state.popup_max_items());
             let want_enabled = !state.paused();
             if hook.capture_enabled() != want_enabled {
                 hook.set_capture_enabled(want_enabled);
@@ -1504,6 +1518,24 @@ fn toggle_capture(
 /// Launch the settings UI next to the daemon (tray Settings, `daemon --ui`).
 /// A missing UI shows a tray balloon and logs one allowlisted code — never a
 /// user path.
+#[cfg(windows)]
+fn show_quick_bar(tray: &okkhor_win::TrayIcon, logger: &logging::Logger) {
+    if okkhor_win::signal_quickbar_show() {
+        return;
+    }
+    match crate::ipc::launch_quickbar_ui() {
+        Ok(()) => logger.info(logging::Scope::Ipc, "quickbar_launch"),
+        Err(crate::ipc::UiLaunchError::NotFound) => {
+            logger.error(logging::Scope::Ipc, "ui_missing", None);
+            tray.show_balloon("Okkhor", "Quick bar UI was not found next to the daemon");
+        }
+        Err(crate::ipc::UiLaunchError::SpawnFailed) => {
+            logger.error(logging::Scope::Ipc, "ui_launch_failed", None);
+            tray.show_balloon("Okkhor", "Quick bar failed to start");
+        }
+    }
+}
+
 #[cfg(windows)]
 fn open_settings_ui(tray: &okkhor_win::TrayIcon, logger: &logging::Logger) {
     match crate::ipc::launch_ui() {
@@ -1830,6 +1862,9 @@ fn tray_demo() -> Result<(), Box<dyn Error>> {
                 }
                 TrayEvent::Settings => {
                     println!("tray-demo: settings (the daemon would launch okkhor-ui.exe)");
+                }
+                TrayEvent::ShowQuickBar => {
+                    println!("tray-demo: show quick bar (daemon would signal the UI)");
                 }
                 TrayEvent::Exit => {
                     println!("tray-demo: exit");

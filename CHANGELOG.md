@@ -14,9 +14,14 @@ Versioning once it reaches 1.0.
 - Bundled Kalpurush, Kalpurush ANSI, Noto Sans Bengali, and SutonnyMJ (staged
   from the owner's licensed installation); per-user install/status/uninstall.
 - Tauri settings UI, on-screen keyboard, word manager, and a non-activating
-  quick control bar.
+  quick control bar with drag-to-move, horizontal resize (320-720 px),
+  hide-to-tray/restore, and a two-click quit that shuts the daemon down too.
+- Caret-anchored suggestion popup with up to ten numbered rows, light/dark
+  theme, mouse and keyboard selection, and a curated starter list that adds
+  exact corrections plus prefix alternatives to the Avro rule output.
 - F9 Bangla/English toggle with Ctrl+Space fallback, tray left-click toggle,
-  non-activating toast, and the existing pause hotkey.
+  non-activating toast, and the existing pause hotkey; a short click plays on
+  each mode change and can be disabled with `toggle_sound`.
 - Daemon IPC v1: status, settings, words, text insertion, and capture control
   over an owner-only named pipe with a rotating token.
 - Encrypted word store (DPAPI) and daemon-owned settings store.
@@ -31,8 +36,8 @@ Versioning once it reaches 1.0.
 ### Known limitations
 
 - Unsigned beta, no installer/updater.
-- One top candidate per buffer; dictionary correction and the learned reranker
-  are later milestones.
+- Alternatives come from a small curated starter list; the imported Avro
+  dictionary and the learned reranker are later milestones.
 - No speech/AI actions yet; no clipboard fallback or elevated-window injection.
 - Manual real-key QA remains owner-gated; see `docs/qa/`.
 

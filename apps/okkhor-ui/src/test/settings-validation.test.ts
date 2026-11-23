@@ -28,6 +28,7 @@ function baseSettings(): Settings {
     toggle_hotkey: "F9",
     pause_hotkey: "Ctrl+Alt+Shift+P",
     show_toggle_toast: true,
+  toggle_sound: true,
     quickbar_visible: true,
     quickbar_collapsed: false,
     quickbar_x: null,
@@ -58,10 +59,10 @@ describe("settings validation mirrors the Rust rules (contract §2)", () => {
 
   test("popup_max_items and page size bounds", () => {
     const form = toForm(baseSettings());
-    for (const good of [1, 5, 9]) {
+    for (const good of [1, 5, 9, 10]) {
       expect(settingsSchema.safeParse({ ...form, popup_max_items: good }).success).toBe(true);
     }
-    for (const bad of [0, 10, 2.5]) {
+    for (const bad of [0, 11, 2.5]) {
       expect(settingsSchema.safeParse({ ...form, popup_max_items: bad }).success).toBe(false);
     }
     expect(settingsSchema.safeParse({ ...form, word_manager_page_size: 10 }).success).toBe(true);

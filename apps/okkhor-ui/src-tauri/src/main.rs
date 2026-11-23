@@ -46,7 +46,7 @@ async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
     let status = client.status().await.map_err(|e| map_client_error(&e))?;
     // Chrome fields are best-effort: a settings read failure must not hide
     // live mode state, so fall back to the contract defaults.
-    let (collapsed, opacity, visible) = client
+    let (collapsed, opacity, visible, x, y) = client
         .settings_get()
         .await
         .map(|settings| {
@@ -54,9 +54,11 @@ async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
                 settings.quickbar_collapsed,
                 settings.quickbar_opacity,
                 settings.quickbar_visible,
+                settings.quickbar_x,
+                settings.quickbar_y,
             )
         })
-        .unwrap_or((false, 0.9, false));
+        .unwrap_or((false, 0.9, false, None, None));
     Ok(QuickbarState {
         input_mode: status.input_mode,
         output_encoding: status.output_encoding,
@@ -65,6 +67,8 @@ async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
         collapsed,
         opacity,
         visible,
+        x,
+        y,
     })
 }
 
@@ -420,6 +424,105 @@ async fn quickbar_open_keyboard(app: AppHandle) -> Result<(), UiError> {
     show_main_at(&app, "/keyboard")
 }
 
+/// Best-effort persistence of the bar visibility flag.
+#[cfg(windows)]
+async fn persist_quickbar_visible(visible: bool) {
+    if let Ok(mut client) = connect().await {
+        let patch = okkhor_ipc::settings::SettingsPatch {
+            quickbar_visible: Some(visible),
+            ..Default::default()
+        };
+        let _ = client.settings_update(&patch).await;
+    }
+}
+
+/// Hide the bar to the tray. The process (and its tray) stays alive; the tray
+/// menu's "Show quick bar" signals this process back to visibility.
+#[tauri::command]
+async fn quickbar_hide(app: AppHandle) -> Result<(), UiError> {
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return Err(UiError::internal());
+    };
+    bar.hide().map_err(|_| UiError::internal())?;
+    #[cfg(windows)]
+    persist_quickbar_visible(false).await;
+    Ok(())
+}
+
+/// Show the bar without activating it, restoring it to the primary monitor if
+/// it was left off-screen (monitor change, resolution change).
+#[tauri::command]
+async fn quickbar_show(app: AppHandle) -> Result<(), UiError> {
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return Err(UiError::internal());
+    };
+    if !bar_is_on_screen(&bar) {
+        place_quickbar_top_right(&bar);
+    }
+    #[cfg(windows)]
+    show_bar_noactivate(&bar);
+    #[cfg(not(windows))]
+    bar.show().map_err(|_| UiError::internal())?;
+    #[cfg(windows)]
+    persist_quickbar_visible(true).await;
+    Ok(())
+}
+
+/// True when at least the top-left corner of the bar lands on a monitor.
+fn bar_is_on_screen(bar: &tauri::WebviewWindow) -> bool {
+    let Ok(position) = bar.outer_position() else {
+        return false;
+    };
+    let Ok(monitors) = bar.available_monitors() else {
+        return false;
+    };
+    monitors.iter().any(|monitor| {
+        let origin = monitor.position();
+        let size = monitor.size();
+        let x = i64::from(position.x);
+        let y = i64::from(position.y);
+        x >= i64::from(origin.x)
+            && x < i64::from(origin.x) + i64::from(size.width)
+            && y >= i64::from(origin.y)
+            && y < i64::from(origin.y) + i64::from(size.height)
+    })
+}
+
+/// Persist the bar's current physical position after a drag.
+#[tauri::command]
+async fn quickbar_save_position(app: AppHandle) -> Result<(), UiError> {
+    let Some(bar) = app.get_webview_window("quickbar") else {
+        return Err(UiError::internal());
+    };
+    let position = bar.outer_position().map_err(|_| UiError::internal())?;
+    #[cfg(windows)]
+    {
+        if let Ok(mut client) = connect().await {
+            let patch = okkhor_ipc::settings::SettingsPatch {
+                quickbar_x: Some(Some(position.x)),
+                quickbar_y: Some(Some(position.y)),
+                ..Default::default()
+            };
+            let _ = client.settings_update(&patch).await;
+        }
+    }
+    let _ = position;
+    Ok(())
+}
+
+/// Quit Okkhor from the bar: ask the daemon to exit cleanly, then close this
+/// UI process (which owns the bar). Works when the daemon is down too - the
+/// bar must never become impossible to close.
+#[tauri::command]
+async fn quickbar_quit(app: AppHandle) -> Result<(), UiError> {
+    #[cfg(windows)]
+    if let Ok(mut client) = connect().await {
+        let _ = client.shutdown().await;
+    }
+    app.exit(0);
+    Ok(())
+}
+
 /// Resize the bar window. The resize always applies locally; persisting
 /// `quickbar_collapsed` is best-effort so the orb still works while the
 /// daemon is down (shell stays read-only, chrome stays local).
@@ -583,16 +686,38 @@ fn main() {
                         if state.as_ref().is_some_and(|s| s.visible) {
                             if let Some(bar) = handle.get_webview_window("quickbar") {
                                 let collapsed = state.as_ref().is_some_and(|s| s.collapsed);
-                                // Normal launch must hug the same corner as
-                                // bar-only launch; otherwise Tauri's default
-                                // cascade position leaks through.
-                                place_quickbar_top_right(&bar);
+                                // A dragged position wins when it is still on a
+                                // monitor; otherwise hug the top-right corner.
+                                let saved = state
+                                    .as_ref()
+                                    .and_then(|s| s.x.zip(s.y));
+                                if let Some((x, y)) = saved {
+                                    let _ = bar.set_position(
+                                        tauri::Position::Physical(tauri::PhysicalPosition {
+                                            x,
+                                            y,
+                                        }),
+                                    );
+                                }
+                                if saved.is_none() || !bar_is_on_screen(&bar) {
+                                    place_quickbar_top_right(&bar);
+                                }
                                 apply_bar_chrome(&bar, collapsed);
                                 show_bar_noactivate(&bar);
                             }
                         }
                     });
                 }
+            }
+            // The quick bar can be hidden to the tray while this process keeps
+            // running. The daemon signals a session-local event; forward it to
+            // the bar webview, which shows itself no-activate on receipt.
+            #[cfg(windows)]
+            {
+                let handle = app.handle().clone();
+                let _ = okkhor_win::spawn_quickbar_show_listener(move || {
+                    let _ = handle.emit("okkhor:quickbar-show", ());
+                });
             }
             Ok(())
         })
@@ -615,7 +740,11 @@ fn main() {
             quickbar_open_settings,
             quickbar_open_keyboard,
             quickbar_collapse,
-            quickbar_expand
+            quickbar_expand,
+            quickbar_hide,
+            quickbar_show,
+            quickbar_save_position,
+            quickbar_quit
         ])
         .run(tauri::generate_context!())
         .expect("error while running Okkhor settings UI");

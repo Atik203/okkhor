@@ -199,6 +199,8 @@ pub enum Request {
     TextInsert(TextInsert),
     #[serde(rename = "capture.set")]
     CaptureSet(CaptureSet),
+    #[serde(rename = "shutdown")]
+    Shutdown(NoArgs),
     #[serde(rename = "ai.complete")]
     AiComplete(serde_json::Value),
 }
@@ -226,6 +228,8 @@ pub enum Response {
     Export(WordsExported),
     #[serde(rename = "inserted")]
     Inserted(TextInserted),
+    #[serde(rename = "ok")]
+    Ok(NoArgs),
     #[serde(rename = "error")]
     Error(ErrorBody),
 }
@@ -392,6 +396,7 @@ mod tests {
                 Request::CaptureSet(CaptureSet { paused: true }),
                 r#"{"capture.set":{"paused":true}}"#,
             ),
+            (Request::Shutdown(NoArgs {}), r#"{"shutdown":{}}"#),
             (
                 Request::AiComplete(serde_json::json!({})),
                 r#"{"ai.complete":{}}"#,
@@ -403,8 +408,8 @@ mod tests {
             let back: Request = serde_json::from_str(&json).expect("parses");
             assert_eq!(&back, request);
         }
-        // Method count pins the contract table: 13 entries.
-        assert_eq!(cases.len(), 13);
+        // Method count pins the contract table: 14 entries.
+        assert_eq!(cases.len(), 14);
     }
 
     #[test]

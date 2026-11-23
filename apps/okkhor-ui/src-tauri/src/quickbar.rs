@@ -36,6 +36,9 @@ pub struct QuickbarState {
     /// The `quickbar_visible` setting. The setup task uses it to decide
     /// whether a normal (non-`--quickbar`) launch also shows the bar.
     pub visible: bool,
+    /// Saved physical position after a drag (`None` = automatic top-right).
+    pub x: Option<i32>,
+    pub y: Option<i32>,
 }
 
 impl QuickbarState {
@@ -53,6 +56,8 @@ impl QuickbarState {
             collapsed,
             opacity,
             visible: false,
+            x: None,
+            y: None,
         }
     }
 }

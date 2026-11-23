@@ -19,6 +19,7 @@ export interface Settings {
   toggle_hotkey: string;
   pause_hotkey: string;
   show_toggle_toast: boolean;
+  toggle_sound: boolean;
   quickbar_visible: boolean;
   quickbar_collapsed: boolean;
   quickbar_x: number | null;
@@ -130,5 +131,17 @@ export const api = {
   },
   quickbarExpand(): Promise<QuickbarSnapshot> {
     return invoke<QuickbarSnapshot>("quickbar_expand");
+  },
+  quickbarHide(): Promise<void> {
+    return invoke<void>("quickbar_hide");
+  },
+  quickbarShow(): Promise<void> {
+    return invoke<void>("quickbar_show");
+  },
+  quickbarSavePosition(): Promise<void> {
+    return invoke<void>("quickbar_save_position");
+  },
+  quickbarQuit(): Promise<void> {
+    return invoke<void>("quickbar_quit");
   },
 };

@@ -95,27 +95,43 @@ cargo test
   chips, pause, keyboard, settings, or collapse never activates the window.
   The bar is the single approved exception to contract §5's no-always-on-top
   rule (lead ruling, 2026-11-23); no other UI window may be always-on-top.
-- Geometry: 460×60 bar, collapsible to a 44×44 orb (double-click/click the
-  orb to expand). For 0.5 the bar starts top-right of the primary monitor
-  with per-monitor DPI scaling (`scale_factor`). Only the dedicated left
-  grip strip is a `data-tauri-drag-region` (no custom drag command);
-  buttons never start a drag and stay clickable. While mounted, the bar
-  locks `html`/`body`/`#root` to 100% with `overflow: hidden` and a
-  transparent background, so no scrollbar or bottom line can appear.
+- Geometry: 460×60 by default, resizable horizontally 320–720 px (right-edge
+  handle; width remembered in `localStorage`), collapsible to a 44×44 orb
+  (double-click the grip to collapse; click the orb to expand). Labels stay
+  visible down to 420 px and switch to icon-only chips below that, so 320 px
+  never clips. The bar starts top-right of the primary monitor with
+  per-monitor DPI scaling, or at the last saved drag position when it is still
+  on a monitor.
+- Moving: manual pointer-capture drag (`setPosition`) on the left grip and the
+  empty spacer — *not* `data-tauri-drag-region`. Windows' modal move loop does
+  not reliably start for a `WS_EX_NOACTIVATE` window; explicit positioning
+  works and never activates the bar. Buttons never start a drag. The new
+  position persists through `settings.update` (`quickbar_x`/`quickbar_y`).
+  While mounted, the bar locks `html`/`body`/`#root` to 100% with
+  `overflow: hidden` and a transparent background, so no scrollbar or bottom
+  line can appear.
 - Contents: mode chip (`বাংলা`/`EN`), encoding chip (`ইউনিকোড`/`বিজয়`),
   pause, on-screen keyboard (opens `main` at `/keyboard`), settings,
-  collapse; status dot (text-announced, never color-only) for daemon
-  availability; success toast on pause toggle, error toasts otherwise. No
-  text capture: the view renders static labels and never reads keystrokes.
+  hide-to-tray, and quit; status dot (text-announced, never color-only) for
+  daemon availability; success toast on pause toggle, error toasts otherwise.
+  No text capture: the view renders static labels and never reads keystrokes.
+  A short click plays on mode changes unless `toggle_sound` is off.
+- Hide to tray: `quickbar_hide` hides the window and sets `quickbar_visible`
+  to false; the process stays alive. The tray menu's **Show quick bar** signals
+  a session-local named event (`Local\Okkhor.QuickBar.Show.v1`) so the running
+  UI re-shows the bar no-activate (`quickbar_show`). If no UI is listening,
+  the daemon launches `okkhor-ui.exe --quickbar` instead.
+- Quit: the power button arms a confirmation on the first click and, on the
+  second, sends the authenticated IPC `shutdown` request (daemon exits
+  cleanly and removes the tray) then closes the UI process. It still exits the
+  UI when the daemon is down, so the bar can never become impossible to close.
 - Settings: "Show quick bar" toggle and the 0.5–1.0 opacity slider write
   the existing `quickbar_*` fields through `settings.update`. Daemon down:
   mode/encoding/pause return `daemon_unavailable` (chips disable, banner
-  rules apply) while collapse/expand/open-settings/open-keyboard stay local.
-  `quickbar_x`/`quickbar_y` persist but the bar does not honor them yet —
-  deferred to the daemon-settings wiring follow-up.
+  rules apply) while hide-to-tray/quit/open-settings/open-keyboard stay local.
 - Limitations: the bar cannot outlive the UI process; it does not
-  auto-follow the active monitor after a manual drag; snap-to-edges and a
-  tray menu are not implemented and not claimed.
+  auto-follow the active monitor while visible (it is re-homed only when
+  shown off-screen); snap-to-edges is not implemented.
 ## Suggestion popup (native Win32, `okkhor-win`)
 
 The caret-adjacent suggestion list is a native, custom-painted Win32 window
@@ -125,11 +141,15 @@ window owns sizing, painting, placement, and click queuing.
 
 ### List design
 
-- Up to 10 rows (the engine currently yields at most 5); fewer candidates
-  shrink the card, an empty list hides it. One row per candidate, row height
-  30px at 96 DPI (DPI-scaled), 8px outer padding, 22px index-badge column,
-  card width clamped to 180–380px (96-DPI basis, scaled), 6px corner radius,
-  1px border, teal selection fill, badges `1`–`9`/`0` matching the digit keys.
+- Up to 10 rows (`popup_max_items`, 1-10; default 5). The Avro rule table
+  yields one deterministic form per keystroke, so the session adds a curated
+  starter list: an exact match first (corrects common spellings such as
+  `dhonnobad` -> ধন্যবাদ), then the rule output, then prefix completions.
+  Fewer candidates shrink the card; an empty list hides it. One row per
+  candidate, row height 30px at 96 DPI (DPI-scaled), 8px outer padding, 22px
+  index-badge column, card width clamped to 180-380px (96-DPI basis, scaled),
+  6px corner radius, 1px border, teal selection fill, badges `1`-`9`/`0`
+  matching the digit keys.
 - Long words ellipsis (`DT_END_ELLIPSIS`); single-line, vertically centered,
   `NOPREFIX` (a `&` in a word never becomes an accelerator).
 - GDI `DrawTextW` with a Bengali-capable font: first installed match of
@@ -155,8 +175,9 @@ window owns sizing, painting, placement, and click queuing.
 
 ### Keyboard / mouse, focus, blocking
 
-- Keyboard is unchanged: digits `1`–`5` commit, arrows move the highlight,
-  Space/Enter commit, Esc/Tab cancel, Backspace edits (`docs/input-pipeline.md`).
+- Keyboard is unchanged: digits `1`-`9` and `0` commit (ten rows), arrows
+  move the highlight, Space/Enter commit, Esc/Tab cancel, Backspace edits
+  (`docs/input-pipeline.md`).
 - Clicking a row queues its index; the daemon drains it with
   `try_next_click()` (which pumps only this window's messages, never blocks)
   and commits through the same `select_digit` path as the digit keys —

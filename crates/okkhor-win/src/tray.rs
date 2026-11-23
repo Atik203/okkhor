@@ -48,6 +48,7 @@ const MENU_PAUSE: usize = 1;
 const MENU_SETTINGS: usize = 2;
 const MENU_EXIT: usize = 3;
 const MENU_MODE: usize = 4;
+const MENU_SHOW_BAR: usize = 5;
 
 /// Events delivered by the tray menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +59,9 @@ pub enum TrayEvent {
     ToggleMode,
     /// The user chose Settings: the daemon launches the settings UI.
     Settings,
+    /// The user chose Show quick bar: wake the running UI, or launch it with
+    /// `--quickbar` when nothing is listening.
+    ShowQuickBar,
     /// The user chose Exit.
     Exit,
 }
@@ -578,6 +582,7 @@ fn show_menu(window: HWND) {
     unsafe {
         let _ = AppendMenuW(menu, MF_STRING, MENU_MODE, mode_label);
         let _ = AppendMenuW(menu, MF_STRING, MENU_PAUSE, pause_label);
+        let _ = AppendMenuW(menu, MF_STRING, MENU_SHOW_BAR, w!("Show quick bar"));
         let _ = AppendMenuW(menu, MF_STRING, MENU_SETTINGS, w!("Settings"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, w!(""));
         let _ = AppendMenuW(menu, MF_STRING, MENU_EXIT, w!("Exit"));
@@ -630,6 +635,7 @@ fn event_for_command(id: usize) -> Option<TrayEvent> {
     match id {
         MENU_MODE => Some(TrayEvent::ToggleMode),
         MENU_PAUSE => Some(TrayEvent::TogglePause),
+        MENU_SHOW_BAR => Some(TrayEvent::ShowQuickBar),
         MENU_SETTINGS => Some(TrayEvent::Settings),
         MENU_EXIT => Some(TrayEvent::Exit),
         _ => None,
@@ -670,9 +676,9 @@ fn last_error(operation: &'static str, code: i32) -> TrayError {
 #[cfg(test)]
 mod tests {
     use super::{
-        MENU_EXIT, MENU_MODE, MENU_PAUSE, MENU_SETTINGS, TrayEvent, TrayMode, event_for_command,
-        event_for_notification, is_menu_notification, tooltip_text, truncate_balloon,
-        write_tooltip,
+        MENU_EXIT, MENU_MODE, MENU_PAUSE, MENU_SETTINGS, MENU_SHOW_BAR, TrayEvent, TrayMode,
+        event_for_command, event_for_notification, is_menu_notification, tooltip_text,
+        truncate_balloon, write_tooltip,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         WM_CONTEXTMENU, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP,
@@ -691,6 +697,10 @@ mod tests {
     #[test]
     fn settings_opens_the_ui() {
         assert_eq!(event_for_command(MENU_SETTINGS), Some(TrayEvent::Settings));
+        assert_eq!(
+            event_for_command(MENU_SHOW_BAR),
+            Some(TrayEvent::ShowQuickBar)
+        );
         assert_eq!(event_for_command(99), None);
     }
 
