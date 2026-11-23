@@ -56,6 +56,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("shutdown") => {
+            if let Err(error) = shutdown_daemon() {
+                eprintln!("shutdown failed: {error}");
+                std::process::exit(1);
+            }
+        }
         Some("daemon") => {
             let rest: Vec<String> = std::env::args().skip(2).collect();
             match parse_daemon_args(&rest) {
@@ -128,11 +134,12 @@ fn main() {
 
 fn print_help() {
     println!(
-        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon [--encoding unicode|bijoy] [--mode bangla|english] [--no-ipc] [--ui] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
+        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | shutdown | daemon [--encoding unicode|bijoy] [--mode bangla|english] [--no-ipc] [--ui] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
          `self-check` exercises the learning engine, ranking, and persistence.\n\
          `hook-demo` installs a global hook for 5 seconds and prints key events.\n\
          `popup-demo` shows a non-activating popup near the caret for 3 seconds.\n\
          `tray-demo` shows the tray menu for 10 seconds.\n\
+         `shutdown` asks the running daemon to exit cleanly over the owner-only pipe.\n\
          `daemon [--encoding unicode|bijoy] [--mode bangla|english]` runs the resident daemon with hook, mode + pause hotkeys, tray, and the settings-UI pipe (defaults: unicode, bangla; `--no-ipc` disables the pipe; `--ui` launches the settings UI once at startup).\n\
          `inject` is a QA-only command for synthetic text; focus the target during the delay.\n\
          `autostart enable|disable|status` manages the per-user login entry.\n\
@@ -1720,6 +1727,34 @@ fn hook_demo() -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(windows)]
+fn shutdown_daemon() -> Result<(), Box<dyn Error>> {
+    use okkhor_ipc::protocol::PIPE_NAME;
+
+    let token_path = crate::paths::token_path()?;
+    let token_hex = std::fs::read_to_string(token_path)?.trim().to_owned();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        let (mut client, _) =
+            okkhor_ipc::transport::Client::connect_to_with_token(PIPE_NAME, &token_hex).await?;
+        client.shutdown().await?;
+        Ok::<(), okkhor_ipc::ClientError>(())
+    })?;
+    println!("shutdown: requested");
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn shutdown_daemon() -> Result<(), Box<dyn Error>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "shutdown is only available on Windows",
+    )
+    .into())
+}
+
+#[cfg(windows)]
 fn popup_demo() -> Result<(), Box<dyn Error>> {
     use okkhor_win::{SuggestionPopup, caret_anchor};
     use std::time::{Duration, Instant};
@@ -1728,10 +1763,21 @@ fn popup_demo() -> Result<(), Box<dyn Error>> {
         println!("popup-demo: no caret anchor available");
         return Ok(());
     };
-    let items: Vec<String> = ["আমার", "বাংলা", "তুমি", "কেমন", "ধন্যবাদ"]
-        .iter()
-        .map(|word| word.to_string())
-        .collect();
+    let items: Vec<String> = [
+        "আমার",
+        "বাংলাদেশ",
+        "তুমি",
+        "কেমন",
+        "ধন্যবাদ",
+        "ভালোবাসা",
+        "বাংলা",
+        "শিক্ষা",
+        "স্বাধীনতা",
+        "কম্পিউটার",
+    ]
+    .iter()
+    .map(|word| word.to_string())
+    .collect();
     let mut popup = SuggestionPopup::new()?;
     let metrics = popup.show_candidates(&items, 1, &anchor)?;
     let placement = metrics.placement;

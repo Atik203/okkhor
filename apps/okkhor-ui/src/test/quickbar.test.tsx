@@ -91,6 +91,7 @@ function mockOnline(snapshot: QuickbarSnapshot = ONLINE) {
       case "quickbar_hide":
       case "quickbar_show":
       case "quickbar_save_position":
+      case "quickbar_begin_resize":
       case "quickbar_quit":
         return Promise.resolve(undefined);
       default:
@@ -319,6 +320,18 @@ describe("quick bar", () => {
     await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
     const bar = container.querySelector('[role="toolbar"]');
     expect(bar?.getAttribute("style")).toContain("opacity: 0.65");
+  });
+
+  test("right-edge handle starts the native resize at the current width", async () => {
+    mockOnline();
+    renderPage();
+    const handle = await screen.findByRole("separator", { name: "Resize quick bar" });
+    fireEvent.pointerDown(handle, { button: 0, isPrimary: true });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quickbar_begin_resize", {
+        width: 460,
+      }),
+    );
   });
 
   test("bar is full-width 60px with no clipping and no native drag regions", async () => {

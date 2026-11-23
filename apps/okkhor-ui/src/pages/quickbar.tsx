@@ -17,7 +17,6 @@ import {
   RotateCw,
   Settings,
 } from "lucide-react";
-import { Toaster, toast } from "sonner";
 import { api, type QuickbarSnapshot } from "../lib/ipc";
 import { describeError, isDaemonUnavailable } from "../lib/errors";
 import { cn } from "../lib/utils";
@@ -142,7 +141,7 @@ function useBarDrag() {
         return;
       }
       event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
+      event.currentTarget.setPointerCapture?.(event.pointerId);
       drag.current = {
         x0: event.screenX,
         y0: event.screenY,
@@ -236,7 +235,11 @@ function useBarWidth(active: boolean) {
     } catch {
       // Private/storage-disabled: width still applies for this session.
     }
-    void win.setSize(new LogicalSize(width, 60)).catch(() => undefined);
+    // Do not fight a native resize: only apply when the window differs (stored
+    // width on first mount, or a reset).
+    if (Math.abs(window.innerWidth - width) > 1) {
+      void win.setSize(new LogicalSize(width, 60)).catch(() => undefined);
+    }
   }, [active, width, win]);
 
   React.useEffect(() => {
@@ -244,7 +247,12 @@ function useBarWidth(active: boolean) {
       return;
     }
     const onResize = () => {
-      const actual = clampWidth(window.innerWidth);
+      const actual = Math.round(window.innerWidth);
+      // WebView2 can report 0x0 for a frame while the window moves. Never
+      // adopt an out-of-range width or it would snap to the minimum.
+      if (actual < MIN_WIDTH || actual > MAX_WIDTH) {
+        return;
+      }
       setWidth((current) => (Math.abs(actual - current) > 1 ? actual : current));
     };
     window.addEventListener("resize", onResize);
@@ -254,43 +262,24 @@ function useBarWidth(active: boolean) {
   return [width, setWidth] as const;
 }
 
-/** Right-edge resize handle (320-720 logical px). */
-function useHorizontalResize(
-  width: number,
-  setWidth: React.Dispatch<React.SetStateAction<number>>,
-) {
-  const state = React.useRef<{ x0: number; width0: number } | null>(null);
-
+/** Right-edge resize handle (320-720 logical px). Starts a native poll loop in
+ * Rust so the cursor can leave the bar without losing the drag; the resize
+ * listener updates the responsive layout and persists the width. */
+function useHorizontalResize(width: number) {
   const begin = React.useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
       if (event.button !== 0 || !event.isPrimary) {
         return;
       }
       event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      state.current = { x0: event.screenX, width0: width };
+      void api
+        .quickbarBeginResize(Math.round(width))
+        .catch(() => undefined);
     },
     [width],
   );
-  const move = React.useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      if (!state.current) {
-        return;
-      }
-      setWidth(clampWidth(state.current.width0 + (event.screenX - state.current.x0)));
-    },
-    [setWidth],
-  );
-  const end = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
-    state.current = null;
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      // Already released.
-    }
-  }, []);
 
-  return { begin, move, end };
+  return { begin };
 }
 
 function Chip({
@@ -421,10 +410,22 @@ export default function QuickbarPage() {
   useLockCanvas();
   const barDrag = useBarDrag();
   const collapsed = snapshotQuery.data?.collapsed ?? false;
-  const [width, setWidth] = useBarWidth(!collapsed);
-  const resize = useHorizontalResize(width, setWidth);
+  const [width] = useBarWidth(!collapsed);
+  const resize = useHorizontalResize(width);
   const [confirmQuit, setConfirmQuit] = React.useState(false);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const quitTimer = React.useRef<number | null>(null);
+  const noticeTimer = React.useRef<number | null>(null);
+
+  // Inline status text in the bar. A sonner toast would cover the controls in
+  // a 60px window, so feedback never overlays the bar.
+  const showNotice = React.useCallback((message: string) => {
+    setNotice(message);
+    if (noticeTimer.current != null) {
+      window.clearTimeout(noticeTimer.current);
+    }
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 3500);
+  }, []);
 
   // Tray "Show quick bar" wakes this hidden webview; the command applies the
   // no-activate styles and re-shows the window.
@@ -451,11 +452,14 @@ export default function QuickbarPage() {
       if (quitTimer.current != null) {
         window.clearTimeout(quitTimer.current);
       }
+      if (noticeTimer.current != null) {
+        window.clearTimeout(noticeTimer.current);
+      }
     },
     [],
   );
 
-  const fail = (error: unknown) => toast.error(describeError(error));
+  const fail = (error: unknown) => showNotice(describeError(error));
 
   const toggleMode = useMutation({
     mutationFn: () => api.quickbarToggleMode(),
@@ -472,7 +476,7 @@ export default function QuickbarPage() {
     onSuccess: (snapshot) => {
       applySnapshot(snapshot);
       queryClient.invalidateQueries({ queryKey: ["status"] });
-      toast.success(snapshot.paused ? "Capture paused." : "Capture resumed.");
+      showNotice(snapshot.paused ? "Capture paused." : "Capture resumed.");
     },
     onError: fail,
   });
@@ -526,10 +530,7 @@ export default function QuickbarPage() {
       return;
     }
     setConfirmQuit(true);
-    toast("Quit Okkhor?", {
-      description: "Click the power button again to exit the keyboard and tray.",
-      duration: 3000,
-    });
+    showNotice("Quit Okkhor? Click power again to exit.");
     quitTimer.current = window.setTimeout(() => setConfirmQuit(false), 3000);
   }
 
@@ -540,7 +541,6 @@ export default function QuickbarPage() {
         className="flex h-[60px] w-[460px] items-center overflow-hidden px-4"
       >
         <div className="h-8 w-full animate-pulse rounded-full bg-neutral-200 dark:bg-neutral-800" />
-        <Toaster richColors closeButton aria-label="Notifications" />
       </div>
     );
   }
@@ -582,7 +582,6 @@ export default function QuickbarPage() {
         >
           <span aria-hidden="true">অ</span>
         </button>
-        <Toaster richColors closeButton aria-label="Notifications" />
       </div>
     );
   }
@@ -670,14 +669,21 @@ export default function QuickbarPage() {
         </IconButton>
       )}
       <div
-        aria-hidden="true"
+        role="status"
+        aria-live="polite"
         className="min-w-0 flex-1 touch-none self-stretch"
-        title="Drag to move"
+        title={notice ?? "Drag to move"}
         onPointerDown={barDrag.begin}
         onPointerMove={barDrag.move}
         onPointerUp={barDrag.end}
         onPointerCancel={barDrag.cancel}
-      />
+      >
+        {notice && (
+          <span className="pointer-events-none flex h-full items-center justify-center truncate px-1 text-center text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+            {notice}
+          </span>
+        )}
+      </div>
       <IconButton
         title="Hide quick bar to tray"
         onClick={() => void hideToTray.mutate()}
@@ -707,18 +713,13 @@ export default function QuickbarPage() {
       <div
         role="separator"
         aria-label="Resize quick bar"
-        title="Drag to resize; double-click to reset"
+        title="Drag to resize"
         onPointerDown={resize.begin}
-        onPointerMove={resize.move}
-        onPointerUp={resize.end}
-        onPointerCancel={resize.end}
-        onDoubleClick={() => setWidth(DEFAULT_WIDTH)}
         className={cn(
           "absolute inset-y-2 right-0 w-1.5 touch-none cursor-ew-resize rounded-full",
           "bg-neutral-300/0 transition hover:bg-teal-500/60 dark:bg-neutral-600/0",
         )}
       />
-      <Toaster richColors closeButton aria-label="Notifications" />
     </div>
   );
 }

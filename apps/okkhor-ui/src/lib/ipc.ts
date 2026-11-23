@@ -141,6 +141,9 @@ export const api = {
   quickbarSavePosition(): Promise<void> {
     return invoke<void>("quickbar_save_position");
   },
+  quickbarBeginResize(width: number): Promise<void> {
+    return invoke<void>("quickbar_begin_resize", { width });
+  },
   quickbarQuit(): Promise<void> {
     return invoke<void>("quickbar_quit");
   },
