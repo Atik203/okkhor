@@ -14,9 +14,10 @@
 //! - the cache is memory-only and bounded by entry count and response bytes;
 //! - every provider call is cancellable and admitted through policy.
 //!
-//! The live HTTP provider is intentionally not part of this slice. Callers use
-//! [`MockProvider`] or [`DisabledProvider`] until the worker and provider
-//! slices land.
+//! The live HTTP provider (`OpenAiProvider`) is behind the non-default `http`
+//! Cargo feature so the default build stays offline. Callers use
+//! [`MockProvider`] or [`DisabledProvider`] otherwise; the worker and daemon
+//! wiring land in later slices.
 
 mod breaker;
 mod cache;
@@ -24,6 +25,8 @@ mod cancel;
 mod error;
 mod flight;
 mod lock;
+#[cfg(feature = "http")]
+mod openai;
 mod policy;
 mod provider;
 mod request;
@@ -34,6 +37,8 @@ pub use cache::{AiCache, AiCacheKey};
 pub use cancel::CancellationToken;
 pub use error::AiError;
 pub use flight::{SingleFlight, SingleFlightGuard};
+#[cfg(feature = "http")]
+pub use openai::{OpenAiConfig, OpenAiProvider};
 pub use policy::AiPolicy;
 pub use provider::{AiProvider, DisabledProvider, MockProvider};
 pub use request::{AiRequest, AiResponse, AiUsage};
