@@ -12,6 +12,7 @@
 | [0008](0008-non-hook-benchmark-harness.md) | Non-hook benchmark harness | Accepted |
 | [0009](0009-native-control-wm-char-fast-path.md) | Native-control WM_CHAR fast path | Accepted |
 | [0010](0010-core-contracts.md) | Core contracts for the 0.3 multi-agent sprint | Accepted |
+| [0011](0011-candidate-engine.md) | Candidate engine and 0.4 contracts | Accepted |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.
