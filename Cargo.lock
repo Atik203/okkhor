@@ -56,6 +56,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "okkhor-engine"
+version = "0.2.0"
+dependencies = [
+ "okkhor-core",
+ "okkhor-lang",
+ "okkhor-learn",
+ "okkhor-transliterate",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "okkhor-lang"
 version = "0.2.0"
 dependencies = [

@@ -5,6 +5,7 @@ members = [
     "apps/okkhor-daemon",
     "crates/okkhor-compat",
     "crates/okkhor-core",
+    "crates/okkhor-engine",
     "crates/okkhor-learn",
     "crates/okkhor-lang",
     "crates/okkhor-storage",
@@ -20,8 +21,11 @@ publish = false
 
 [workspace.dependencies]
 okkhor-core = { path = "crates/okkhor-core" }
+okkhor-engine = { path = "crates/okkhor-engine" }
+okkhor-lang = { path = "crates/okkhor-lang" }
 okkhor-learn = { path = "crates/okkhor-learn" }
 okkhor-storage = { path = "crates/okkhor-storage" }
+okkhor-transliterate = { path = "crates/okkhor-transliterate" }
 okkhor-win = { path = "crates/okkhor-win" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

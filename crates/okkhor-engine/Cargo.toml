@@ -1,0 +1,19 @@
+[package]
+name = "okkhor-engine"
+description = "Local candidate generation for Okkhor: dictionary lookup, transliteration, merge, and Smriti ranking."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+okkhor-core.workspace = true
+okkhor-lang.workspace = true
+okkhor-transliterate.workspace = true
+okkhor-learn.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
