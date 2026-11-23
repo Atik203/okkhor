@@ -27,6 +27,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "okkhor-compat"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "windows",
+]
+
+[[package]]
 name = "okkhor-core"
 version = "0.2.0"
 dependencies = [
