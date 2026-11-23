@@ -10,6 +10,7 @@
 **/*.tmp
 .env
 .env.*
+!.env.example
 node_modules/
 apps/okkhor-ui/dist/
 apps/okkhor-ui/src-tauri/target/
