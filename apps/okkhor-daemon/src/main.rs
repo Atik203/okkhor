@@ -686,31 +686,21 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         let Some(window) = ctx.popup.as_mut() else {
             return;
         };
-        if !ctx.session.is_composing() || ctx.session.candidates().is_empty() {
+        // Snapshot the session view before touching the window: the popup only
+        // needs the candidate words and the highlight index.
+        let candidates = ctx.session.candidates();
+        let selected = ctx.session.selected();
+        let composing = ctx.session.is_composing();
+        if !composing || candidates.is_empty() {
             window.hide();
             if let Some(state) = state {
                 state.set_popup_visible(false);
             }
             return;
         }
-        let mut text = String::new();
-        for (index, candidate) in ctx.session.candidates().iter().enumerate() {
-            use std::fmt::Write as _;
-            if index > 0 {
-                text.push('\n');
-            }
-            let marker = if index == ctx.session.selected() {
-                '>'
-            } else {
-                ' '
-            };
-            let _ = write!(text, "{marker} {}. {candidate}", index + 1);
-        }
         match caret_anchor() {
             Some(anchor) => {
-                let height = (36 + 24 * ctx.session.candidates().len() as i32).clamp(36, 200);
-                let placement = place_popup(&anchor, 280, height);
-                if let Err(error) = window.show(&text, placement) {
+                if let Err(error) = window.show_candidates(candidates, selected, &anchor) {
                     ctx.logger
                         .error(logging::Scope::Daemon, "popup_show", error.code());
                     if let Some(state) = ctx.state {
@@ -722,7 +712,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             None => {
                 window.hide();
-                if let Some(state) = ctx.state {
+                if let Some(state) = state {
                     state.set_popup_visible(false);
                 }
             }
@@ -1415,6 +1405,41 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             continue;
         }
 
+        // Mouse selection: a popup click (queued without activation) commits
+        // that row through the same select_digit path as the digit keys. The
+        // queue is drained before the key drain so a click and a keystroke in
+        // the same poll commit in arrival order. Out-of-range rows are ignored
+        // by `select_digit`; clicks with no composition do nothing.
+        let mut clicked: Vec<usize> = Vec::new();
+        if let Some(window) = popup.as_mut() {
+            while let Some(index) = window.try_next_click() {
+                clicked.push(index);
+                if clicked.len() >= 8 {
+                    break;
+                }
+            }
+        }
+        for index in clicked {
+            if session.is_composing() {
+                let roman = session.buffer().to_owned();
+                let mut ctx = CompositionCtx {
+                    session: &mut session,
+                    popup: &mut popup,
+                    logger,
+                    learn_tx: &learn_tx,
+                    learn_dropped: &learn_dropped,
+                    compose_window: &mut compose_window,
+                    encoding,
+                    learning_enabled,
+                    state: ipc_state.as_deref(),
+                    injection: &injection_lock,
+                };
+                if let Some(commit) = ctx.session.select_digit(index) {
+                    do_commit(&mut ctx, commit, roman);
+                }
+            }
+        }
+
         // Injected events (our own SendInput backspaces/text) never reach this
         // loop: the hook skips LLKHF_INJECTED before enqueueing. Only key-down
         // transitions drive the session; releases pass through untouched.
@@ -1664,21 +1689,33 @@ fn hook_demo() -> Result<(), Box<dyn Error>> {
 
 #[cfg(windows)]
 fn popup_demo() -> Result<(), Box<dyn Error>> {
-    use okkhor_win::{SuggestionPopup, caret_anchor, place_popup};
-    use std::time::Duration;
+    use okkhor_win::{SuggestionPopup, caret_anchor};
+    use std::time::{Duration, Instant};
 
     let Some(anchor) = caret_anchor() else {
         println!("popup-demo: no caret anchor available");
         return Ok(());
     };
-    let placement = place_popup(&anchor, 360, 140);
+    let items: Vec<String> = ["আমার", "বাংলা", "তুমি", "কেমন", "ধন্যবাদ"]
+        .iter()
+        .map(|word| word.to_string())
+        .collect();
     let mut popup = SuggestionPopup::new()?;
-    popup.show("Okkhor suggestions\nভালো   ভাল   ভালো", placement)?;
+    let metrics = popup.show_candidates(&items, 1, &anchor)?;
+    let placement = metrics.placement;
     println!(
-        "popup-demo: shown at ({}, {}) for 3 seconds",
-        placement.x, placement.y
+        "popup-demo: {} rows at ({}, {}) size {}x{} for 5 seconds",
+        metrics.rows, placement.x, placement.y, metrics.width, metrics.height
     );
-    std::thread::sleep(Duration::from_secs(3));
+    // Pump the queue while visible so the card paints and stays responsive;
+    // a click reports its row without activating. No text is logged.
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(5) {
+        if let Some(index) = popup.try_next_click() {
+            println!("popup-demo: clicked row {index}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
     popup.hide();
     Ok(())
 }
