@@ -59,11 +59,15 @@ menu and UI to avoid stealing a second function key.
 
 ### 4. Zero-config fonts
 
-- On first run, install per-user (no admin) **Kalpurush** (Unicode) and
-  **Kalpurush ANSI** (Bijoy). **Noto Sans Bengali** is the fallback.
+- On first run, install per-user (no admin) **Kalpurush** (Unicode),
+  **SutonnyMJ** (default Bijoy, staged from the owner's licensed
+  installation), and **Kalpurush ANSI** (Bijoy fallback). **Noto Sans
+  Bengali** is the fallback.
 - Defaults are selected automatically; there is no font picker on first run.
-- Advanced settings may change the Unicode font and choose **SutonnyMJ** for
-  Bijoy if it is already installed. SutonnyMJ is detected, never bundled.
+- Advanced settings may change the Unicode font and the Bijoy font:
+  **SutonnyMJ** is the default when staged or already installed (detected),
+  **Kalpurush ANSI** otherwise. SutonnyMJ is staged at build time from the
+  owner's licensed installation and never committed to git.
 - If per-user font installation fails, load the fonts privately for Okkhor's
   own windows, keep Noto Sans Bengali as the fallback, and notify once. Never
   block typing on a font problem.
@@ -129,8 +133,10 @@ Negative:
   switching and is a chord, not a single key.
 - **Font picker on first run.** Rejected: adds friction and a decision users
   are not equipped to make.
-- **SutonnyMJ bundled by default.** Rejected: proprietary; Kalpurush ANSI uses
-  the same Bijoy byte mapping and is redistributable.
+- **SutonnyMJ bundled by default.** Adopted 2026-11-23 by owner decision:
+  SutonnyMJ ships in release artifacts (staged from the owner's licensed
+  installation, never committed) as the default Bijoy font, with Kalpurush
+  ANSI as fallback; see the ADR 0013 amendment.
 - **Separate Bijoy-only mode with automatic font switching in the target app.**
   Rejected for 1.0: an external app's font cannot be changed reliably; the user
   chooses the font in the document, Okkhor guarantees the bytes.

@@ -1,0 +1,7 @@
+# Font binaries are fetched at build time by scripts/fetch-fonts.ps1
+# and must never be committed.
+*.ttf
+*.otf
+*.ttc
+*.woff
+*.woff2

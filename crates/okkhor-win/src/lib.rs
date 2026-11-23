@@ -9,6 +9,7 @@
 //! `// SAFETY:` comment that names the invariant and the API contract being
 //! upheld. No other crate may call Win32 directly.
 
+pub mod fonts;
 pub mod inject;
 pub mod input;
 
@@ -29,6 +30,14 @@ mod tray;
 #[cfg(windows)]
 mod win32;
 
+pub use fonts::{
+    BUNDLED_FONTS, BijoyFontChoice, BundledFont, EXPECTED_FONT_HASHES, FontError,
+    FontInstallationProbe, FontRole, InstallOptions, InstalledFont, RemovedFont, SystemFontProbe,
+    font_family_name, font_registry_value_name, install_font_per_user,
+    install_font_per_user_with_options, is_font_installed, list_bundled_fonts, resolve_bijoy_font,
+    resolve_bijoy_font_with_probe, uninstall_font_per_user, uninstall_font_per_user_with_options,
+    user_fonts_dir, validate_font_path, verify_font_hash, verify_staged_font,
+};
 pub use inject::{InjectError, InjectionMethod, TextInjector};
 pub use input::{
     KeyEvent, KeyPhase, KeyboardHook, LLKHF_INJECTED, is_injected_event, should_enqueue,

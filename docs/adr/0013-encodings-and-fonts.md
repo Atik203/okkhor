@@ -61,17 +61,26 @@ keys -> layout engine -> Unicode Bangla
 | Role | Default | License | Bundled |
 | --- | --- | --- | --- |
 | Unicode UI/editor | Kalpurush | SIL OFL 1.0 | yes |
-| Bijoy ANSI | Kalpurush ANSI | Avro Free Bangla Font Project | yes |
+| Bijoy ANSI (default) | SutonnyMJ | proprietary, owner-approved for release builds | staged (never committed) |
+| Bijoy ANSI (fallback) | Kalpurush ANSI | Avro Free Bangla Font Project | yes |
 | Fallback | Noto Sans Bengali | SIL OFL | yes |
-| Optional Bijoy | SutonnyMJ | proprietary | detected, never committed |
 | Optional Unicode | Siyam Rupali | GPL-2+ | optional user install |
 
-- Fonts are fetched at build time with pinned URLs and SHA-256, not committed
-  as binaries.
+> **Amendment 2026-11-23 (owner decision, Task 0c fix round 1):** the
+> SutonnyMJ row above supersedes the original "Optional Bijoy / detected,
+> never committed" row and the "Bundle SutonnyMJ by default. Rejected"
+> alternative below. SutonnyMJ is now the default Bijoy font (staged at
+> build time from `OKKHOR_LEGACY_HOME`, never committed); Kalpurush ANSI
+> is its fallback. Detection covers staged *and* installed fonts
+> (`okkhor-win::fonts::resolve_bijoy_font_with_probe`).
+
+- Fonts are fetched at build time with pinned URLs and SHA-256 (SutonnyMJ
+  is staged from `OKKHOR_LEGACY_HOME`), not committed as binaries.
 - First run installs Kalpurush and Kalpurush ANSI per-user (no admin). Noto is
   the fallback if registration fails.
-- SutonnyMJ is used only if already installed and explicitly selected; the
-  default Bijoy path does not depend on it.
+- SutonnyMJ is the default Bijoy font when staged or already installed
+  (detected); Kalpurush ANSI is the fallback. The default Bijoy path no
+  longer excludes SutonnyMJ (see amendment above).
 - A document that must be opened on a machine without the chosen font may
   render differently; the bytes are unchanged. The UI documents this.
 
@@ -91,7 +100,8 @@ keys -> layout engine -> Unicode Bangla
   from the tray.
 - Installer: per-user font registration with idempotent uninstall; no elevation
   required; machine-wide install is an explicit advanced option.
-- `THIRD_PARTY_LICENSES.md` lists Kalpurush (OFL), Noto (OFL), and the derived
+- `THIRD_PARTY_LICENSES.md` lists Kalpurush (OFL), Noto (OFL), SutonnyMJ
+  and Kalpurush ANSI (owner-approved distribution), and the derived
   legacy tables with attribution.
 
 ## Consequences
@@ -117,7 +127,8 @@ Negative:
 - **Only Bijoy.** Rejected: breaks modern apps and search.
 - **Convert by mapping each Unicode codepoint independently.** Rejected:
   pre-base vowel signs and conjuncts need reordering rules.
-- **Bundle SutonnyMJ by default.** Rejected: proprietary; Kalpurush ANSI is
-  byte-compatible.
+- **Bundle SutonnyMJ by default.** Superseded 2026-11-23 by owner decision
+  (see amendment in §3): SutonnyMJ is now staged as the default Bijoy font;
+  Kalpurush ANSI (same Bijoy byte mapping) remains the fallback.
 - **Use a font's glyph IDs as the encoding.** Rejected: non-portable and
   unmaintainable.
