@@ -1,3 +1,4 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![deny(unsafe_code)]
 //! Okkhor settings UI shell (Tauri 2, ADR 0012).
 //!
@@ -582,6 +583,10 @@ fn main() {
                         if state.as_ref().is_some_and(|s| s.visible) {
                             if let Some(bar) = handle.get_webview_window("quickbar") {
                                 let collapsed = state.as_ref().is_some_and(|s| s.collapsed);
+                                // Normal launch must hug the same corner as
+                                // bar-only launch; otherwise Tauri's default
+                                // cascade position leaks through.
+                                place_quickbar_top_right(&bar);
                                 apply_bar_chrome(&bar, collapsed);
                                 show_bar_noactivate(&bar);
                             }
