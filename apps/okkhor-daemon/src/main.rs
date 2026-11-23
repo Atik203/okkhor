@@ -6,6 +6,7 @@
 
 use std::error::Error;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use okkhor_core::{Candidate, CandidateSource, Language, Ranker, SuggestionRequest};
@@ -51,9 +52,45 @@ fn main() {
             }
         }
         Some("daemon") => {
-            if let Err(error) = run_daemon() {
-                eprintln!("daemon failed: {error}");
-                std::process::exit(1);
+            let rest: Vec<String> = std::env::args().skip(2).collect();
+            match parse_daemon_args(&rest) {
+                Ok(encoding) => {
+                    if let Err(error) = run_daemon(encoding) {
+                        eprintln!("daemon failed: {error}");
+                        std::process::exit(1);
+                    }
+                }
+                Err(usage) => {
+                    eprintln!("{usage}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Some("fonts") => {
+            let rest: Vec<String> = std::env::args().skip(2).collect();
+            match parse_fonts_args(&rest) {
+                Ok(FontsAction::Status) => {
+                    if let Err(error) = fonts_status() {
+                        eprintln!("fonts status failed: {error}");
+                        std::process::exit(1);
+                    }
+                }
+                Ok(FontsAction::Install) => {
+                    if let Err(error) = fonts_install() {
+                        eprintln!("fonts install failed: {error}");
+                        std::process::exit(1);
+                    }
+                }
+                Ok(FontsAction::Uninstall(target)) => {
+                    if let Err(error) = fonts_uninstall(&target) {
+                        eprintln!("fonts uninstall failed: {error}");
+                        std::process::exit(1);
+                    }
+                }
+                Err(usage) => {
+                    eprintln!("{usage}");
+                    std::process::exit(2);
+                }
             }
         }
         Some("inject") => {
@@ -86,17 +123,326 @@ fn main() {
 
 fn print_help() {
     println!(
-        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status>]\n\n\
+        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon [--encoding unicode|bijoy] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
          `self-check` exercises the learning engine, ranking, and persistence.\n\
          `hook-demo` installs a global hook for 5 seconds and prints key events.\n\
          `popup-demo` shows a non-activating popup near the caret for 3 seconds.\n\
          `tray-demo` shows the tray menu for 10 seconds.\n\
-         `daemon` runs the resident daemon with hook, pause hotkey, and tray.\n\
+         `daemon [--encoding unicode|bijoy]` runs the resident daemon with hook, pause hotkey, and tray (default encoding: unicode).\n\
          `inject` is a QA-only command for synthetic text; focus the target during the delay.\n\
          `autostart enable|disable|status` manages the per-user login entry.\n\
+         `fonts status` lists staged font files, roles, and per-user install state (read-only, no admin).\n\
+         `fonts install` installs all staged fonts per user (idempotent, no admin).\n\
+         `fonts uninstall <name>` removes one per-user font (file + registry + session entry).\n\
          The demos are manual smoke tests; run them only in a disposable session.",
         env!("CARGO_PKG_VERSION")
     );
+}
+
+/// Output encoding selected at commit time (ADR 0013/0014).
+///
+/// Unicode is the default for modern apps; Bijoy converts the composed text
+/// to legacy ANSI bytes (rendered with a Bijoy-compatible font) once, at
+/// commit, off the hot path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputEncoding {
+    Unicode,
+    Bijoy,
+}
+
+impl OutputEncoding {
+    /// Stable machine-readable name (also the CLI spelling).
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unicode => "unicode",
+            Self::Bijoy => "bijoy",
+        }
+    }
+
+    /// Parse a CLI value; `None` for anything outside the allowlisted pair.
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "unicode" => Some(Self::Unicode),
+            "bijoy" => Some(Self::Bijoy),
+            _ => None,
+        }
+    }
+}
+
+/// Usage text for the `daemon` subcommand (also the exit-2 message).
+const DAEMON_USAGE: &str = "usage: okkhor daemon [--encoding unicode|bijoy]";
+
+/// Usage text for the `fonts` subcommand (also the exit-2 message).
+const FONTS_USAGE: &str = "usage: okkhor fonts <status|install|uninstall <name>>";
+
+/// Parse `okkhor daemon` arguments. Pure: no I/O, no process state.
+fn parse_daemon_args(args: &[String]) -> Result<OutputEncoding, &'static str> {
+    if args.is_empty() {
+        return Ok(OutputEncoding::Unicode);
+    }
+    if args.len() == 1 {
+        if let Some(value) = args[0].strip_prefix("--encoding=") {
+            return OutputEncoding::parse(value).ok_or(DAEMON_USAGE);
+        }
+    }
+    if args.len() == 2 && args[0] == "--encoding" {
+        return OutputEncoding::parse(&args[1]).ok_or(DAEMON_USAGE);
+    }
+    Err(DAEMON_USAGE)
+}
+
+/// Action selected by `okkhor fonts ...`. The uninstall target is a bundled
+/// file name (resolved by [`resolve_uninstall_target`]); anything else is
+/// rejected at parse time with the usage text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FontsAction {
+    Status,
+    Install,
+    Uninstall(String),
+}
+
+/// Parse `okkhor fonts` arguments. Pure: no I/O, no registry access.
+fn parse_fonts_args(args: &[String]) -> Result<FontsAction, &'static str> {
+    match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        ["status"] => Ok(FontsAction::Status),
+        ["install"] => Ok(FontsAction::Install),
+        ["uninstall", target] => {
+            let resolved = resolve_uninstall_target(target).ok_or(FONTS_USAGE)?;
+            Ok(FontsAction::Uninstall(resolved.to_owned()))
+        }
+        _ => Err(FONTS_USAGE),
+    }
+}
+
+/// Map a `fonts uninstall` argument to a bundled file name.
+///
+/// Accepts an exact bundled file name (case-insensitive), a family shorthand
+/// (`sutonnymj`, `kalpurush`, `kalpurush-ansi`, `noto`), or any other plain
+/// font file name (passed through for [`okkhor_win::uninstall_font_per_user`]
+/// to validate). Returns `None` for empty input, paths, or non-font
+/// extensions.
+fn resolve_uninstall_target(arg: &str) -> Option<&str> {
+    for (name, _) in okkhor_win::BUNDLED_FONTS {
+        if name.eq_ignore_ascii_case(arg) {
+            return Some(name);
+        }
+    }
+    let normalized: String = arg
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect();
+    let bundled: Option<&'static str> = match normalized.as_str() {
+        "sutonnymj" | "sutonnymjregular" => Some("SutonnyMJ Regular.ttf"),
+        "kalpurush" => Some("kalpurush.ttf"),
+        "kalpurushansi" => Some("kalpurush ANSI.ttf"),
+        "noto" | "notosansbengali" | "notosansbengalifallback" => Some("NotoSansBengali.ttf"),
+        _ => None,
+    };
+    if let Some(name) = bundled {
+        return Some(name);
+    }
+    // Pass-through: a plain file name the uninstall API validates itself.
+    // Rejects separators and non-font extensions up front so paths and
+    // executables never reach the registry/File APIs.
+    if arg.is_empty() || arg.len() > 128 {
+        return None;
+    }
+    if arg.contains('/') || arg.contains('\\') || arg.contains(':') {
+        return None;
+    }
+    let (stem, extension) = arg.rsplit_once('.')?;
+    if stem.is_empty() || stem.contains('.') {
+        return None;
+    }
+    if !matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "ttf" | "otf" | "ttc"
+    ) {
+        return None;
+    }
+    Some(arg)
+}
+
+/// Convert composed Unicode text to the commit-time output encoding.
+///
+/// Unicode passes through unchanged. Bijoy applies
+/// [`okkhor_lang::bijoy::to_bijoy`]; the error is projected to its stable
+/// logging kind (never text). Pure: no I/O, no logging.
+fn apply_encoding(text: &str, encoding: OutputEncoding) -> Result<String, &'static str> {
+    match encoding {
+        OutputEncoding::Unicode => Ok(text.to_owned()),
+        OutputEncoding::Bijoy => okkhor_lang::bijoy::to_bijoy(text).map_err(|error| error.kind()),
+    }
+}
+
+/// Prefer `<exe-dir>\fonts` when it exists, else `dev_fonts` (the
+/// `<repo>/assets/fonts` checkout used under `cargo run`). Falls back to the
+/// exe-adjacent directory when neither exists so `fonts status` can report
+/// every file as missing instead of failing. Pure over its inputs.
+fn select_fonts_dir(exe_fonts: &Path, dev_fonts: &Path) -> PathBuf {
+    if exe_fonts.is_dir() {
+        return exe_fonts.to_path_buf();
+    }
+    if dev_fonts.is_dir() {
+        return dev_fonts.to_path_buf();
+    }
+    exe_fonts.to_path_buf()
+}
+
+/// Locate the staged-font directory: `<exe-dir>\fonts` first, else the
+/// development checkout's `assets/fonts` (found by walking up from the
+/// executable, then from the working directory). Never contains hardcoded
+/// absolute paths or user names.
+fn locate_fonts_dir() -> PathBuf {
+    let exe_fonts = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|dir| dir.join("fonts")))
+        .unwrap_or_else(|| PathBuf::from("fonts"));
+    if exe_fonts.is_dir() {
+        return exe_fonts;
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cursor = exe.parent().map(Path::to_path_buf);
+        for _ in 0..8 {
+            match cursor {
+                Some(dir) => {
+                    let candidate = dir.join("assets").join("fonts");
+                    if candidate.is_dir() {
+                        return candidate;
+                    }
+                    cursor = dir.parent().map(Path::to_path_buf);
+                }
+                None => break,
+            }
+        }
+    }
+    let cwd_candidate = std::env::current_dir()
+        .map(|dir| dir.join("assets").join("fonts"))
+        .unwrap_or_else(|_| PathBuf::from("assets").join("fonts"));
+    select_fonts_dir(&exe_fonts, &cwd_candidate)
+}
+
+/// Family name for display: the font's own name table when the staged file
+/// is present, else the file stem. Never a filesystem path (paths can embed
+/// the user's name).
+fn display_family(dir: &Path, file_name: &str) -> String {
+    let staged = dir.join(file_name);
+    if let Ok(bytes) = std::fs::read(&staged) {
+        if let Some(family) = okkhor_win::font_family_name(&bytes) {
+            return family;
+        }
+    }
+    Path::new(file_name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(file_name)
+        .to_owned()
+}
+
+/// `okkhor fonts status`: list staged files, roles, and per-user install
+/// state plus Bijoy resolution. Read-only: no registry writes, no copies,
+/// no admin. Prints names/roles/yes-no only — never paths.
+fn fonts_status() -> Result<(), Box<dyn Error>> {
+    #[cfg(windows)]
+    let logger = logging::init();
+    #[cfg(windows)]
+    logger.command(logging::Command::FontsStatus);
+
+    let dir = locate_fonts_dir();
+    for bundled in okkhor_win::list_bundled_fonts(&dir) {
+        let family = display_family(&dir, bundled.file_name);
+        let installed = okkhor_win::is_font_installed(&family);
+        println!(
+            "{} | role={} | staged={} | installed={}",
+            bundled.file_name,
+            bundled.role.as_str(),
+            if bundled.present { "yes" } else { "no" },
+            if installed { "yes" } else { "no" },
+        );
+    }
+    let choice = okkhor_win::resolve_bijoy_font_with_probe(&dir, &okkhor_win::SystemFontProbe);
+    println!("bijoy: {}", choice.as_str());
+    Ok(())
+}
+
+/// `okkhor fonts install`: install every staged `.ttf` per user via the
+/// existing API. Idempotent; missing files are skipped with a warning.
+/// Prints family + role only — never paths (they can embed user names).
+fn fonts_install() -> Result<(), Box<dyn Error>> {
+    #[cfg(windows)]
+    let logger = logging::init();
+    #[cfg(windows)]
+    logger.command(logging::Command::FontsInstall);
+
+    let dir = locate_fonts_dir();
+    let mut staged_any = false;
+    for (file_name, role) in okkhor_win::BUNDLED_FONTS {
+        let source = dir.join(file_name);
+        if !source.is_file() {
+            eprintln!("fonts: missing {file_name}; skipping");
+            continue;
+        }
+        staged_any = true;
+        match okkhor_win::install_font_per_user(&source) {
+            Ok(done) => {
+                let family = display_family(&dir, file_name);
+                println!(
+                    "fonts: {family} [{}] {}",
+                    role.as_str(),
+                    if done.already_installed {
+                        "already installed"
+                    } else {
+                        "installed"
+                    },
+                );
+            }
+            Err(error) => {
+                #[cfg(windows)]
+                logger.error(logging::Scope::Registry, error.kind(), None);
+                eprintln!("fonts: failed {file_name}: {}", error.kind());
+            }
+        }
+    }
+    if !staged_any {
+        eprintln!("fonts: no staged fonts found; skipping");
+    }
+    Ok(())
+}
+
+/// `okkhor fonts uninstall <name>`: remove one per-user font (session
+/// resource + file + registry). `target` is a bundled file name resolved by
+/// [`parse_fonts_args`]. Prints outcome flags only — never paths.
+fn fonts_uninstall(target: &str) -> Result<(), Box<dyn Error>> {
+    #[cfg(windows)]
+    let logger = logging::init();
+    #[cfg(windows)]
+    logger.command(logging::Command::FontsUninstall);
+
+    match okkhor_win::uninstall_font_per_user(target) {
+        Ok(removed) => {
+            println!(
+                "fonts: {target} removed file={} registration={}",
+                if removed.removed_file { "yes" } else { "no" },
+                if removed.removed_registration {
+                    "yes"
+                } else {
+                    "no"
+                },
+            );
+            Ok(())
+        }
+        Err(error) => {
+            #[cfg(windows)]
+            logger.error(logging::Scope::Registry, error.kind(), None);
+            Err(error.into())
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -134,7 +480,7 @@ fn parse_autostart_action(_argument: Option<&str>) -> Option<()> {
 }
 
 #[cfg(windows)]
-fn run_daemon() -> Result<(), Box<dyn Error>> {
+fn run_daemon(encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
@@ -162,6 +508,7 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
         learn_tx: &'a mpsc::SyncSender<LearningEvent>,
         learn_dropped: &'a AtomicU64,
         compose_window: &'a mut isize,
+        encoding: crate::OutputEncoding,
     }
 
     fn hide_popup(popup: &mut Option<SuggestionPopup>) {
@@ -225,6 +572,10 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
     /// `SendInput` batch, so a zero-delivery failure erases nothing and
     /// injects nothing. A nonzero partial send can still erase a roman prefix
     /// without replacement (inherent to Win32); retry means retyping the word.
+    /// With `--encoding bijoy` the composed Unicode text is converted with
+    /// [`okkhor_lang::bijoy::to_bijoy`] before injection; the trailing space
+    /// stays ASCII either way. A conversion failure injects the Unicode text
+    /// unchanged and logs the allowlisted `encoding_fallback` code.
     /// Never logs the buffer or the committed text; failures log an
     /// allowlisted kind plus an optional numeric code only.
     fn do_commit(ctx: &mut CompositionCtx<'_>, commit: Commit, roman: String) {
@@ -235,7 +586,22 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
                 .error(logging::Scope::Daemon, "focus_changed", None);
             return;
         }
-        if let Err(error) = inject_commit(commit.erase_chars, &commit.text, commit.trailing_space) {
+        // Unicode original for learning: Smriti maps roman input to Unicode
+        // output, so Bijoy bytes must never enter the learning path.
+        let unicode_text = commit.text.clone();
+        let encoding = ctx.encoding;
+        let inject_text = match encoding {
+            crate::OutputEncoding::Unicode => commit.text,
+            crate::OutputEncoding::Bijoy => match crate::apply_encoding(&commit.text, encoding) {
+                Ok(converted) => converted,
+                Err(_) => {
+                    ctx.logger
+                        .error(logging::Scope::Daemon, "encoding_fallback", None);
+                    commit.text
+                }
+            },
+        };
+        if let Err(error) = inject_commit(commit.erase_chars, &inject_text, commit.trailing_space) {
             ctx.logger
                 .error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
             ctx.session.reset();
@@ -250,7 +616,7 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
         // `Smriti::observe` performs no I/O.
         let event = LearningEvent::TransliterationCommitted {
             roman_input: roman,
-            output: commit.text,
+            output: unicode_text,
             language: Language::Bangla,
             previous_word: None,
             timestamp_ms: now_ms(),
@@ -438,7 +804,7 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
     let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
     let mut compose_window = foreground_window_id();
 
-    println!("daemon: running");
+    println!("daemon: running (encoding {})", encoding.as_str());
     if hotkey_ready {
         println!("daemon: Ctrl+Alt+Shift+P toggles capture");
     }
@@ -484,6 +850,7 @@ fn run_daemon() -> Result<(), Box<dyn Error>> {
                 learn_tx: &learn_tx,
                 learn_dropped: &learn_dropped,
                 compose_window: &mut compose_window,
+                encoding,
             };
             handle_key(event.virtual_key, &mut ctx);
         }
@@ -513,7 +880,7 @@ fn toggle_capture(hook: &okkhor_win::WindowsKeyboardHook, tray: &okkhor_win::Tra
 }
 
 #[cfg(not(windows))]
-fn run_daemon() -> Result<(), Box<dyn Error>> {
+fn run_daemon(_encoding: OutputEncoding) -> Result<(), Box<dyn Error>> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "daemon is only available on Windows",
@@ -936,6 +1303,11 @@ fn fresh_temp_dir() -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        FontsAction, OutputEncoding, apply_encoding, parse_daemon_args, parse_fonts_args,
+        resolve_uninstall_target, select_fonts_dir,
+    };
+
     #[test]
     fn self_check_passes() {
         super::self_check().expect("self-check");
@@ -949,5 +1321,182 @@ mod tests {
     #[ignore = "manual smoke only; needs no hook, asserts the no-op erase path"]
     fn backspace_zero_is_noop_without_hook() {
         okkhor_win::send_backspaces(0).expect("zero backspaces");
+    }
+
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| word.to_string()).collect()
+    }
+
+    #[test]
+    fn daemon_args_default_to_unicode() {
+        assert_eq!(parse_daemon_args(&args(&[])), Ok(OutputEncoding::Unicode));
+        assert_eq!(OutputEncoding::Unicode.as_str(), "unicode");
+        assert_eq!(OutputEncoding::Bijoy.as_str(), "bijoy");
+    }
+
+    #[test]
+    fn daemon_args_accept_space_and_equals_forms() {
+        assert_eq!(
+            parse_daemon_args(&args(&["--encoding", "unicode"])),
+            Ok(OutputEncoding::Unicode)
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--encoding", "bijoy"])),
+            Ok(OutputEncoding::Bijoy)
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--encoding=unicode"])),
+            Ok(OutputEncoding::Unicode)
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--encoding=bijoy"])),
+            Ok(OutputEncoding::Bijoy)
+        );
+    }
+
+    #[test]
+    fn daemon_args_reject_unknown_or_missing_values() {
+        // Unknown value, missing value, unknown flag, and extras all print
+        // usage and exit 2 at the call site; parsing reports the usage text.
+        assert!(parse_daemon_args(&args(&["--encoding"])).is_err());
+        assert!(parse_daemon_args(&args(&["--encoding", "ansi"])).is_err());
+        assert!(parse_daemon_args(&args(&["--encoding="])).is_err());
+        assert!(parse_daemon_args(&args(&["--encoding=BIJOY"])).is_err());
+        assert!(parse_daemon_args(&args(&["--other"])).is_err());
+        assert!(parse_daemon_args(&args(&["--encoding", "bijoy", "extra"])).is_err());
+        assert_eq!(
+            OutputEncoding::parse("unicode"),
+            Some(OutputEncoding::Unicode)
+        );
+        assert_eq!(OutputEncoding::parse("bijoy"), Some(OutputEncoding::Bijoy));
+        assert_eq!(OutputEncoding::parse("ansi"), None);
+    }
+
+    #[test]
+    fn encoding_selection_converts_amar_to_exact_bijoy_bytes() {
+        // Golden from `okkhor-lang::bijoy` (ANSI 1 / SutonnyMJ): আমার -> Avgvi.
+        let direct = okkhor_lang::bijoy::to_bijoy("আমার").expect("golden converts");
+        assert_eq!(direct, "Avgvi");
+        assert_eq!(
+            apply_encoding("আমার", OutputEncoding::Bijoy).expect("bijoy encodes"),
+            direct
+        );
+        // Unicode is a pass-through, whatever the input.
+        assert_eq!(
+            apply_encoding("আমার", OutputEncoding::Unicode).expect("unicode passes"),
+            "আমার"
+        );
+        assert_eq!(
+            apply_encoding("", OutputEncoding::Bijoy).expect("empty converts"),
+            ""
+        );
+    }
+
+    #[test]
+    fn encoding_projection_never_carries_text() {
+        // Over-long input fails with a static kind only (logging-safe).
+        let long: String = "অ".repeat(okkhor_lang::bijoy::MAX_INPUT_CHARS + 1);
+        let kind = apply_encoding(&long, OutputEncoding::Bijoy).unwrap_err();
+        assert_eq!(kind, "bijoy_input_too_long");
+        assert!(!kind.contains("অ"), "kind must not carry text: {kind}");
+    }
+
+    #[test]
+    fn fonts_args_parse_status_install_uninstall() {
+        assert_eq!(
+            parse_fonts_args(&args(&["status"])),
+            Ok(FontsAction::Status)
+        );
+        assert_eq!(
+            parse_fonts_args(&args(&["install"])),
+            Ok(FontsAction::Install)
+        );
+        assert_eq!(
+            parse_fonts_args(&args(&["uninstall", "kalpurush.ttf"])),
+            Ok(FontsAction::Uninstall("kalpurush.ttf".to_owned()))
+        );
+        // Missing target, unknown verb, and empty input are usage errors.
+        assert!(parse_fonts_args(&args(&["uninstall"])).is_err());
+        assert!(parse_fonts_args(&args(&["remove"])).is_err());
+        assert!(parse_fonts_args(&[]).is_err());
+    }
+
+    #[test]
+    fn uninstall_target_resolves_bundled_and_family_names() {
+        assert_eq!(
+            resolve_uninstall_target("kalpurush.ttf"),
+            Some("kalpurush.ttf")
+        );
+        assert_eq!(
+            resolve_uninstall_target("KALPURUSH.TTF"),
+            Some("kalpurush.ttf")
+        );
+        assert_eq!(
+            resolve_uninstall_target("SutonnyMJ"),
+            Some("SutonnyMJ Regular.ttf")
+        );
+        assert_eq!(
+            resolve_uninstall_target("kalpurush-ansi"),
+            Some("kalpurush ANSI.ttf")
+        );
+        assert_eq!(
+            resolve_uninstall_target("Noto"),
+            Some("NotoSansBengali.ttf")
+        );
+        // Plain pass-through names survive; paths and non-fonts do not.
+        assert_eq!(resolve_uninstall_target("other.ttf"), Some("other.ttf"));
+        assert_eq!(resolve_uninstall_target(""), None);
+        assert_eq!(resolve_uninstall_target("../evil.ttf"), None);
+        assert_eq!(resolve_uninstall_target("font.exe"), None);
+        assert_eq!(resolve_uninstall_target("font"), None);
+    }
+
+    #[test]
+    fn font_dir_prefers_exe_dir_then_dev_checkout() {
+        let base = super::fresh_temp_dir();
+        let exe_fonts = base.join("exe").join("fonts");
+        let dev_fonts = base.join("repo").join("assets").join("fonts");
+        std::fs::create_dir_all(&exe_fonts).expect("exe fonts dir");
+        std::fs::create_dir_all(&dev_fonts).expect("dev fonts dir");
+        // Both present: the portable exe-adjacent directory wins.
+        assert_eq!(select_fonts_dir(&exe_fonts, &dev_fonts), exe_fonts);
+        // Exe-adjacent absent: the dev checkout is used (`cargo run` path).
+        let missing = base.join("nowhere").join("fonts");
+        assert_eq!(select_fonts_dir(&missing, &dev_fonts), dev_fonts);
+        // Neither present: report the exe-adjacent path so status can list
+        // every file as missing instead of failing.
+        assert_eq!(
+            select_fonts_dir(&missing, &base.join("also-missing")),
+            missing
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn fonts_status_path_lists_roles_without_installing() {
+        // Non-destructive: pure filesystem listing + Bijoy resolution over a
+        // temp dir; installs nothing, starts no hook, touches no registry.
+        let dir = super::fresh_temp_dir();
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        std::fs::write(dir.join("kalpurush.ttf"), b"fake-font").expect("stage");
+        let listed = okkhor_win::list_bundled_fonts(&dir);
+        assert_eq!(listed.len(), okkhor_win::BUNDLED_FONTS.len());
+        let first = listed
+            .iter()
+            .find(|item| item.file_name == "kalpurush.ttf")
+            .expect("entry");
+        assert!(first.present);
+        assert_eq!(first.role.as_str(), "unicode-ui");
+        let missing = listed
+            .iter()
+            .find(|item| item.file_name == "SutonnyMJ Regular.ttf")
+            .expect("entry");
+        assert!(!missing.present);
+        // No Bijoy font staged: typed, non-fatal missing (Unicode keeps working).
+        assert_eq!(
+            okkhor_win::resolve_bijoy_font(&dir),
+            okkhor_win::BijoyFontChoice::NoneAvailable
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
