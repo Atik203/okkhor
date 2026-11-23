@@ -31,6 +31,10 @@ dependencies, duplicated or incompatible data types, unsafe code leaking out
 of the FFI seam, path traversal in the DLL loader, and fixtures that contain
 real user or proprietary data.
 
+Naming note: ADR 0005 uses the placeholder `legacy-compat`; the sprint plan and
+this ADR use `okkhor-compat` for the same crate. The plan name wins; ADR 0005
+is not edited by Task A (lead gate G4 in the design doc).
+
 ## Decision
 
 Adopt [docs/design/0.3-core-contracts.md](../design/0.3-core-contracts.md) as
@@ -72,14 +76,31 @@ the binding public contract for Tasks 1–3. Its essential decisions are:
    (`word-trie`, `sentence-trie`, `translator`, `caret`, `emoji-manager`).
 
 6. **Fixture contract.** Tests use only synthetic JSON under each crate's
-   `tests/fixtures/synthetic/`, with a `schema` field, an 8 MiB per-file cap,
-   relative non-traversing manifest paths, and deterministic ordering. No
-   legacy files, binaries, pickle data, secrets, or user text.
+   `tests/fixtures/synthetic/`, with an envelope `schema` field validated
+   before payload deserialization, an 8 MiB per-file cap, relative
+   non-traversing manifest paths, and deterministic ordering. Language strings
+   are `"bangla"`/`"english"` (serde matches `okkhor_core::Language` variants,
+   not `code()`), numeric codes are decimal integers, and every example parses
+   with a JSON parser. No legacy files, binaries, pickle data, secrets, or
+   user text.
 
 7. **Daemon integration is lead-owned.** Modules are constructed once at
    startup; the input worker uses only bounded in-memory lookups and
-   `okkhor-learn` ranking. The lead adds `lang`, `transliterate`, and `compat`
-   logger scopes and extends `self_check`. Tasks 1–3 do not edit the daemon.
+   `okkhor_core::Ranker` implemented by `okkhor_learn::Smriti`. The lead adds
+   `lang`, `transliterate`, and `compat` logger scopes (gate G1), extends
+   `self_check`, and indexes this ADR (gate G2). Tasks 1–3 do not edit the
+   daemon. Layout remains metadata only in the Smriti pair key until gate G3
+   closes.
+
+8. **Deterministic importer and engine.** A private `FixtureEnvelope<T>` reads
+   `schema` before deserializing any asset; duplicate handling across the four
+   `allow_duplicates` × `strict` combinations is fully specified with the
+   first occurrence winning. In the transliteration crate,
+   `RuleSet::from_json_str` owns schema/shape/id-syntax validation only, while
+   `RuleTransliterator::new` owns normalization, ASCII/length/NFC/language
+   validation, deduplication, and sorting. Errors carry only static strings,
+   logical kinds, and optional numeric codes; callers never log `Debug` or
+   walk `source()`.
 
 ## Consequences
 
@@ -100,8 +121,10 @@ Negative:
   a Rust implementation with parity tests.
 - `AdapterHandle` is intentionally `!Send + !Sync` in 0.3, which constrains
   daemon threading until a reviewed change lifts it.
-- Adding logger scopes and the ADR index row is deferred to the lead/Task 8,
-  so a merge that omits them leaves a small documentation gap.
+- Logger scopes and the ADR index row are hard cross-task dependencies, not
+  optional documentation. They are tracked as lead-owned merge gates **G1**
+  and **G2** in design doc §8 with acceptance criteria; until G1 lands, the
+  §6.3 logging call cannot be compiled.
 
 ## Alternatives considered
 
@@ -122,7 +145,7 @@ Negative:
 ## Compliance
 
 Tasks 1–3 must satisfy design doc §3.6, §4.7, and §5.7 respectively, run
-`cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, and
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and
 `cargo test --workspace`, and report pass/fail with evidence. Task 6 reviews
 against design doc §7. Any change to a public signature in this ADR requires a
 new or superseding ADR and an update to the design doc in the same change.
