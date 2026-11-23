@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "apps/okkhor-bench",
     "apps/okkhor-daemon",
+    "crates/okkhor-compat",
     "crates/okkhor-core",
     "crates/okkhor-learn",
     "crates/okkhor-lang",
