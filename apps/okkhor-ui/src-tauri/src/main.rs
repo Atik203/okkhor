@@ -584,6 +584,8 @@ async fn set_quickbar_collapsed(
                             collapsed: settings.quickbar_collapsed,
                             opacity: settings.quickbar_opacity,
                             visible: settings.quickbar_visible,
+                            x: settings.quickbar_x,
+                            y: settings.quickbar_y,
                         });
                     }
                 }

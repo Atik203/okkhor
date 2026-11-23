@@ -2235,10 +2235,21 @@ name = "okkhor-ui"
 version = "0.5.0"
 dependencies = [
  "okkhor-ipc",
+ "okkhor-win",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "thiserror 2.0.21",
+ "windows",
+]
+
+[[package]]
+name = "okkhor-win"
+version = "0.5.0"
+dependencies = [
+ "serde",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
  "windows",
 ]

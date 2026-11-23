@@ -19,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 okkhor-ipc = { path = "../../../crates/okkhor-ipc" }
+okkhor-win = { path = "../../../crates/okkhor-win" }
 
 # Win32 no-activate styling for the quick bar window (`quickbar_native`).
 # Same major version the Tauri shell already pulls in (see Cargo.lock).
