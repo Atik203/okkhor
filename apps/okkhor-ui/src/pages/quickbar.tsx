@@ -60,15 +60,38 @@ function readStoredWidth(): number {
 }
 
 function useSnapshot() {
-  return useQuery({
+  const query = useQuery({
     queryKey: ["quickbar"],
     queryFn: () => api.quickbarState(),
     retry: false,
     refetchOnWindowFocus: false,
     staleTime: 5_000,
     // Mode can change outside the bar (F9 hotkey, tray); re-sync cheaply.
-    refetchInterval: 15_000,
+    // While the engine is starting, retry faster so the bar lights up as soon
+    // as the pipe answers (it is a local connect, not a network call).
+    refetchInterval: (probe) => (probe.state.status === "error" ? 1_500 : 15_000),
   });
+
+  // The settings window normally starts the engine; a bar-only launch can
+  // arrive first. Ask the shell to start it once, then let the probe above
+  // recover the bar without a click.
+  const ensured = React.useRef(false);
+  const refetch = query.refetch;
+  React.useEffect(() => {
+    if (ensured.current || !query.isError) {
+      return;
+    }
+    ensured.current = true;
+    if (!isDaemonUnavailable(query.error)) {
+      return;
+    }
+    void api
+      .ensureDaemon()
+      .catch(() => undefined)
+      .finally(() => void refetch());
+  }, [query.isError, query.error, refetch]);
+
+  return query;
 }
 
 function useApplySnapshot() {

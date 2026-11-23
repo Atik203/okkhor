@@ -67,6 +67,9 @@ export type QuickbarSnapshot = {
  * `{ code, message }`; see `lib/errors.ts`.
  */
 export const api = {
+  ensureDaemon(): Promise<boolean> {
+    return invoke<boolean>("daemon_ensure");
+  },
   status(): Promise<Status> {
     return invoke<Status>("ipc_status");
   },

@@ -33,7 +33,10 @@ describe("typed IPC error mapping", () => {
 
   test("describeError uses static text per code", () => {
     expect(describeError({ code: "daemon_unavailable", message: "" })).toContain(
-      "daemon is not running",
+      "engine is not running",
+    );
+    expect(describeError({ code: "engine_missing", message: "" })).toContain(
+      "engine is missing",
     );
     expect(describeError({ code: "ProtocolMismatch", message: "" })).toContain("Restart Okkhor");
     expect(describeError({ code: "InvalidLayout", message: "" })).toContain("Unknown keyboard layout");

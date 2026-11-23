@@ -7,6 +7,13 @@ use windows::Win32::Graphics::Gdi::{
     ClientToScreen, GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
     MonitorFromWindow,
 };
+use windows::Win32::System::Com::{
+    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+};
+use windows::Win32::System::Ole::SafeArrayDestroy;
+use windows::Win32::UI::Accessibility::{
+    CUIAutomation, IUIAutomation, IUIAutomationTextPattern2, UIA_TextPattern2Id,
+};
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext,
 };
@@ -51,71 +58,240 @@ pub fn enable_per_monitor_dpi_awareness() -> Result<(), DpiError> {
     )
 }
 
-/// Read the foreground caret, or a mouse/screen fallback.
+/// Read the foreground caret, or a screen fallback.
 ///
-/// The returned coordinates are physical pixels because the process should be
-/// Per-Monitor V2 DPI aware.
+/// Sources, in order:
+///
+/// 1. `GetGUIThreadInfo`: exact caret for classic Win32 edit controls
+///    (Notepad, dialogs). Fast and allocation-free.
+/// 2. UI Automation `TextPattern2::GetCaretRange`: Chromium (Chrome, Edge,
+///    Electron, Slack, VS Code) exposes no GUI caret — the old code used
+///    `hwndFocus` with a zero rectangle, which pinned the popup to the page's
+///    top-left corner. UIA gives the real screen rectangle and follows the
+///    caret as the text grows.
+/// 3. The mouse position, so a popup never lands at (0,0).
+///
+/// Coordinates are physical pixels because the process is Per-Monitor V2 DPI
+/// aware.
 pub fn caret_anchor() -> Option<CaretAnchor> {
     // SAFETY: GetForegroundWindow has no pointer preconditions.
     let foreground = unsafe { GetForegroundWindow() };
-    if foreground.0.is_null() {
-        return Some(fallback_anchor());
-    }
+    let dpi = if foreground.0.is_null() {
+        96
+    } else {
+        // SAFETY: foreground is a live window; zero is handled below.
+        match unsafe { GetDpiForWindow(foreground) } {
+            0 => 96,
+            dpi => dpi,
+        }
+    };
+    let work_area = if foreground.0.is_null() {
+        screen_work_area()
+    } else {
+        // SAFETY: MonitorFromWindow has no pointer preconditions.
+        let monitor = unsafe { MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST) };
+        monitor_work_area(monitor).unwrap_or_else(screen_work_area)
+    };
 
+    if !foreground.0.is_null() {
+        if let Some(rect) = gui_caret_rect(foreground) {
+            return Some(anchor_from_rect(rect, dpi, work_area));
+        }
+        if let Some(rect) = uia_caret_rect(foreground) {
+            return Some(anchor_from_rect(rect, dpi, work_area));
+        }
+    }
+    Some(fallback_anchor())
+}
+
+/// Screen rectangle of the classic Win32 caret, when the focused control has
+/// one. Returns `None` for Chromium-style clients that only report a focus
+/// window with an empty caret rectangle.
+fn gui_caret_rect(foreground: windows::Win32::Foundation::HWND) -> Option<RECT> {
     // SAFETY: GetWindowThreadProcessId only reads the window's thread id.
     let thread_id = unsafe { GetWindowThreadProcessId(foreground, None) };
     if thread_id == 0 {
-        return Some(fallback_anchor());
+        return None;
     }
-
     let mut info = GUITHREADINFO {
         cbSize: size_of::<GUITHREADINFO>() as u32,
         ..GUITHREADINFO::default()
     };
     // SAFETY: info is a valid GUITHREADINFO with cbSize initialized.
     if unsafe { GetGUIThreadInfo(thread_id, &mut info) }.is_err() {
-        return Some(fallback_anchor());
+        return None;
     }
-
-    let caret_window = if !info.hwndCaret.0.is_null() {
-        info.hwndCaret
-    } else {
-        info.hwndFocus
-    };
-    if caret_window.0.is_null() {
-        return Some(fallback_anchor());
+    // Only a real caret window carries `rcCaret`; `hwndFocus` alone is the
+    // whole page/view, so using it would place the popup at its (0,0).
+    if info.hwndCaret.0.is_null() {
+        return None;
     }
-
+    let height = info.rcCaret.bottom - info.rcCaret.top;
+    if height <= 0 {
+        return None;
+    }
     let mut point = POINT {
         x: info.rcCaret.left,
         y: info.rcCaret.bottom,
     };
-    // SAFETY: caret_window is a live window and point is a valid POINT.
-    if !unsafe { ClientToScreen(caret_window, &mut point) }.as_bool() {
-        return Some(fallback_anchor());
+    // SAFETY: hwndCaret is a live window and point is a valid POINT.
+    if !unsafe { ClientToScreen(info.hwndCaret, &mut point) }.as_bool() {
+        return None;
+    }
+    Some(RECT {
+        left: point.x,
+        top: point.y - height,
+        right: point.x + 1,
+        bottom: point.y,
+    })
+}
+
+thread_local! {
+    /// UIA client object per thread; COM apartments are thread-affine.
+    static UIA: std::cell::RefCell<Option<IUIAutomation>> =
+        const { std::cell::RefCell::new(None) };
+    /// Focused element cache: (foreground hwnd, taken-at, element).
+    ///
+    /// `GetFocusedElement` walks the whole UIA tree in Chromium and can cost
+    /// tens of milliseconds per keystroke. The caret range itself is cheap, so
+    /// the element is reused for a short window (covers a typing burst) and
+    /// re-resolved after a click or focus change.
+    static UIA_FOCUS: std::cell::RefCell<
+        Option<(isize, std::time::Instant, windows::Win32::UI::Accessibility::IUIAutomationElement)>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+/// Lazily create (once per thread) the UIA client.
+#[cfg(windows)]
+fn uia_automation() -> Option<IUIAutomation> {
+    // SAFETY: a null reserved pointer is the documented form. MTA is right for
+    // a worker that never pumps UI messages; an already-initialized apartment
+    // (S_FALSE or RPC_E_CHANGED_MODE) still supports UIA client calls.
+    let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+    UIA.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            // SAFETY: CUIAutomation is the documented CLSID and the out
+            // interface is a valid IUIAutomation.
+            *slot = unsafe {
+                CoCreateInstance(
+                    &CUIAutomation,
+                    None::<&windows::core::IUnknown>,
+                    CLSCTX_INPROC_SERVER,
+                )
+            }
+            .ok();
+        }
+        slot.clone()
+    })
+}
+
+/// Screen rectangle of the UIA text caret (Chromium, Electron, WinUI, WPF).
+///
+/// `TextPattern2::GetCaretRange` is the precise source; `TextPattern::
+/// GetSelection` covers clients that only implement the base pattern. Both
+/// return client-area-independent screen coordinates in physical pixels.
+#[cfg(windows)]
+fn uia_caret_rect(foreground: windows::Win32::Foundation::HWND) -> Option<RECT> {
+    let uia = uia_automation()?;
+    let focused = focused_element(&uia, foreground)?;
+
+    // SAFETY: same as above; the pattern may be unsupported (Err) or unusual.
+    if let Ok(pattern) =
+        unsafe { focused.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id) }
+    {
+        let mut active = windows::core::BOOL(0);
+        // SAFETY: active is a valid BOOL storage.
+        if let Ok(range) = unsafe { pattern.GetCaretRange(&mut active) } {
+            if let Some(rect) = range_screen_rect(&uia, &range) {
+                return Some(rect);
+            }
+        }
     }
 
-    // SAFETY: foreground is a live window; zero is handled below.
-    let dpi = match unsafe { GetDpiForWindow(foreground) } {
-        0 => 96,
-        dpi => dpi,
+    // SAFETY: base TextPattern selection. The first range is the caret when
+    // the selection is collapsed; empty selections return no ranges.
+    let base: windows::Win32::UI::Accessibility::IUIAutomationTextPattern = unsafe {
+        focused.GetCurrentPatternAs(windows::Win32::UI::Accessibility::UIA_TextPatternId)
+    }
+    .ok()?;
+    let selection = unsafe { base.GetSelection() }.ok()?;
+    let count = unsafe { selection.Length() }.ok()?;
+    for index in 0..count.max(0) {
+        if let Ok(range) = unsafe { selection.GetElement(index) } {
+            if let Some(rect) = range_screen_rect(&uia, &range) {
+                return Some(rect);
+            }
+        }
+    }
+    None
+}
+
+/// Focused element for `foreground`, cached briefly to keep typing smooth.
+fn focused_element(
+    uia: &IUIAutomation,
+    foreground: windows::Win32::Foundation::HWND,
+) -> Option<windows::Win32::UI::Accessibility::IUIAutomationElement> {
+    let key = foreground.0 as isize;
+    UIA_FOCUS.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if let Some((cached, at, element)) = slot.as_ref() {
+            if *cached == key && at.elapsed() < std::time::Duration::from_millis(500) {
+                return Some(element.clone());
+            }
+        }
+        // SAFETY: UIA client call; failure is a typed HRESULT.
+        let element = unsafe { uia.GetFocusedElement() }.ok()?;
+        *slot = Some((key, std::time::Instant::now(), element.clone()));
+        Some(element)
+    })
+}
+
+/// First screen rectangle of a UIA text range, or `None` when empty.
+#[cfg(windows)]
+fn range_screen_rect(
+    uia: &IUIAutomation,
+    range: &windows::Win32::UI::Accessibility::IUIAutomationTextRange,
+) -> Option<RECT> {
+    // SAFETY: returns an owned SAFEARRAY of doubles (left, top, width, height).
+    let array = unsafe { range.GetBoundingRectangles() }.ok()?;
+    if array.is_null() {
+        return None;
+    }
+    let mut rects: *mut RECT = std::ptr::null_mut();
+    // SAFETY: array is a live SAFEARRAY returned by UIA; rects receives a
+    // CoTaskMemAlloc allocation, freed below.
+    let count = unsafe { uia.SafeArrayToRectNativeArray(array, &mut rects) }.unwrap_or(0);
+    // SAFETY: we own the SAFEARRAY returned by GetBoundingRectangles.
+    let _ = unsafe { SafeArrayDestroy(array) };
+    let first = if count > 0 && !rects.is_null() {
+        // SAFETY: count > 0 means at least one RECT was written.
+        Some(unsafe { *rects })
+    } else {
+        None
     };
-    let caret_height = (info.rcCaret.bottom - info.rcCaret.top).max(1);
+    if !rects.is_null() {
+        // SAFETY: the allocation came from SafeArrayToRectNativeArray.
+        unsafe { CoTaskMemFree(Some(rects as *const core::ffi::c_void)) };
+    }
+    let rect = first?;
+    if rect.bottom <= rect.top || rect.right < rect.left {
+        return None;
+    }
+    Some(rect)
+}
 
-    // SAFETY: MonitorFromWindow has no pointer preconditions.
-    let monitor = unsafe { MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST) };
-    let work_area = monitor_work_area(monitor).unwrap_or_else(screen_work_area);
-
-    Some(CaretAnchor {
+fn anchor_from_rect(rect: RECT, dpi: u32, work_area: RECT) -> CaretAnchor {
+    CaretAnchor {
         rect: RECT {
-            left: point.x,
-            top: point.y - caret_height,
-            right: point.x + 1,
-            bottom: point.y,
+            left: rect.left,
+            top: rect.top,
+            right: (rect.left + 1).max(rect.right),
+            bottom: rect.bottom,
         },
         dpi,
         work_area,
-    })
+    }
 }
 
 /// Place a popup below the caret, flipping above or clamping when needed.

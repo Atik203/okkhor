@@ -37,6 +37,16 @@ impl UiError {
         )
     }
 
+    /// The resident engine is not staged next to this UI. Auto-start cannot
+    /// work until the portable folder is intact; static text only.
+    #[must_use]
+    pub fn engine_missing() -> Self {
+        Self::new(
+            "engine_missing",
+            "The Okkhor engine is missing. Re-extract the portable folder and keep bin next to Okkhor.exe.",
+        )
+    }
+
     /// Bug-shaped local failure (should not happen from UI input).
     #[must_use]
     pub fn internal() -> Self {

@@ -30,6 +30,8 @@ pub const VK_LEFT: u16 = 0x25;
 pub const VK_UP: u16 = 0x26;
 pub const VK_RIGHT: u16 = 0x27;
 pub const VK_DOWN: u16 = 0x28;
+/// `.` on the main row (Unicode Bangla maps it to the danda `।`).
+pub const VK_OEM_PERIOD: u16 = 0xBE;
 
 /// A committed composition: what the daemon must erase and inject.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +80,33 @@ pub fn vk_to_digit_index(vk: u16) -> Option<usize> {
         0x60 => Some(9),
         _ => None,
     }
+}
+
+/// Map a candidate index back to the digit that produced it.
+///
+/// Index `0` is the `1` key … index `8` is `9`, index `9` is `0`. With
+/// `bengali`, the result is `১`–`৯`, `০` (U+09E7…U+09E6); otherwise ASCII.
+pub fn digit_char(index: usize, bengali: bool) -> char {
+    let value = (index + 1) % 10;
+    if bengali {
+        // '০' is U+09E6, so value 1 maps to U+09E7 ('১').
+        char::from_u32(0x09E6 + value as u32).unwrap_or('0')
+    } else if value == 0 {
+        '0'
+    } else {
+        char::from(b'0' + value as u8)
+    }
+}
+
+/// Whether a virtual key is a pure modifier (Shift/Ctrl/Alt/Win/Caps/Num/Scroll).
+///
+/// Modifier presses must not cancel a composition: Shift is part of normal
+/// capital typing, and the chord cases are handled by the letter arm.
+pub const fn is_modifier_key(vk: u16) -> bool {
+    matches!(
+        vk,
+        0x10 | 0x11 | 0x12 | 0x14 | 0x5B | 0x5C | 0x90 | 0x91 | 0xA0..=0xA5
+    )
 }
 
 /// Pure composition session: roman buffer, candidates, selection.
@@ -358,7 +387,7 @@ pub fn default_engine() -> DefaultEngine {
 mod tests {
     use super::{
         BackspaceOutcome, DefaultEngine, InputSession, MAX_BUFFER_LEN, MAX_CANDIDATES,
-        default_engine, vk_to_digit_index, vk_to_letter,
+        default_engine, digit_char, is_modifier_key, vk_to_digit_index, vk_to_letter,
     };
     use okkhor_core::Language;
     use okkhor_transliterate::{
@@ -581,6 +610,29 @@ mod tests {
         assert!(session.candidates().is_empty());
         assert_eq!(session.selected(), 0);
         assert_eq!(session.cancel(), None);
+    }
+
+    #[test]
+    fn digit_char_maps_keys_to_ascii_and_bengali_numerals() {
+        // Key 1..9 -> index 0..8, key 0 -> index 9.
+        assert_eq!(digit_char(0, false), '1');
+        assert_eq!(digit_char(8, false), '9');
+        assert_eq!(digit_char(9, false), '0');
+        assert_eq!(digit_char(0, true), '১');
+        assert_eq!(digit_char(8, true), '৯');
+        assert_eq!(digit_char(9, true), '০');
+    }
+
+    #[test]
+    fn modifiers_keep_a_composition_alive() {
+        // Shift/Ctrl/Alt/Win/Caps/Num/Scroll presses are not text and must not
+        // end a composition; every other unhandled key cancels it.
+        for vk in [0x10, 0x11, 0x12, 0x14, 0x5B, 0x5C, 0x90, 0x91, 0xA0, 0xA5] {
+            assert!(is_modifier_key(vk), "vk {vk:#04X} is a modifier");
+        }
+        for vk in [0x41, 0x20, 0x0D, 0x25, 0xBC, 0x2E] {
+            assert!(!is_modifier_key(vk), "vk {vk:#04X} is not a modifier");
+        }
     }
 
     #[test]

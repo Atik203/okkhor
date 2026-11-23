@@ -21,8 +21,14 @@ WebView (React) ──invoke──▶ src-tauri (Rust commands) ──named pipe
 - The daemon is the **single writer** of `settings.json`. The UI never writes
   the file directly — all reads/writes go through `settings.get` /
   `settings.update` IPC.
-- Daemon absent: every Rust command returns typed `daemon_unavailable`; the
-  WebView shows a persistent banner, renders read-only, and offers Retry.
+- Daemon absent: `Okkhor.exe` (this UI) starts the engine next to itself
+  (`bin\okkhor-engine.exe`, or a sibling for dev/0.5.0 layouts) through the
+  `daemon_ensure` command, then re-probes status. The engine stays a separate
+  process: if it still cannot start, every Rust command returns typed
+  `daemon_unavailable` and the WebView shows a persistent banner, renders
+  read-only, and offers **Start Okkhor**. A missing `bin\` folder returns
+  `engine_missing` with static layout text. `OKKHOR_ENGINE_PATH` overrides
+  the engine path for dev/QA.
 - No network at runtime: CSP is `default-src 'self'` plus the minimum Tauri
   needs (`ipc:`/`http://ipc.localhost` for invoke, `asset:`/`data:` images,
   local inline styles). No remote fonts, assets, or telemetry.
@@ -120,7 +126,8 @@ cargo test
   to false; the process stays alive. The tray menu's **Show quick bar** signals
   a session-local named event (`Local\Okkhor.QuickBar.Show.v1`) so the running
   UI re-shows the bar no-activate (`quickbar_show`). If no UI is listening,
-  the daemon launches `okkhor-ui.exe --quickbar` instead.
+  the daemon launches the UI at the artifact root with `--quickbar` (sibling
+  `okkhor-ui.exe` in dev/0.5.0 layouts).
 - Quit: the power button arms a confirmation on the first click and, on the
   second, sends the authenticated IPC `shutdown` request (daemon exits
   cleanly and removes the tray) then terminates the UI process. A 3-second

@@ -9,7 +9,7 @@ each step fails. For the privacy contract behind every rule here, see
 | Piece | Location | Thread | Allowed to do |
 | --- | --- | --- | --- |
 | Low-level hook | `okkhor-win/src/win32.rs` (`keyboard_proc`) | hook thread | timestamp + enqueue, skip `LLKHF_INJECTED`; allocation-free, no I/O |
-| Composition worker | `okkhor-daemon` (`run_daemon` loop, every 10 ms) | worker | session updates, popup, erase + inject |
+| Composition worker | `okkhor-daemon` (`run_daemon` loop, every 5 ms) | worker | session updates, popup, erase + inject |
 | State machine | `okkhor-daemon/src/input_session.rs` | worker (pure) | buffer ≤ 32, candidates ≤ 5, selection; no Win32, no I/O, no logging |
 | Suggestion popup | `okkhor-win` (`SuggestionPopup`, caret-aware) | worker | non-activating numbered list, no focus theft |
 | Injector | `okkhor-win` (`inject_commit`, `WindowsInjector`) | worker | commits go out as one `SendInput` batch (erase + text + space); `WindowsInjector` remains for diagnostics/`text.insert` with `WM_CHAR`/clipboard paths |
@@ -38,21 +38,49 @@ each step fails. For the privacy contract behind every rule here, see
 
 ## Key handling
 
-- Only key-down events drive the session; key releases pass through.
-- Letters are lowercased into the buffer; the hook keeps pass-through, so the
-  target application still receives every keystroke (nothing is swallowed).
-- Digits `1`–`5` (row and numpad) commit the Nth candidate without trailing
-  space. Out-of-range digits are ignored.
-- `Left`/`Right`/`Up`/`Down` move the highlight and wrap around.
-- `Space` commits the highlight and appends a space; `Enter` commits without
-  it. With an empty buffer, or with no candidates, both keys pass through and
-  the session clears (roman text stays as typed).
+- Only key-down events drive the session; key releases follow their key-down's
+  swallow decision.
+- Letters are lowercased into the buffer; letters and Backspace keep
+  pass-through, because one target character per buffer character keeps the
+  erase count exact.
+- Commit keys — Space, Enter, digits `0`–`9` (row and numpad), and the arrows —
+  are **swallowed while a composition is active**. They either append a
+  character (space, digit) or move the caret, so letting them reach the target
+  would make the commit's backspaces erase the wrong text. The worker re-emits
+  the key where it belongs: Space via `trailing_space`, Enter via
+  `send_enter`, an out-of-range digit as literal text.
+- Any other key (punctuation, Home/End, Delete, function keys) cancels the
+  composition and acts normally, so an unhandled key can never shift the
+  target text out of sync with the buffer. Modifier presses (Shift/Ctrl/Alt/
+  Win/Caps/Num/Scroll) do not cancel; Shift is normal capital typing.
+- Digits `1`–`9` and `0` commit the matching candidate without trailing
+  space; out-of-range digits are re-emitted as text after the composition ends.
+- `Left`/`Right`/`Up`/`Down` move the highlight and wrap around; they never
+  move the target caret.
+- `Space` commits the highlight and appends exactly one space; `Enter` commits
+  and then emits a real newline. With no candidates, the roman text stays and
+  the key is re-emitted so it is never lost.
 - `Backspace` edits the buffer; at an empty buffer it passes through — the
   daemon never erases beyond the buffer length.
 - `Escape`/`Tab` cancel: the raw roman buffer is dropped from memory, the
   popup hides, typed text is untouched, and `Tab` keeps its focus behavior.
 - Ctrl/Alt/Win chords end the composition first, so shortcuts such as Ctrl+C
   never grow the buffer (the app receives no letter for them).
+
+## Bangla conventions (Unicode output)
+
+Bengali convention applies only in Bangla **Unicode** mode; English and Bijoy
+keep the ASCII keys.
+
+- An unshifted `.` becomes the Bengali danda `।` (U+0964). It commits a live
+  composition first, then emits the danda. Shift+`.` still types `>`, so the
+  hook checks Shift before swallowing.
+- Idle digits `0`-`9` (row and numpad) become `০`-`৯`. While composing they
+  remain candidate selectors; an out-of-range digit is re-emitted as the
+  Bengali numeral after the composition ends.
+- Both remaps are published to the hook with the mode/encoding state. They are
+  off in English and in Bijoy (legacy documents own their punctuation and
+  digits).
 
 ## Candidate generation
 
@@ -91,8 +119,8 @@ Two different budgets apply; do not conflate them:
 - Hook callback: < 0.5 ms. It only timestamps and enqueues into the bounded
   `sync_channel(4096)` after the pure `should_enqueue` gate — no I/O, no
   allocation beyond the fixed `KeyEvent`, no `SendInput`.
-- Worker: polls the queue every 10 ms, so worst-case key-to-commit latency
-  grows by one poll quantum plus `SendInput`/popup cost. The 10 ms cadence is
+- Worker: polls the queue every 5 ms (0.5.1: was 10 ms), so worst-case key-to-commit latency
+  grows by one poll quantum plus `SendInput`/popup cost. The short cadence is
   the design, not a violation: nothing sleeps on the hook thread.
 
 Measured (unit-level only, not end-to-end): state-machine poll-to-decision
@@ -125,7 +153,7 @@ not claimed here.
   (`Okkhor - Bangla/English (active/paused)`), shows a non-activating
   `বাংলা` / `English` toast near the caret for ~800 ms, and logs only the
   allowlisted `scope=daemon kind=mode_toggle` code — never text. The toast
-  expiry is checked once per 10 ms poll, so toggling never blocks the key path.
+  expiry is checked once per poll, so toggling never blocks the key path.
 
 ## What is intentionally not here yet
 

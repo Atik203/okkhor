@@ -49,7 +49,9 @@ export function getErrorMessage(error: unknown): string {
 export function describeError(error: unknown): string {
   switch (getErrorCode(error)) {
     case DAEMON_UNAVAILABLE:
-      return "Okkhor daemon is not running. Typing keeps working; settings are read-only until you retry.";
+      return "Okkhor engine is not running. Typing keeps working; settings are read-only until it starts.";
+    case "engine_missing":
+      return "The Okkhor engine is missing. Re-extract the portable folder and keep bin next to Okkhor.exe.";
     case "ProtocolMismatch":
       return "UI and daemon versions disagree. Restart Okkhor.";
     case "Unauthorized":

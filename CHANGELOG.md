@@ -3,6 +3,52 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.5.1] - 2026-11-24
+
+### Fixed
+
+- **Typing no longer leaves the roman text behind.** Commit keys (Space,
+  Enter, digits `0`-`9`, arrows) are now swallowed while a composition is
+  active and re-emitted where they belong, so `amar` + Space becomes `আমার `
+  instead of `aআমার `. Letters and Backspace still pass through one-for-one
+  with the buffer. Any other key ends the composition instead of shifting the
+  erase count; a full buffer, an out-of-range digit, or a commit with no
+  candidates re-emits the swallowed key so nothing is lost.
+- **The suggestion popup follows the caret in browsers.** Chromium (Chrome,
+  Edge, Electron) exposes no Win32 caret, so the popup used to pin itself to
+  the top-left of the page. The daemon now reads the caret through UI
+  Automation `TextPattern2::GetCaretRange` (with `TextPattern` selection as a
+  fallback) and only falls back to the mouse when no caret exists.
+- Single entry point for the portable beta: `Okkhor.exe` (the UI) now starts
+  the resident engine in `bin\` when it is not already running, instead of
+  showing a read-only "daemon is not running" screen on first launch. The
+  engine stays a separate process (a UI crash must not stop typing) and keeps
+  its own command line in `bin\okkhor-engine.exe`.
+- The connection banner shows "Starting the Okkhor engine…" while the engine
+  starts and offers an explicit **Start Okkhor** retry if startup fails; a
+  missing `bin\` folder gets a precise explanation.
+- The quick bar reconnects on its own while the engine starts instead of
+  staying on "Daemon unavailable".
+- Settings explains Bijoy output (ANSI bytes for SutonnyMJ documents; web
+  pages show Latin letters and need Unicode) so the encoding choice is not a
+  surprise.
+- Bangla Unicode conventions: an unshifted `.` types the Bengali danda `।`
+  (Shift+`.` still types `>`), and idle digits `0`-`9` type `০`-`৯`. Both stay
+  ASCII in English and Bijoy.
+- The quick bar now appears on first launch: its visibility was resolved
+  before a cold engine start finished, so a default-on bar stayed hidden.
+- Smoother typing: the worker poll quantum dropped from 10 ms to 5 ms, and the
+  UIA focused element is cached briefly so caret tracking does not re-walk the
+  browser's accessibility tree on every keystroke.
+- The portable README documents the SmartScreen warning for the unsigned
+  beta (`More info` → `Run anyway`) and how to verify the zip hash.
+
+### Changed
+
+- Portable folder layout: user-facing `Okkhor.exe` at the root, internals in
+  `bin\` (`okkhor-engine.exe`, `okkhor-ui.exe`), fonts still at `fonts/`.
+  The engine and tray resolve the UI at the root and fonts one level up.
+
 ## [0.5.0] - 2026-11-23
 
 ### Added
