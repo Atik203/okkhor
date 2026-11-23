@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+use crate::candidates::CandidatesRun;
 use crate::ranking::RankingRun;
 use crate::stats::LatencySummary;
 
@@ -56,6 +57,48 @@ impl RankingReport {
             store_pairs: run.store_pairs,
             store_bigrams: run.store_bigrams,
             ranked_total: run.ranked_total,
+            latency: run.latency.clone(),
+            iterations_per_second: run.latency.iterations_per_second(),
+        }
+    }
+}
+
+/// JSON/CSV schema for `--candidates`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CandidatesReport {
+    pub schema_version: u32,
+    pub mode: &'static str,
+    pub corpus: &'static str,
+    pub corpus_schema: u32,
+    pub cases: u64,
+    pub top1_hits: u64,
+    pub top5_hits: u64,
+    pub top1_rate: f64,
+    pub top5_rate: f64,
+    pub iterations: usize,
+    pub warmup_iterations: usize,
+    pub subset_cases: usize,
+    pub suggestions_total: usize,
+    pub latency: LatencySummary,
+    pub iterations_per_second: f64,
+}
+
+impl CandidatesReport {
+    pub fn from_run(run: &CandidatesRun) -> Self {
+        Self {
+            schema_version: REPORT_SCHEMA_VERSION,
+            mode: "candidates",
+            corpus: "crates/okkhor-engine/tests/fixtures/synthetic/corpus.json",
+            corpus_schema: run.corpus_schema,
+            cases: run.parity.cases,
+            top1_hits: run.parity.top1_hits,
+            top5_hits: run.parity.top5_hits,
+            top1_rate: run.parity.top1_rate,
+            top5_rate: run.parity.top5_rate,
+            iterations: run.iterations,
+            warmup_iterations: run.warmup_iterations,
+            subset_cases: run.subset_cases,
+            suggestions_total: run.suggestions_total,
             latency: run.latency.clone(),
             iterations_per_second: run.latency.iterations_per_second(),
         }
@@ -127,6 +170,47 @@ pub fn write_ranking(report: &RankingReport, format: Format) -> io::Result<Optio
                 report.iterations_per_second,
             ));
             write_text("ranking", "csv", &output).map(Some)
+        }
+    }
+}
+
+/// Write a candidates report if a machine-readable format was requested.
+pub fn write_candidates(report: &CandidatesReport, format: Format) -> io::Result<Option<PathBuf>> {
+    match format {
+        Format::Human => Ok(None),
+        Format::Json => write_json("candidates", report).map(Some),
+        Format::Csv => {
+            let mut output = String::new();
+            output.push_str(
+                "schema_version,mode,corpus,corpus_schema,cases,\
+                 top1_hits,top5_hits,top1_rate,top5_rate,iterations,\
+                 warmup_iterations,subset_cases,suggestions_total,count,\
+                 p50_ns,p95_ns,p99_ns,max_ns,total_ns,iterations_per_second\n",
+            );
+            output.push_str(&format!(
+                "{},{},{},{},{},{},{},{:.6},{:.6},{},{},{},{},{},{},{},{},{},{},{:.3}\n",
+                report.schema_version,
+                report.mode,
+                report.corpus,
+                report.corpus_schema,
+                report.cases,
+                report.top1_hits,
+                report.top5_hits,
+                report.top1_rate,
+                report.top5_rate,
+                report.iterations,
+                report.warmup_iterations,
+                report.subset_cases,
+                report.suggestions_total,
+                report.latency.count,
+                report.latency.p50_ns,
+                report.latency.p95_ns,
+                report.latency.p99_ns,
+                report.latency.max_ns,
+                report.latency.total_ns,
+                report.iterations_per_second,
+            ));
+            write_text("candidates", "csv", &output).map(Some)
         }
     }
 }
