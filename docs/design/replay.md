@@ -44,6 +44,26 @@ visible diff. Generation refuses `< 200` cases. Nothing is downloaded and no
 real corpus is embedded: quality claims beyond the synthetic distribution
 are out of scope (see the **synthetic-only** caveat in `docs/performance.md`).
 
+## Training split
+
+`okkhor-train-fit --replay <path> --out <model.json>` fits the Tier 1 logistic
+reranker. The split is by case, not by row:
+
+- 80/20 train/validation by the first 8 bytes of `SHA-256(case_id)`, read as a
+  big-endian integer modulo 100: `< 80` is train, otherwise validation. The
+  same case always lands in the same split, and reordering the file changes
+  nothing.
+- Fewer than 200 cases is rejected.
+- Standardization (means/scales) comes from the training split only and is
+  saved in the model JSON.
+- Fit is full-batch gradient descent (zero init, 500 iterations, learning rate
+  `0.05`, L2 `1e-4`) with a seeded per-iteration shuffle of case order and class
+  weight `negatives / positives`.
+- The model JSON is byte-identical for the same seed, replay, and `--trained-at`
+  (default `1970-01-01T00:00:00Z`); no wall-clock read is part of the fit.
+- Validation top-1/top-5/MRR score each case's closed candidate pool with the
+  fitted model and rank on `(score desc, text asc)`.
+
 ## Ranking and metrics
 
 `okkhor-replay --replay <path> (--engine | --smriti)` rebuilds a fixed

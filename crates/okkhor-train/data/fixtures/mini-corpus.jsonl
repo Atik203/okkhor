@@ -1,0 +1,16 @@
+{"id":"mini_bn_0001","language":"bn","roman":"bhalo","target":"ভালো","source":"synthetic"}
+{"id":"mini_bn_0002","language":"bn","roman":"bhai","target":"ভাই","source":"synthetic"}
+{"id":"mini_bn_0003","language":"bn","roman":"bhaat","target":"ভাত","source":"synthetic"}
+{"id":"mini_bn_0004","language":"bn","roman":"bhasha","target":"ভাষা","source":"synthetic"}
+{"id":"mini_bn_0005","language":"bn","roman":"aami","target":"আমি","source":"synthetic"}
+{"id":"mini_bn_0006","language":"bn","roman":"tumi","target":"তুমি","source":"synthetic"}
+{"id":"mini_bn_0007","language":"bn","roman":"boi","target":"বই","source":"synthetic"}
+{"id":"mini_bn_0008","language":"bn","roman":"kotha","target":"কথা","source":"synthetic"}
+{"id":"mini_bn_0009","language":"bn","roman":"gaan","target":"গান","source":"synthetic"}
+{"id":"mini_bn_0010","language":"bn","roman":"bondhu","target":"বন্ধু","source":"synthetic"}
+{"id":"mini_bn_0011","language":"bn","roman":"shomoy","target":"সময়","source":"synthetic"}
+{"id":"mini_bn_0012","language":"bn","roman":"paani","target":"পানি","source":"synthetic"}
+{"id":"mini_en_0013","language":"en","prefix":"hel","target":"hello","source":"synthetic"}
+{"id":"mini_en_0014","language":"en","prefix":"wor","target":"world","source":"synthetic"}
+{"id":"mini_en_0015","language":"en","prefix":"sug","target":"suggest","source":"synthetic"}
+{"id":"mini_en_0016","language":"en","prefix":"typ","target":"typing","source":"synthetic"}

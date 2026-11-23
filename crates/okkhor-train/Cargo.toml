@@ -10,6 +10,14 @@ publish.workspace = true
 name = "okkhor-replay"
 path = "src/bin/okkhor-replay.rs"
 
+[[bin]]
+name = "okkhor-train-dataset"
+path = "src/bin/okkhor-train-dataset.rs"
+
+[[bin]]
+name = "okkhor-train-fit"
+path = "src/bin/okkhor-train-fit.rs"
+
 [dependencies]
 okkhor-core.workspace = true
 okkhor-engine.workspace = true

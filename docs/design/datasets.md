@@ -70,10 +70,21 @@ Rules:
 Rules:
 
 - `license` and `source` are mandatory; `sha256` and `rows` are verified.
+- The data file sits beside the manifest and is named by stripping
+  `.manifest.json` from the manifest name: `mini-corpus.manifest.json` verifies
+  `mini-corpus.jsonl` (also tried: `.txt`, `.csv`, `.tsv`, in that order).
+- Row count: `.jsonl` and `.txt` count non-empty lines; `.csv` and `.tsv` count
+  non-empty lines minus one header line (saturating at zero); any unknown
+  extension counts non-empty lines.
 - One manifest per file; a collection has a parent manifest listing children.
 - Any transformation records an input → output checksum chain.
 - Evaluation files are frozen and never used for training; the split is by
   `case_id` hash, not by row order.
+- Committed fixtures are synthetic or permissively licensed, live under
+  `crates/okkhor-train/data/fixtures/`, stay within 2 MB in total, and must pass
+  `okkhor-train-dataset --verify` in CI. Currently:
+  `mini-corpus.jsonl` + `mini-corpus.manifest.json` (16 rows, CC0-1.0,
+  synthetic).
 
 ## Preprocessing
 
