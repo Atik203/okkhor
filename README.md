@@ -80,9 +80,17 @@ The daemon (`okkhor daemon`) now types Bangla end to end on Windows:
   space; `Enter` commits without the space. The highlight defaults to the first
   candidate; `1`–`5` commit a numbered candidate, arrow keys cycle with wrap,
   `Backspace` edits, `Esc`/`Tab` cancel and leave typed text untouched.
-- The pause hotkey (`Ctrl+Alt+Shift+P`) and the tray toggle cancel any
-  composition and hide the popup. While paused, everything passes through, so
-  **English typing requires pausing capture**.
+- **Bangla/English mode toggle**: `F9` flips between Bangla composition and
+  English pass-through (falls back to `Ctrl+Space` if `F9` is already claimed,
+  reported once at startup); left-clicking the tray icon or picking the
+  `Switch to …` tray menu item does the same. A toggle clears the buffer,
+  hides the popup, updates the tray label/tooltip (`Okkhor - Bangla/English`),
+  and shows a non-activating toast (`বাংলা` / `English`) for ~800 ms without
+  stealing focus. In English mode keys pass through untouched — pause is now a
+  separate capture switch. Start in English with `okkhor daemon --mode english`
+  (default `--mode bangla`).
+- The pause hotkey (`Ctrl+Alt+Shift+P`) and the tray pause item cancel any
+  composition and hide the popup. While paused, everything passes through.
 - Injected keystrokes (`LLKHF_INJECTED`) are never re-captured, so our own
   erase/inject `SendInput` cannot feed the loop. Nothing is swallowed: the hook
   keeps pass-through for every key.

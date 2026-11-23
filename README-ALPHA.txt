@@ -49,8 +49,14 @@ While it runs:
   - Type Banglish (roman letters) and press Space to commit Bangla.
   - Keys 1-5 pick a numbered candidate; arrows move; Esc keeps the
     roman text; Backspace edits the roman buffer.
-  - Ctrl+Alt+Shift+P pauses/resumes capture (tray icon matches).
-  - Right-click the tray icon for pause/exit.
+  - F9 toggles Bangla/English (falls back to Ctrl+Space if F9 is taken;
+    the active binding prints at startup). English mode passes keys
+    through untouched.
+  - Left-click the tray icon toggles Bangla/English; right-click the
+    tray icon for pause/exit. The tooltip shows the current mode.
+  - Ctrl+Alt+Shift+P pauses/resumes capture (tray icon matches); pause
+    is separate from the language mode.
+  - `okkhor daemon --mode english` starts in English mode.
 
 Check the engine without typing:
 
@@ -63,14 +69,17 @@ Check the engine without typing:
     conversion failure falls back to Unicode and is logged as a code).
   - Per-user font install / status / uninstall; SutonnyMJ preferred,
     Kalpurush ANSI fallback, typed non-fatal "none available".
+  - F9 Bangla/English toggle + tray left-click toggle; a non-activating
+    toast (`বাংলা` / `English`, ~800 ms) confirms each switch, and the
+    tray tooltip tracks the mode.
   - Pause hotkey + tray; single-instance guard; redacted JSON-lines logs
     under %LOCALAPPDATA%\Okkhor\logs (no text is ever logged).
   - Autostart enable/disable/status (per-user login entry).
 
 5. HONEST LIMITATIONS (read before filing bugs)
 -----------------------------------------------
-  - No UI, no quick bar, no F9 Bangla/English toggle yet. The daemon
-    starts in Bangla composition; pause with the hotkey to type English.
+  - No UI, no quick bar yet. The daemon starts in Bangla composition
+    (`--mode english` starts in English); F9 or left-click toggles.
   - One top candidate per buffer: digits/arrows work against the live
     list, which the current table usually fills with a single form.
   - Table-exact forms win: where the phonetic table differs from

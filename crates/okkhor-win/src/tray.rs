@@ -2,10 +2,11 @@
 //!
 //! The tray owns a hidden message-only window on a dedicated thread, so it
 //! never touches the keyboard hook or the suggestion popup. The menu is built on
-//! demand and contains Pause/Resume, a disabled Settings placeholder, and Exit.
+//! demand and contains Bangla/English mode, Pause/Resume, a disabled Settings
+//! placeholder, and Exit.
 //!
 //! This is deliberately a scaffold for the 0.2 tray lifecycle: it implements
-//! add, remove, tooltip update, and three menu events. Remaining integration:
+//! add, remove, tooltip update, and menu events. Remaining integration:
 //!
 //! - The Settings item stays disabled until the `okkhor-ui` process and IPC
 //!   exist (roadmap 0.5).
@@ -34,7 +35,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
     SetForegroundWindow, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
     UnregisterClassW, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDBLCLK,
-    WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+    WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -46,14 +47,55 @@ const WM_TRAY_REFRESH: u32 = WM_APP + 2;
 const MENU_PAUSE: usize = 1;
 const MENU_SETTINGS: usize = 2;
 const MENU_EXIT: usize = 3;
+const MENU_MODE: usize = 4;
 
 /// Events delivered by the tray menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayEvent {
     /// The user chose Pause or Resume, or double-clicked the icon.
     TogglePause,
+    /// The user chose Bangla/English, single-clicked, or picked the mode menu.
+    ToggleMode,
     /// The user chose Exit.
     Exit,
+}
+
+/// Input mode shown by the tray (ADR 0014 §1). The tray owns display state
+/// only; composition gating lives in the daemon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TrayMode {
+    #[default]
+    Bangla,
+    English,
+}
+
+impl TrayMode {
+    /// Stable label for the menu/tooltip (ASCII only; the toast carries Bangla).
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Bangla => "Bangla",
+            Self::English => "English",
+        }
+    }
+
+    /// Menu action label from the current mode.
+    pub const fn switch_label(self) -> &'static str {
+        match self {
+            Self::Bangla => "Switch to English",
+            Self::English => "Switch to Bangla",
+        }
+    }
+
+    pub const fn toggle(self) -> Self {
+        match self {
+            Self::Bangla => Self::English,
+            Self::English => Self::Bangla,
+        }
+    }
+
+    pub const fn is_english(self) -> bool {
+        matches!(self, Self::English)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -73,6 +115,7 @@ pub enum TrayError {
 /// stored here and cleared when the tray thread exits.
 static EVENT_TX: Mutex<Option<SyncSender<TrayEvent>>> = Mutex::new(None);
 static PAUSED: AtomicBool = AtomicBool::new(false);
+static MODE_ENGLISH: AtomicBool = AtomicBool::new(false);
 
 /// A notification-area icon with a hidden message window.
 pub struct TrayIcon {
@@ -88,6 +131,7 @@ impl TrayIcon {
             return Err(TrayError::AlreadyRunning);
         }
         PAUSED.store(false, Ordering::Release);
+        MODE_ENGLISH.store(false, Ordering::Release);
 
         let (event_tx, event_rx) = mpsc::sync_channel(16);
         let (ready_tx, ready_rx) = mpsc::channel();
@@ -135,6 +179,26 @@ impl TrayIcon {
 
     pub fn paused(&self) -> bool {
         PAUSED.load(Ordering::Acquire)
+    }
+
+    /// Update the mode label and tooltip after an input-mode change.
+    /// Never steals focus: it only posts a refresh to the tray thread.
+    pub fn set_mode(&self, mode: TrayMode) {
+        MODE_ENGLISH.store(mode.is_english(), Ordering::Release);
+        self.refresh();
+    }
+
+    pub fn mode(&self) -> TrayMode {
+        if MODE_ENGLISH.load(Ordering::Acquire) {
+            TrayMode::English
+        } else {
+            TrayMode::Bangla
+        }
+    }
+
+    /// Current mode label (`Bangla` / `English`) for status lines.
+    pub fn mode_label(&self) -> &'static str {
+        self.mode().label()
     }
 
     /// Ask the tray thread to rebuild its tooltip from the current state.
@@ -311,7 +375,10 @@ fn add_tray_icon(window: HWND) -> Result<(), TrayError> {
     };
     write_tooltip(
         &mut data.szTip,
-        tooltip_text(PAUSED.load(Ordering::Acquire)),
+        tooltip_text(
+            PAUSED.load(Ordering::Acquire),
+            MODE_ENGLISH.load(Ordering::Acquire),
+        ),
     );
 
     // SAFETY: data is a fully initialized NOTIFYICONDATAW whose cbSize matches
@@ -333,7 +400,10 @@ fn update_tray_icon(window: HWND) {
     };
     write_tooltip(
         &mut data.szTip,
-        tooltip_text(PAUSED.load(Ordering::Acquire)),
+        tooltip_text(
+            PAUSED.load(Ordering::Acquire),
+            MODE_ENGLISH.load(Ordering::Acquire),
+        ),
     );
 
     // SAFETY: data is fully initialized and only the tooltip is modified.
@@ -355,11 +425,12 @@ fn remove_tray_icon(window: HWND) {
     }
 }
 
-fn tooltip_text(paused: bool) -> &'static str {
-    if paused {
-        "Okkhor (paused)"
-    } else {
-        "Okkhor (active)"
+fn tooltip_text(paused: bool, english: bool) -> &'static str {
+    match (english, paused) {
+        (false, false) => "Okkhor - Bangla (active)",
+        (true, false) => "Okkhor - English (active)",
+        (false, true) => "Okkhor - Bangla (paused)",
+        (true, true) => "Okkhor - English (paused)",
     }
 }
 
@@ -380,10 +451,10 @@ unsafe extern "system" fn tray_window_proc(
     match message {
         WM_TRAY_CALLBACK => {
             let notification = (lparam.0 as u32) & 0xFFFF;
-            match notification {
-                WM_RBUTTONUP | WM_CONTEXTMENU => show_menu(window),
-                WM_LBUTTONDBLCLK => send_event(TrayEvent::TogglePause),
-                _ => {}
+            if is_menu_notification(notification) {
+                show_menu(window);
+            } else if let Some(event) = event_for_notification(notification) {
+                send_event(event);
             }
             LRESULT(0)
         }
@@ -425,6 +496,11 @@ fn show_menu(window: HWND) {
         Err(_) => return,
     };
 
+    let mode_label: PCWSTR = if MODE_ENGLISH.load(Ordering::Acquire) {
+        w!("Switch to Bangla")
+    } else {
+        w!("Switch to English")
+    };
     let pause_label = if PAUSED.load(Ordering::Acquire) {
         w!("Resume")
     } else {
@@ -433,6 +509,7 @@ fn show_menu(window: HWND) {
     // SAFETY: menu is live, the labels are static null-terminated strings, and
     // the command ids are small unique integers.
     unsafe {
+        let _ = AppendMenuW(menu, MF_STRING, MENU_MODE, mode_label);
         let _ = AppendMenuW(menu, MF_STRING, MENU_PAUSE, pause_label);
         let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, MENU_SETTINGS, w!("Settings"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, w!(""));
@@ -443,7 +520,8 @@ fn show_menu(window: HWND) {
     // SAFETY: point is valid local storage.
     let _ = unsafe { GetCursorPos(&mut point) };
     // SAFETY: window is live; foreground is required so the menu dismisses
-    // correctly after a tray click.
+    // correctly after a tray click. The menu itself never takes focus from the
+    // target app beyond the standard foreground handoff.
     unsafe {
         let _ = SetForegroundWindow(window);
         let _ = TrackPopupMenu(
@@ -462,8 +540,28 @@ fn show_menu(window: HWND) {
     }
 }
 
+/// Right-click (and its keyboard equivalent) opens the menu; clicks are not
+/// delivered as events. Pure for unit tests.
+fn is_menu_notification(notification: u32) -> bool {
+    notification == WM_RBUTTONUP || notification == WM_CONTEXTMENU
+}
+
+/// Click-to-event mapping for the tray callback (pure, no Win32).
+/// Single left-click toggles Bangla/English; double-click still toggles pause
+/// for backward compatibility with the 0.2 tray.
+fn event_for_notification(notification: u32) -> Option<TrayEvent> {
+    if notification == WM_LBUTTONUP {
+        Some(TrayEvent::ToggleMode)
+    } else if notification == WM_LBUTTONDBLCLK {
+        Some(TrayEvent::TogglePause)
+    } else {
+        None
+    }
+}
+
 fn event_for_command(id: usize) -> Option<TrayEvent> {
     match id {
+        MENU_MODE => Some(TrayEvent::ToggleMode),
         MENU_PAUSE => Some(TrayEvent::TogglePause),
         MENU_EXIT => Some(TrayEvent::Exit),
         _ => None,
@@ -504,8 +602,11 @@ fn last_error(operation: &'static str, code: i32) -> TrayError {
 #[cfg(test)]
 mod tests {
     use super::{
-        MENU_EXIT, MENU_PAUSE, MENU_SETTINGS, TrayEvent, event_for_command, tooltip_text,
-        write_tooltip,
+        MENU_EXIT, MENU_MODE, MENU_PAUSE, MENU_SETTINGS, TrayEvent, TrayMode, event_for_command,
+        event_for_notification, is_menu_notification, tooltip_text, write_tooltip,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        WM_CONTEXTMENU, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP,
     };
 
     #[test]
@@ -515,15 +616,55 @@ mod tests {
     }
 
     #[test]
+    fn mode_menu_item_toggles_mode() {
+        assert_eq!(event_for_command(MENU_MODE), Some(TrayEvent::ToggleMode));
+    }
+
+    #[test]
     fn settings_is_a_disabled_placeholder() {
         assert_eq!(event_for_command(MENU_SETTINGS), None);
         assert_eq!(event_for_command(99), None);
     }
 
     #[test]
+    fn left_click_toggles_mode_right_click_opens_menu() {
+        assert_eq!(
+            event_for_notification(WM_LBUTTONUP),
+            Some(TrayEvent::ToggleMode)
+        );
+        // Right-click never becomes an event: the menu opens instead.
+        assert_eq!(event_for_notification(WM_RBUTTONUP), None);
+        assert_eq!(event_for_notification(WM_CONTEXTMENU), None);
+        assert!(is_menu_notification(WM_RBUTTONUP));
+        assert!(is_menu_notification(WM_CONTEXTMENU));
+        assert!(!is_menu_notification(WM_LBUTTONUP));
+    }
+
+    #[test]
+    fn double_click_still_toggles_pause() {
+        assert_eq!(
+            event_for_notification(WM_LBUTTONDBLCLK),
+            Some(TrayEvent::TogglePause)
+        );
+    }
+
+    #[test]
+    fn tray_mode_labels_and_toggle() {
+        assert_eq!(TrayMode::Bangla.label(), "Bangla");
+        assert_eq!(TrayMode::English.label(), "English");
+        assert_eq!(TrayMode::Bangla.toggle(), TrayMode::English);
+        assert_eq!(TrayMode::English.toggle(), TrayMode::Bangla);
+        assert!(!TrayMode::Bangla.is_english());
+        assert!(TrayMode::English.is_english());
+        assert_eq!(TrayMode::default(), TrayMode::Bangla);
+    }
+
+    #[test]
     fn tooltip_state_is_fixed_text() {
-        assert_eq!(tooltip_text(false), "Okkhor (active)");
-        assert_eq!(tooltip_text(true), "Okkhor (paused)");
+        assert_eq!(tooltip_text(false, false), "Okkhor - Bangla (active)");
+        assert_eq!(tooltip_text(false, true), "Okkhor - English (active)");
+        assert_eq!(tooltip_text(true, false), "Okkhor - Bangla (paused)");
+        assert_eq!(tooltip_text(true, true), "Okkhor - English (paused)");
     }
 
     #[test]

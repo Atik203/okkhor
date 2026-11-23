@@ -56,13 +56,13 @@ pub use caret::{
     place_popup,
 };
 #[cfg(windows)]
-pub use hotkey::{HotkeyError, PauseHotkey};
+pub use hotkey::{GlobalHotkey, HotkeyError, HotkeySpec, ModeBinding, ModeHotkey, PauseHotkey};
 #[cfg(windows)]
 pub use popup::{PopupError, SuggestionPopup};
 #[cfg(windows)]
 pub use single_instance::{SingleInstance, SingleInstanceError};
 #[cfg(windows)]
-pub use tray::{TrayError, TrayEvent, TrayIcon};
+pub use tray::{TrayError, TrayEvent, TrayIcon, TrayMode};
 #[cfg(windows)]
 pub use win32::{
     HookError, MAX_SEND_BACKSPACES, WindowsInjector, WindowsKeyboardHook, capture_enabled,
