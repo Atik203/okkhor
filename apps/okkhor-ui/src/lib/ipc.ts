@@ -58,6 +58,7 @@ export type QuickbarSnapshot = {
   available: boolean;
   collapsed: boolean;
   opacity: number;
+  visible: boolean;
 };
 
 /**
@@ -120,6 +121,9 @@ export const api = {
   },
   quickbarOpenSettings(): Promise<void> {
     return invoke<void>("quickbar_open_settings");
+  },
+  quickbarOpenKeyboard(): Promise<void> {
+    return invoke<void>("quickbar_open_keyboard");
   },
   quickbarCollapse(): Promise<QuickbarSnapshot> {
     return invoke<QuickbarSnapshot>("quickbar_collapse");

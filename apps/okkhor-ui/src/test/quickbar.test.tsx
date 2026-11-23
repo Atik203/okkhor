@@ -17,6 +17,7 @@ const ONLINE: QuickbarSnapshot = {
   available: true,
   collapsed: false,
   opacity: 0.9,
+  visible: true,
 };
 
 function renderPage() {
@@ -60,6 +61,8 @@ function mockOnline(snapshot: QuickbarSnapshot = ONLINE) {
         return Promise.resolve({ ...current });
       case "quickbar_open_settings":
         return Promise.resolve(undefined);
+      case "quickbar_open_keyboard":
+        return Promise.resolve(undefined);
       default:
         return Promise.reject({ code: "daemon_unavailable", message: "down" });
     }
@@ -72,7 +75,7 @@ describe("quick bar", () => {
     invokeMock.mockReset();
   });
 
-  test("renders mode/encoding chips, pause, settings, collapse with labels", async () => {
+  test("renders mode/encoding chips, pause, keyboard, settings, collapse with labels", async () => {
     mockOnline();
     renderPage();
     expect(
@@ -86,6 +89,9 @@ describe("quick bar", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Open settings" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open on-screen keyboard" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Collapse quick bar" }),
@@ -165,6 +171,17 @@ describe("quick bar", () => {
     );
   });
 
+  test("keyboard button opens the on-screen keyboard", async () => {
+    mockOnline();
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open on-screen keyboard" }),
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quickbar_open_keyboard"),
+    );
+  });
+
   test("unavailable daemon disables mode actions but keeps settings local", async () => {
     mockOnline({ ...ONLINE, available: false });
     renderPage();
@@ -179,6 +196,9 @@ describe("quick bar", () => {
     // Local chrome keeps working while the daemon is down.
     expect(
       screen.getByRole("button", { name: "Open settings" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Open on-screen keyboard" }),
     ).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "Collapse quick bar" }),

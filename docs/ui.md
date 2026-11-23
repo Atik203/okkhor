@@ -84,30 +84,35 @@ cargo test
   but **the bar disappears if the UI process dies**, unlike a daemon window.
 - Launch: `okkhor-ui --quickbar` shows only the bar and keeps `main` hidden
   until "Open settings" (`quickbar_open_settings` shows `main` and navigates
-  it to `/settings` via `okkhor:navigate`). A normal launch shows `main` and
-  keeps the bar parked hidden; the tray serves the bar via `--quickbar`.
+  it to `/settings` via `okkhor:navigate`). A normal launch shows `main`
+  normally and additionally shows the bar when `quickbar_visible` is set
+  (resolved after settings load). Both windows start `visible: false` so no
+  frame can show before its styles are applied.
 - No focus, always on top: `decorations: false`, `transparent: true`,
   `skipTaskbar: true`, `alwaysOnTop: true`, `focus: false`; on Windows the
   setup path applies `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`
-  to the bar HWND and shows it with `SW_SHOWNOACTIVATE`. Clicking chips,
-  pause, settings, or collapse never activates the window.
+  to the bar HWND *before* showing it with `SW_SHOWNOACTIVATE`. Clicking
+  chips, pause, keyboard, settings, or collapse never activates the window.
+  The bar is the single approved exception to contract §5's no-always-on-top
+  rule (lead ruling, 2026-11-23); no other UI window may be always-on-top.
 - Geometry: 340×48 pill, collapsible to a 44×44 orb (double-click/click the
-  orb to expand). Placed top-right of the primary monitor with per-monitor
-  DPI scaling (`scale_factor`); the background is a
+  orb to expand). For 0.5 the bar starts top-right of the primary monitor
+  with per-monitor DPI scaling (`scale_factor`); the background is a
   `data-tauri-drag-region` (no custom drag command), buttons stay clickable.
 - Contents: mode chip (`বাংলা`/`EN`), encoding chip (`ইউনিকোড`/`বিজয়`),
-  pause, settings, collapse; status dot (text-announced, never color-only)
-  for daemon availability; error toasts only. No text capture: the view
-  renders static labels and never reads keystrokes.
+  pause, on-screen keyboard (opens `main` at `/keyboard`), settings,
+  collapse; status dot (text-announced, never color-only) for daemon
+  availability; success toast on pause toggle, error toasts otherwise. No
+  text capture: the view renders static labels and never reads keystrokes.
 - Settings: "Show quick bar" toggle and the 0.5–1.0 opacity slider write
   the existing `quickbar_*` fields through `settings.update`. Daemon down:
   mode/encoding/pause return `daemon_unavailable` (chips disable, banner
-  rules apply) while collapse/expand/open-settings stay local.
-- Limitations: the initial window show happens before `setup` applies the
-  ex-styles, so a first frame could theoretically activate on a slow
-  machine; `setup` immediately re-asserts no-activate. The bar does not
-  auto-follow the active monitor after a manual drag, and it cannot
-  outlive the UI process.
+  rules apply) while collapse/expand/open-settings/open-keyboard stay local.
+  `quickbar_x`/`quickbar_y` persist but the bar does not honor them yet —
+  deferred to the daemon-settings wiring follow-up.
+- Limitations: the bar cannot outlive the UI process; it does not
+  auto-follow the active monitor after a manual drag; snap-to-edges and a
+  tray menu are not implemented and not claimed.
 
 ## On-screen keyboard (`#/keyboard`)
 

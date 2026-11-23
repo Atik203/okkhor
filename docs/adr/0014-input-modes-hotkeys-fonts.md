@@ -134,9 +134,23 @@ survive a settings-window crash. That is superseded for 1.0:
   otherwise: no UI code is linked into the hook path. The `unsafe` Win32
   styling lives in one explicitly-reviewed `quickbar_native` module with
   `SAFETY` comments (ADR 0012 §5 anticipates this shape).
-- Settings `quickbar_visible` / `quickbar_collapsed` / `quickbar_x` /
-  `quickbar_y` / `quickbar_opacity` keep their contract §2 meanings; the bar
-  persists chrome through `settings.update` and honors `daemon_unavailable`
+- Contract §5 carve-out (lead ruling, 2026-11-23): "Exception: the
+  quick-control bar is a non-activating `WS_EX_NOACTIVATE|TOOLWINDOW|TOPMOST`
+  window owned by the UI process; it never takes focus and never displays
+  user text. No other UI window may be always-on-top." This is the single
+  approved exception; the no-always-on-top rule stands for all other UI.
+- 0.5 scope, stated honestly: the bar starts at the primary monitor's
+  top-right on every launch. Persisted `quickbar_x`/`quickbar_y` keep their
+  contract §2 schema meanings and the Settings page persists them, but the
+  bar does not honor them yet — that wiring is deferred to the
+  daemon-settings follow-up (filed in the round-1 report). Not implemented
+  and not claimed: snap-to-edges, active-monitor follow, tray menu. The bar
+  contents that are implemented: mode chip, encoding chip, pause,
+  on-screen-keyboard button (opens the main window at `/keyboard`),
+  settings, collapse, and the availability dot.
+- Settings `quickbar_visible` / `quickbar_collapsed` / `quickbar_opacity`
+  are honored (visibility gates the bar on normal launches; collapse and
+  opacity apply live). Mode/encoding/pause honor `daemon_unavailable`
   (local chrome stays interactive, mode actions disable).
 
 ## Consequences

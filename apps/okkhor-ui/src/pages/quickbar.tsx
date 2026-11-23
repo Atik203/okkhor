@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Minimize2, Pause, Play, RotateCw, Settings } from "lucide-react";
+import { Minimize2, Pause, Play, RotateCw, Settings, Keyboard } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { api, type QuickbarSnapshot } from "../lib/ipc";
 import { describeError, isDaemonUnavailable } from "../lib/errors";
@@ -10,8 +10,8 @@ import { cn } from "../lib/utils";
  * Tauri window: 340×48 pill, collapsible to a 44×44 orb. Never renders user
  * text — only static mode/encoding labels — and never captures keystrokes.
  * The background is a `data-tauri-drag-region` so the bar drags from anywhere
- * except the buttons. Mode/encoding/pause need the daemon; collapse and
- * settings are local and keep working while it is down.
+ * except the buttons. Mode/encoding/pause need the daemon; collapse,
+ * on-screen-keyboard, and settings are local and keep working while it is down.
  */
 
 function useSnapshot() {
@@ -138,19 +138,29 @@ export default function QuickbarPage() {
   const openSettings = useMutation({
     mutationFn: () => api.quickbarOpenSettings(),
     onError: (error) => {
-      // Outside Tauri (browser dev) there is no settings window to show:
-      // fall back to the in-page route instead of a dead button.
-      if (isDaemonUnavailable(error)) {
-        fail(error);
-        return;
-      }
-      try {
-        window.location.hash = "#/settings";
-      } catch {
-        fail(error);
-      }
+      openFallback(error, "#/settings");
     },
   });
+  const openKeyboard = useMutation({
+    mutationFn: () => api.quickbarOpenKeyboard(),
+    onError: (error) => {
+      openFallback(error, "#/keyboard");
+    },
+  });
+
+  function openFallback(error: unknown, hash: "#/settings" | "#/keyboard") {
+    // Outside Tauri (browser dev) there is no main window to show:
+    // fall back to the in-page route instead of a dead button.
+    if (isDaemonUnavailable(error)) {
+      fail(error);
+      return;
+    }
+    try {
+      window.location.hash = hash;
+    } catch {
+      fail(error);
+    }
+  }
 
   if (snapshotQuery.isPending) {
     return (
@@ -272,6 +282,9 @@ export default function QuickbarPage() {
         disabled={collapse.isPending}
       >
         <Minimize2 className="size-3.5" aria-hidden="true" />
+      </IconButton>
+      <IconButton title="Open on-screen keyboard" onClick={() => void openKeyboard.mutate()}>
+        <Keyboard className="size-3.5" aria-hidden="true" />
       </IconButton>
       <IconButton title="Open settings" onClick={() => void openSettings.mutate()}>
         <Settings className="size-3.5" aria-hidden="true" />

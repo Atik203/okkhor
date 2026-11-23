@@ -45,11 +45,17 @@ async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
     let status = client.status().await.map_err(|e| map_client_error(&e))?;
     // Chrome fields are best-effort: a settings read failure must not hide
     // live mode state, so fall back to the contract defaults.
-    let (collapsed, opacity) = client
+    let (collapsed, opacity, visible) = client
         .settings_get()
         .await
-        .map(|settings| (settings.quickbar_collapsed, settings.quickbar_opacity))
-        .unwrap_or((false, 0.9));
+        .map(|settings| {
+            (
+                settings.quickbar_collapsed,
+                settings.quickbar_opacity,
+                settings.quickbar_visible,
+            )
+        })
+        .unwrap_or((false, 0.9, false));
     Ok(QuickbarState {
         input_mode: status.input_mode,
         output_encoding: status.output_encoding,
@@ -57,6 +63,7 @@ async fn load_quickbar_state() -> Result<QuickbarState, UiError> {
         available: true,
         collapsed,
         opacity,
+        visible,
     })
 }
 
@@ -383,20 +390,33 @@ async fn quickbar_toggle_pause() -> Result<QuickbarState, UiError> {
     }
 }
 
-/// Show the settings window and navigate it to `/settings`. The bar itself
+/// Show the main window and navigate it to `route`. The bar itself
 /// never activates: only `main` is shown and focused here.
-#[tauri::command]
-async fn quickbar_open_settings(app: AppHandle) -> Result<(), UiError> {
+fn show_main_at(app: &AppHandle, route: &str) -> Result<(), UiError> {
     let Some(main) = app.get_webview_window("main") else {
         return Err(UiError::internal());
     };
     main.show().map_err(|_| UiError::internal())?;
-    // Best-effort unminimize; a failure must not block showing settings.
+    // Best-effort unminimize; a failure must not block showing the window.
     let _ = main.unminimize();
     main.set_focus().map_err(|_| UiError::internal())?;
-    main.emit("okkhor:navigate", "/settings")
+    main.emit("okkhor:navigate", route)
         .map_err(|_| UiError::internal())?;
     Ok(())
+}
+
+/// Show the settings window and navigate it to `/settings`. The bar itself
+/// never activates: only `main` is shown and focused here.
+#[tauri::command]
+async fn quickbar_open_settings(app: AppHandle) -> Result<(), UiError> {
+    show_main_at(&app, "/settings")
+}
+
+/// Show the main window at the on-screen keyboard (`/keyboard`), same
+/// pattern as [`quickbar_open_settings`].
+#[tauri::command]
+async fn quickbar_open_keyboard(app: AppHandle) -> Result<(), UiError> {
+    show_main_at(&app, "/keyboard")
 }
 
 /// Resize the bar window. The resize always applies locally; persisting
@@ -432,6 +452,11 @@ async fn set_quickbar_collapsed(
     .map_err(|_| UiError::internal())?;
     #[cfg(windows)]
     {
+        // Resize preserves the ex-styles, but re-assert them as cheap
+        // insurance: the bar must never become activatable.
+        if let Ok(hwnd) = bar.hwnd() {
+            quickbar::native::apply_noactivate(hwnd);
+        }
         // Re-apply the collapsed size's position? No: keep the user's drag
         // position; only persist the chrome flag when the daemon is up.
         let patch = okkhor_ipc::settings::SettingsPatch {
@@ -454,12 +479,15 @@ async fn set_quickbar_collapsed(
                             available: true,
                             collapsed: settings.quickbar_collapsed,
                             opacity: settings.quickbar_opacity,
+                            visible: settings.quickbar_visible,
                         });
                     }
                 }
             }
         }
         // Daemon down: the resize above still stands; report local truth.
+        // Opacity falls back to the contract default — the bar keeps the CSS
+        // value it already renders (follow-up: return last-known opacity).
         Ok(QuickbarState::unavailable(collapsed, 0.9))
     }
     #[cfg(not(windows))]
@@ -492,35 +520,73 @@ fn place_quickbar_top_right(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Show the bar without ever activating it. Callers must have applied
+/// [`quickbar::native::apply_noactivate`] and positioned the window first;
+/// this only flips visibility, so no frame can show before the styles land.
+#[cfg(windows)]
+fn show_bar_noactivate(bar: &tauri::WebviewWindow) {
+    if let Ok(hwnd) = bar.hwnd() {
+        quickbar::native::apply_noactivate(hwnd);
+        quickbar::native::show_noactivate(hwnd);
+    }
+}
+
+/// Apply the persisted collapsed size to a still-hidden bar (normal-launch
+/// path), keeping the setup-time position.
+fn apply_bar_chrome(bar: &tauri::WebviewWindow, collapsed: bool) {
+    let (w, h) = if collapsed {
+        (quickbar::ORB_LOGICAL, quickbar::ORB_LOGICAL)
+    } else {
+        (quickbar::QUICKBAR_LOGICAL_W, quickbar::QUICKBAR_LOGICAL_H)
+    };
+    let _ = bar.set_size(tauri::LogicalSize {
+        width: f64::from(w),
+        height: f64::from(h),
+    });
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            // Both windows start `visible: false` in `tauri.conf.json`, so no
+            // frame can show — and no window can activate — before its styles
+            // are applied below. Exactly one show path runs per launch.
             let args: Vec<String> = std::env::args().collect();
             let bar_only = quickbar::is_quickbar_launch(&args);
             if bar_only {
-                // Bar-only launch: the settings window must never flash.
-                // (`main` starts hidden via `tauri.conf.json`.)
+                // Bar-only launch: style + position first, then show the bar
+                // without activating. `main` is never shown.
                 if let Some(bar) = app.get_webview_window("quickbar") {
                     place_quickbar_top_right(&bar);
                     #[cfg(windows)]
-                    if let Ok(hwnd) = bar.hwnd() {
-                        quickbar::native::apply_noactivate(hwnd);
-                        quickbar::native::show_noactivate(hwnd);
-                    }
+                    show_bar_noactivate(&bar);
                     #[cfg(not(windows))]
                     {
                         let _ = bar.show();
                     }
                 }
             } else {
-                // Settings launch: show `main`, keep the bar parked hidden.
-                // (The bar is served by `--quickbar` launches from the tray.)
+                // Settings launch: `main` shows and focuses normally …
                 if let Some(main) = app.get_webview_window("main") {
                     let _ = main.show();
                     let _ = main.set_focus();
                 }
-                if let Some(bar) = app.get_webview_window("quickbar") {
-                    let _ = bar.hide();
+                // … and the bar follows the `quickbar_visible` setting,
+                // resolved asynchronously once the settings load.
+                // (Windows-only: `load_quickbar_state` needs the IPC client.)
+                #[cfg(windows)]
+                {
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = load_quickbar_state().await.ok();
+                        if state.as_ref().is_some_and(|s| s.visible) {
+                            if let Some(bar) = handle.get_webview_window("quickbar") {
+                                let collapsed = state.as_ref().is_some_and(|s| s.collapsed);
+                                apply_bar_chrome(&bar, collapsed);
+                                show_bar_noactivate(&bar);
+                            }
+                        }
+                    });
                 }
             }
             Ok(())
@@ -542,6 +608,7 @@ fn main() {
             quickbar_cycle_encoding,
             quickbar_toggle_pause,
             quickbar_open_settings,
+            quickbar_open_keyboard,
             quickbar_collapse,
             quickbar_expand
         ])

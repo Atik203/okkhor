@@ -33,12 +33,16 @@ pub struct QuickbarState {
     pub available: bool,
     pub collapsed: bool,
     pub opacity: f32,
+    /// The `quickbar_visible` setting. The setup task uses it to decide
+    /// whether a normal (non-`--quickbar`) launch also shows the bar.
+    pub visible: bool,
 }
 
 impl QuickbarState {
     /// Local fallback shown when the daemon is unreachable. Bar chrome stays
     /// interactive (collapse/expand, open settings); mode actions report
-    /// `daemon_unavailable` like the rest of the shell.
+    /// `daemon_unavailable` like the rest of the shell. `visible` is false
+    /// so a normal launch never pops the bar without a readable setting.
     #[must_use]
     pub fn unavailable(collapsed: bool, opacity: f32) -> Self {
         Self {
@@ -48,6 +52,7 @@ impl QuickbarState {
             available: false,
             collapsed,
             opacity,
+            visible: false,
         }
     }
 }
@@ -89,11 +94,15 @@ pub fn quickbar_top_right_physical(
         .saturating_sub(win_w)
         .saturating_sub(margin);
     let y = monitor_origin.1.saturating_add(margin);
-    // Clamp onto the monitor so the bar stays reachable on tiny displays.
+    // Clamp onto the monitor so the bar stays reachable and fully visible on
+    // tiny displays: left/top edges, then the bottom edge.
     let x = x.max(monitor_origin.0);
-    let y = y.max(monitor_origin.1);
-    // Avoid unused warnings if a caller passes a degenerate window height.
-    let _ = win_h;
+    let max_y = monitor_origin
+        .1
+        .saturating_add(monitor_size.1 as i32)
+        .saturating_sub(win_h)
+        .max(monitor_origin.1);
+    let y = y.max(monitor_origin.1).min(max_y);
     (x, y)
 }
 
@@ -258,6 +267,20 @@ mod tests {
             EDGE_MARGIN_LOGICAL,
         );
         assert_eq!((x, y), (100, 112));
+    }
+
+    #[test]
+    fn short_monitor_clamps_the_bottom_edge() {
+        // 200×40 strip: the 48 px bar cannot fit below the margin, so it is
+        // pinned to the origin instead of overflowing.
+        let (x, y) = quickbar_top_right_physical(
+            (100, 100),
+            (200, 40),
+            (QUICKBAR_LOGICAL_W, QUICKBAR_LOGICAL_H),
+            1.0,
+            EDGE_MARGIN_LOGICAL,
+        );
+        assert_eq!((x, y), (100, 100));
     }
 
     #[test]

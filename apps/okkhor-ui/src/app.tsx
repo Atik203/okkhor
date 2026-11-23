@@ -90,13 +90,22 @@ export default function App() {
 
   // `quickbar_open_settings` shows this process's `main` window and emits
   // `okkhor:navigate`; honor it even when the user is on another tab.
+  // The bar window ignores these (it renders only the bar).
   React.useEffect(() => {
     let unlisten: (() => void) | undefined;
     listen<string>("okkhor:navigate", (event) => {
       const path = event.payload;
-      if (path === "/settings" || path === "/") {
-        window.location.hash = `#${path}`;
+      if (path !== "/settings" && path !== "/" && path !== "/keyboard") {
+        return;
       }
+      try {
+        if (getCurrentWindow().label === "quickbar") {
+          return;
+        }
+      } catch {
+        // Not running inside Tauri (browser dev): apply the navigation.
+      }
+      window.location.hash = `#${path}`;
     })
       .then((stop) => {
         unlisten = stop;
