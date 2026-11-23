@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "rules": [
+    { "id": "rule_bha", "input": "bha", "output": "ভা", "language": "bangla", "priority": 100 },
+    { "id": "rule_bhalo", "input": "bhalo", "output": "ভালো", "language": "bangla", "priority": 50 }
+  ]
+}

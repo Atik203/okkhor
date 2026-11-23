@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "cases": [
+    { "input": "bhalo", "expected": ["ভালো"], "min_rank": 1 },
+    { "input": "bha", "expected": ["ভা"], "min_rank": 1 }
+  ]
+}
