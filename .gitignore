@@ -20,3 +20,7 @@ dist/
 data/imported/
 assets/private/
 apps/okkhor-ui/src-tauri/gen/
+
+# Python dev tooling
+scripts/__pycache__/
+*.pyc
