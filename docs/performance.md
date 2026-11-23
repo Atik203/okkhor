@@ -228,6 +228,78 @@ No global hook was installed and no network was used. All text was synthetic
 from the committed golden corpus; no real user text and no legacy executable
 were used.
 
+## Synthetic replay baseline — 0.6 Task 1, shared desktop, 2026-11-23
+
+First run of the offline replay harness (`okkhor-replay`) on the frozen
+synthetic set. **Synthetic-only: these numbers measure harness behavior and
+relative movement on hand-authored fixtures, not real-world Bangla/English
+quality.** Not a reference-machine result: same shared Windows 11 desktop and
+GNU host toolchain as the blocks above. See `docs/design/replay.md` and
+ADR 0015.
+
+### Observed environment
+
+| Item | Value |
+| --- | --- |
+| Code commit | `ee1765bc8755dcbf35e1c229767a18308632e60f` (`feat/0.6-replay`, Task 1) |
+| Date | 2026-11-23 local (UTC+06:00) |
+| OS | Microsoft Windows 11 Home Single Language, 10.0.26300, build 26300, x64 |
+| CPU | AMD Ryzen 7 5800H, 8 cores / 16 logical processors |
+| Build profile | `--release`; rustc/cargo 1.100.0 (`0ef1bc386`, 2026-11-09), host `x86_64-pc-windows-gnu` |
+| Toolchain caveat | GNU host, not the MSVC production toolchain (`AGENTS.md`); no MSVC release claim is made |
+| Dataset | `crates/okkhor-train/data/synthetic-replay.jsonl` (schema 1, 240 cases, seed `20261123`, 74,172 bytes, sha256 `a0d932469fc474332622ee6d4304917ad4069759fa71aae4f15364013b54046f`) |
+
+### Commands (all exit code 0)
+
+```powershell
+cargo run -p okkhor-train --bin okkhor-replay -- --generate --out crates/okkhor-train/data/synthetic-replay.jsonl --seed 20261123 --cases 240
+cargo run --release -p okkhor-train --bin okkhor-replay -- --replay crates/okkhor-train/data/synthetic-replay.jsonl --engine --json --out bench-out/replay-engine.json
+cargo run --release -p okkhor-train --bin okkhor-replay -- --replay crates/okkhor-train/data/synthetic-replay.jsonl --smriti --json --out bench-out/replay-smriti.json
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+Generator determinism re-verified: regenerating to a temp path with the same
+seed reproduces the identical SHA-256.
+
+### Overall (240 cases)
+
+| Ranker | Top-1 | Top-5 | MRR | Acceptance | Keystroke savings | Rank p50 | Rank p95 | Rank p99 | max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Engine (`CandidateEngine::suggest`) | 0.6833 | 0.9667 | 0.7952 | 0.7375 | 0.2556 | 3,200 ns | 13,500 ns | 25,300 ns | 27,300 ns |
+| Smriti cold-start (closed 5-candidate pool) | 0.2708 | 1.0000 | 0.5096 | 0.7375 | 0.1336 | 9,300 ns | 16,600 ns | 25,900 ns | 67,200 ns |
+
+An earlier pre-commit run on the same tree agreed on all quality metrics to
+4 decimals with latency in the same band (engine p50 2,700 ns / p99
+15,000 ns; Smriti p50 5,800 ns / p99 30,300 ns); shared-desktop scheduling
+noise only. Both rank paths sit three orders of magnitude inside the < 3 ms
+local-candidate-generation budget. The numbers above are from the run on the
+recorded code commit.
+
+### By language
+
+| Ranker | Segment | n | Top-1 | Top-5 | MRR |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Engine | bangla | 191 | 0.6806 | 0.9738 | 0.7992 |
+| Engine | english | 49 | 0.6939 | 0.9388 | 0.7796 |
+| Smriti | bangla | 191 | 0.2775 | 1.0000 | 0.5096 |
+| Smriti | english | 49 | 0.2449 | 1.0000 | 0.5095 |
+
+### Reading these numbers honestly
+
+- Acceptance rate (0.7375) is a property of the synthetic labels (75% of cases
+  carry `accepted`), not a user measurement; it is identical for both rankers.
+- The Smriti harness ranks the case's closed 5-candidate pool, so its top-5
+  is 1.0 by construction. The informative deltas are top-1 (+0.41 engine),
+  MRR (+0.29 engine), and latency.
+- Keystroke savings counts only top-1 hits, so it tracks top-1 by definition.
+- Raw reports (git-ignored): `bench-out/replay-engine.json`,
+  `bench-out/replay-smriti.json` (+ `.md` renders).
+
+No network was used. No real user text, no downloaded corpus, and no legacy
+executable were involved.
+
 ## Measurement protocol
 
 - Use a quiet Windows 11 reference machine on the balanced power plan.
