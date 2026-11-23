@@ -31,10 +31,11 @@ mod tray;
 mod win32;
 
 pub use fonts::{
-    BUNDLED_FONTS, BijoyFontChoice, BundledFont, EXPECTED_FONT_HASHES, FontError, FontRole,
-    InstallOptions, InstalledFont, RemovedFont, font_family_name, font_registry_value_name,
-    install_font_per_user, install_font_per_user_with_options, list_bundled_fonts,
-    resolve_bijoy_font, uninstall_font_per_user, uninstall_font_per_user_with_options,
+    BUNDLED_FONTS, BijoyFontChoice, BundledFont, EXPECTED_FONT_HASHES, FontError,
+    FontInstallationProbe, FontRole, InstallOptions, InstalledFont, RemovedFont, SystemFontProbe,
+    font_family_name, font_registry_value_name, install_font_per_user,
+    install_font_per_user_with_options, is_font_installed, list_bundled_fonts, resolve_bijoy_font,
+    resolve_bijoy_font_with_probe, uninstall_font_per_user, uninstall_font_per_user_with_options,
     user_fonts_dir, validate_font_path, verify_font_hash, verify_staged_font,
 };
 pub use inject::{InjectError, InjectionMethod, TextInjector};

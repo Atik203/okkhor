@@ -18,7 +18,7 @@ non-fatal missing otherwise — the app keeps working on Unicode paths.
 | --- | --- | --- | --- | --- | --- |
 | SutonnyMJ | `SutonnyMJ Regular.ttf` | `bijoy-ansi` — **default Bijoy rendering** | Proprietary, © Mustafa Jabbar, Ananda Computers (owner-approved for release builds; binary never committed, staged from `OKKHOR_LEGACY_HOME`) | Owner's legacy installation (`OKKHOR_LEGACY_HOME/Res/Fonts`) | `D58D9A45311447301426649C641FE148010163594AE57A4094AC086B21D52BDC` |
 | Kalpurush | `kalpurush.ttf` | `unicode-ui` — Unicode UI/editor | SIL OFL 1.0 (declared in the font name table; text in `OFL-Kalpurush.txt`) | https://www.omicronlab.com/download/fonts/kalpurush.ttf | `83613A03E53AAD8337F2BE9FB974409A23C1D99B3B4B494567BA9D156C492B01` |
-| Kalpurush ANSI | `kalpurush ANSI.ttf` | `bijoy-ansi` — Bijoy-ANSI fallback when SutonnyMJ is absent | SIL OFL 1.0 (same project; text in `OFL-Kalpurush.txt`) | https://www.omicronlab.com/download/fonts/kalpurush%20ANSI.ttf | `BFB06B2360A558424C61405A29C24B09C70487757204814C6DD04621A2A9EEBC` |
+| Kalpurush ANSI | `kalpurush ANSI.ttf` | `bijoy-ansi` — Bijoy-ANSI fallback when SutonnyMJ is absent | Avro Free Bangla Font Project (owner-approved distribution for release builds; the font embeds no license declaration — verified: its name table carries family/subfamily only — see `THIRD_PARTY_LICENSES.md`) | https://www.omicronlab.com/download/fonts/kalpurush%20ANSI.ttf | `BFB06B2360A558424C61405A29C24B09C70487757204814C6DD04621A2A9EEBC` |
 | Noto Sans Bengali | `NotoSansBengali.ttf` | `fallback` — Unicode fallback | SIL OFL 1.1 (text in `OFL-NotoSansBengali.txt`) | https://raw.githubusercontent.com/google/fonts/main/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf (variable font) | `dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a` |
 
 Attribution: Kalpurush / Kalpurush ANSI — Tanbin Islam Siyam, Avro Font
@@ -39,7 +39,11 @@ fetch script verifies length and hash and refuses to continue on mismatch.
 
 ## License texts
 
-- `OFL-Kalpurush.txt` — SIL Open Font License 1.0 (as declared by the
-  Kalpurush name table; canonical text via SPDX).
+- `OFL-Kalpurush.txt` — SIL Open Font License 1.0 for **Kalpurush only**
+  (SPDX-canonical text; upstream verbatim unobtainable — omicronlab.com
+  font/license pages return 404 as of 2026-11-23).
 - `OFL-NotoSansBengali.txt` — SIL Open Font License 1.1 (verbatim from the
   `google/fonts` `ofl/notosansbengali` directory).
+- Kalpurush ANSI carries no embedded license declaration (verified via its
+  name table); it is recorded as Avro Free Bangla Font Project with the
+  owner's redistribution approval — see `THIRD_PARTY_LICENSES.md`.

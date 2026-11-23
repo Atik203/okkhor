@@ -60,7 +60,7 @@ where several Unicode sources share one Bijoy form the first map rule wins
 | --- | --- | --- | --- |
 | SutonnyMJ | `bijoy-ansi` — **default Bijoy rendering** | Proprietary © Mustafa Jabbar, Ananda Computers (owner-approved for release builds; see `THIRD_PARTY_LICENSES.md`) | Bundled (staged at build time from `OKKHOR_LEGACY_HOME`, never committed) |
 | Kalpurush | `unicode-ui` — Unicode UI/editor | SIL OFL 1.0 | Bundled (fetched at build time) |
-| Kalpurush ANSI | `bijoy-ansi` — Bijoy fallback when SutonnyMJ is absent | SIL OFL 1.0 | Bundled (fetched at build time) |
+| Kalpurush ANSI | `bijoy-ansi` — Bijoy fallback when SutonnyMJ is absent | Avro Free Bangla Font Project (owner-approved; no license embedded — see `THIRD_PARTY_LICENSES.md`) | Bundled (fetched at build time) |
 | Noto Sans Bengali | `fallback` — Unicode fallback | SIL OFL 1.1 | Bundled (fetched at build time) |
 | Siyam Rupali | Optional Unicode font | GPL | User-installed only; not bundled (GPL) |
 
@@ -89,7 +89,7 @@ reports the three expected files and their roles without logging paths.
 ## Official-work workflow
 
 1. Type in Banglish/Avro-phonetic or any Unicode layout → Unicode text.
-2. `to_bijoy` rewrites the Unicode text to Bijoy bytes (46 map-derived
+2. `to_bijoy` rewrites the Unicode text to Bijoy bytes (47 map-derived
    goldens in `okkhor-lang::bijoy` tests; legacy differential testing
    still pending).
 3. Render or hand the bytes to the official form under **SutonnyMJ** when

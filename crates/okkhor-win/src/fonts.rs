@@ -19,7 +19,9 @@
 //! [`resolve_bijoy_font`] picks the Bijoy rendering font: SutonnyMJ when
 //! staged, Kalpurush ANSI otherwise, or [`BijoyFontChoice::NoneAvailable`]
 //! (a typed, non-fatal "missing" — the app must keep working on Unicode
-//! and Kalpurush ANSI paths).
+//! and Kalpurush ANSI paths). [`resolve_bijoy_font_with_probe`] extends
+//! this to installed fonts via [`is_font_installed`]/[`SystemFontProbe`]
+//! (read-only HKCU/HKLM registry scan plus `%WINDIR%\Fonts`).
 //!
 //! Tests never touch the real registry or fonts directory: pass
 //! [`InstallOptions`] with `dry_run = true` and a temporary `fonts_dir`,
@@ -93,6 +95,9 @@ pub struct RemovedFont {
     pub removed_file: bool,
     /// True when a registry registration was deleted.
     pub removed_registration: bool,
+    /// True when this session's font-table entry was removed before the
+    /// file was deleted. Always false on dry runs.
+    pub removed_resource: bool,
 }
 
 /// Options for [`install_font_per_user_with_options`] and
@@ -424,7 +429,9 @@ impl BijoyFontChoice {
 
 /// Pick the Bijoy rendering font staged in `dir`: SutonnyMJ when present,
 /// Kalpurush ANSI as fallback, [`BijoyFontChoice::NoneAvailable`] when
-/// neither is staged. Pure filesystem presence check; never fatal.
+/// neither is staged. Pure filesystem presence check; deterministic and
+/// test-safe. Prefer [`resolve_bijoy_font_with_probe`] for the full
+/// contract (staged or installed).
 pub fn resolve_bijoy_font(dir: &Path) -> BijoyFontChoice {
     let sutonny = dir.join("SutonnyMJ Regular.ttf");
     if sutonny.is_file() {
@@ -435,6 +442,126 @@ pub fn resolve_bijoy_font(dir: &Path) -> BijoyFontChoice {
         return BijoyFontChoice::KalpurushAnsi(ansi);
     }
     BijoyFontChoice::NoneAvailable
+}
+
+/// Pick the Bijoy rendering font with the full contract: SutonnyMJ when
+/// staged in `dir` or reported installed by `probe`, Kalpurush ANSI as
+/// staged in `dir` or reported installed by `probe`, Kalpurush ANSI as
+/// fallback (staged or installed), [`BijoyFontChoice::NoneAvailable`]
+/// otherwise. The probe seam keeps this deterministic under test; pass
+/// [`SystemFontProbe`] in production.
+pub fn resolve_bijoy_font_with_probe(
+    dir: &Path,
+    probe: &dyn FontInstallationProbe,
+) -> BijoyFontChoice {
+    let sutonny = dir.join("SutonnyMJ Regular.ttf");
+    if sutonny.is_file() {
+        return BijoyFontChoice::SutonnyMJ(sutonny);
+    }
+    if let Some(path) = probe.installed_font_file("SutonnyMJ") {
+        return BijoyFontChoice::SutonnyMJ(path);
+    }
+    let ansi = dir.join("kalpurush ANSI.ttf");
+    if ansi.is_file() {
+        return BijoyFontChoice::KalpurushAnsi(ansi);
+    }
+    if let Some(path) = probe.installed_font_file("Kalpurush ANSI") {
+        return BijoyFontChoice::KalpurushAnsi(path);
+    }
+    BijoyFontChoice::NoneAvailable
+}
+
+/// Whether a font family is registered on this machine (HKCU then HKLM
+/// `...\Fonts`, plus `%WINDIR%\Fonts` resolution). Read-only; never
+/// elevates. Always false off Windows.
+pub fn is_font_installed(family: &str) -> bool {
+    SystemFontProbe.installed_font_file(family).is_some()
+}
+
+/// Testable source of installed-font locations. Production code uses
+/// [`SystemFontProbe`]; tests inject a mock.
+pub trait FontInstallationProbe {
+    /// Absolute path of an installed font file for `family`, if any.
+    fn installed_font_file(&self, family: &str) -> Option<PathBuf>;
+}
+
+/// Registry-backed [`FontInstallationProbe`]: scans HKCU then HKLM
+/// `Software\Microsoft\Windows NT\CurrentVersion\Fonts` for a value named
+/// `<family> (...)` and resolves its file against `%WINDIR%\Fonts`
+/// (or an absolute path). Off Windows it reports nothing installed.
+pub struct SystemFontProbe;
+
+impl FontInstallationProbe for SystemFontProbe {
+    fn installed_font_file(&self, family: &str) -> Option<PathBuf> {
+        #[cfg(windows)]
+        {
+            scan_fonts_key(windows::Win32::System::Registry::HKEY_CURRENT_USER, family).or_else(
+                || scan_fonts_key(windows::Win32::System::Registry::HKEY_LOCAL_MACHINE, family),
+            )
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = family;
+            None
+        }
+    }
+}
+
+/// Whether a `Fonts`-key value name belongs to `family`
+/// (`<family> (...)`, case-insensitive). Pure; shared by the install probe
+/// so family matching stays testable without touching the registry.
+fn font_value_belongs_to_family(value_name: &str, family: &str) -> bool {
+    let mut expected = family.to_ascii_lowercase();
+    expected.push_str(" (");
+    value_name.to_ascii_lowercase().starts_with(&expected)
+}
+
+/// Scan one `Fonts` registry root for a value named `<family> (...)`
+/// and resolve its file. Read-only; `None` on any failure.
+#[cfg(windows)]
+fn scan_fonts_key(root: windows::Win32::System::Registry::HKEY, family: &str) -> Option<PathBuf> {
+    use windows::Win32::System::Registry::{KEY_QUERY_VALUE, RegOpenKeyExW};
+
+    // SAFETY: the root and subkey are valid, `key` points to valid local
+    // storage, and the handle is closed by `RegistryKey`. Read-only access
+    // on either root: no elevation.
+    let mut key = windows::Win32::System::Registry::HKEY::default();
+    let status = unsafe { RegOpenKeyExW(root, FONTS_KEY_W, None, KEY_QUERY_VALUE, &mut key) };
+    if status.is_err() {
+        return None;
+    }
+    let key = RegistryKey(key);
+
+    for entry in snapshot_font_values(key.0) {
+        use windows::Win32::System::Registry::REG_SZ;
+        if entry.value_type != REG_SZ.0 {
+            continue;
+        }
+        if !font_value_belongs_to_family(&entry.name, family) {
+            continue;
+        }
+        let file = entry.data.trim_end_matches('\0').trim().to_owned();
+        if file.is_empty() {
+            continue;
+        }
+        if let Some(path) = resolve_font_file(&file) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Resolve a registry font-file reference: absolute paths must exist;
+/// bare file names resolve against `%WINDIR%\Fonts` and must exist.
+#[cfg(windows)]
+fn resolve_font_file(file: &str) -> Option<PathBuf> {
+    let direct = PathBuf::from(file);
+    if direct.is_absolute() {
+        return direct.is_file().then_some(direct);
+    }
+    let windir = std::env::var_os("WINDIR")?;
+    let candidate = PathBuf::from(windir).join("Fonts").join(file);
+    candidate.is_file().then_some(candidate)
 }
 
 /// Report which expected bundled font files are present in `dir`.
@@ -500,6 +627,28 @@ pub fn load_private_font(path: &Path) -> Result<(), FontError> {
 pub fn unload_private_font(path: &Path) -> Result<(), FontError> {
     validate_font_path(path)?;
     Err(FontError::UnsupportedPlatform)
+}
+
+/// Remove one session font-table entry previously added with
+/// [`AddFontResourceW`](windows::Win32::Graphics::Gdi::AddFontResourceW)
+/// (the per-user install path). Returns whether an entry was removed;
+/// false (not loaded here) is normal for uninstall, which proceeds to the
+/// file and registry regardless. Dry-run seam: callers skip this under
+/// [`InstallOptions::dry_run`].
+#[cfg(windows)]
+fn remove_session_font(path: &Path) -> bool {
+    use windows::Win32::Graphics::Gdi::RemoveFontResourceW;
+    use windows::core::PCWSTR;
+
+    let wide = to_wide_null(path.as_os_str());
+    // SAFETY: `wide` is a null-terminated UTF-16 buffer that outlives the
+    // call; removal only affects this session's table entry for the path.
+    unsafe { RemoveFontResourceW(PCWSTR(wide.as_ptr())) }.as_bool()
+}
+
+#[cfg(not(windows))]
+fn remove_session_font(_path: &Path) -> bool {
+    false
 }
 
 /// Install a font file per user: copy into the user's fonts directory,
@@ -599,6 +748,13 @@ pub fn uninstall_font_per_user_with_options(
     let dest = fonts_dir.join(name);
 
     let mut removed = RemovedFont::default();
+    // Remove the live session resource first (I2): deleting a file that is
+    // still loaded leaves a usable-until-logoff ghost. A missing session
+    // entry is not an error — uninstall must still delete file + key.
+    // Dry runs skip every Win32 call.
+    if !options.dry_run {
+        removed.removed_resource = remove_session_font(&dest);
+    }
     match std::fs::remove_file(&dest) {
         Ok(()) => removed.removed_file = true,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -606,6 +762,12 @@ pub fn uninstall_font_per_user_with_options(
     }
     if !options.dry_run {
         removed.removed_registration = unregister_font(name)?;
+        #[cfg(windows)]
+        if removed.removed_resource && !removed.removed_registration {
+            // The registry entry was already gone, but a live resource was
+            // removed above: still notify running apps.
+            broadcast_font_change();
+        }
     }
     Ok(removed)
 }
@@ -719,12 +881,11 @@ fn register_font(dest: &Path, value_name: &str, file_name: &str) -> Result<(), F
 
 #[cfg(windows)]
 fn unregister_font(file_name: &str) -> Result<bool, FontError> {
-    use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
     use windows::Win32::System::Registry::{
         HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SAM_FLAGS, RegDeleteValueW,
-        RegEnumValueW, RegOpenKeyExW,
+        RegOpenKeyExW,
     };
-    use windows::core::{PCWSTR, PWSTR};
+    use windows::core::PCWSTR;
 
     let access = REG_SAM_FLAGS(KEY_QUERY_VALUE.0 | KEY_SET_VALUE.0);
     // SAFETY: the root and subkey are valid, `key` points to valid local
@@ -736,9 +897,46 @@ fn unregister_font(file_name: &str) -> Result<bool, FontError> {
     }
     let key = RegistryKey(key);
 
-    // Find every value whose data names this font file (registrations may
-    // use the family value name or an older duplicate).
+    // Snapshot value names first, then delete (I3): deleting while
+    // enumerating forward shifts later values down and skips one entry per
+    // delete, so duplicate registrations for the same file could survive.
+    let entries = snapshot_font_values(key.0);
     let mut removed = false;
+    for name in registration_names_for_file(&entries, file_name) {
+        let wide = to_wide_null(OsStr::new(&name));
+        // SAFETY: `wide` is the null-terminated snapshot of a value name
+        // read from the same open key moments ago.
+        let status = unsafe { RegDeleteValueW(key.0, PCWSTR(wide.as_ptr())) };
+        if !status.is_err() {
+            removed = true;
+        }
+    }
+    if removed {
+        broadcast_font_change();
+    }
+    Ok(removed)
+}
+
+/// One decoded `Fonts`-key value: (value name, value type, string data).
+/// Snapshots let callers match first and mutate after (never delete while
+/// enumerating).
+#[cfg(windows)]
+struct SnapshotFontValue {
+    name: String,
+    value_type: u32,
+    data: String,
+}
+
+/// Enumerate every value of an open `Fonts` key into a snapshot. Short
+/// buffers report an error instead of overflowing; unreadable entries are
+/// skipped without aborting the scan.
+#[cfg(windows)]
+fn snapshot_font_values(key: windows::Win32::System::Registry::HKEY) -> Vec<SnapshotFontValue> {
+    use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
+    use windows::Win32::System::Registry::RegEnumValueW;
+    use windows::core::PWSTR;
+
+    let mut entries = Vec::new();
     let mut index = 0u32;
     loop {
         let mut name_buf = vec![0u16; 256];
@@ -747,11 +945,10 @@ fn unregister_font(file_name: &str) -> Result<bool, FontError> {
         let mut data_buf = vec![0u8; 1024];
         let mut data_len = 1024u32;
         // SAFETY: all out-parameters point to valid local buffers with the
-        // advertised lengths; `key` is open. Short buffers report an error
-        // instead of overflowing.
+        // advertised lengths; `key` is open. Errors never overflow.
         let status = unsafe {
             RegEnumValueW(
-                key.0,
+                key,
                 index,
                 Some(PWSTR(name_buf.as_mut_ptr())),
                 &mut name_len,
@@ -768,30 +965,44 @@ fn unregister_font(file_name: &str) -> Result<bool, FontError> {
         if status.is_err() {
             continue;
         }
-        let unit_count = data_len as usize / 2;
-        let stored: String = String::from_utf16_lossy(
-            &data_buf[..unit_count * 2]
-                .chunks_exact(2)
-                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-                .collect::<Vec<u16>>(),
-        );
-        if stored
-            .trim_end_matches('\0')
-            .eq_ignore_ascii_case(file_name)
-        {
-            name_buf.truncate(name_len as usize);
-            // SAFETY: `name_buf` holds the null-terminated value name just
-            // reported by the enumeration on the same open key.
-            let status = unsafe { RegDeleteValueW(key.0, PCWSTR(name_buf.as_ptr())) };
-            if !status.is_err() {
-                removed = true;
-            }
-        }
+        name_buf.truncate(name_len as usize);
+        data_buf.truncate(data_len as usize);
+        entries.push(SnapshotFontValue {
+            name: String::from_utf16_lossy(&name_buf),
+            value_type,
+            data: decode_reg_sz(&data_buf),
+        });
     }
-    if removed {
-        broadcast_font_change();
-    }
-    Ok(removed)
+    entries
+}
+
+/// Decode REG_SZ bytes (UTF-16LE, NUL-terminated) lossily. Pure; no Win32.
+fn decode_reg_sz(data: &[u8]) -> String {
+    let units: Vec<u16> = data
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    String::from_utf16_lossy(&units)
+}
+
+/// Pure selection of registry value names whose REG_SZ data names
+/// `file_name` (case-insensitive, NUL-trimmed). Two values pointing at the
+/// same file both match, so duplicates never survive uninstall.
+#[cfg(windows)]
+fn registration_names_for_file(entries: &[SnapshotFontValue], file_name: &str) -> Vec<String> {
+    use windows::Win32::System::Registry::REG_SZ;
+
+    entries
+        .iter()
+        .filter(|entry| {
+            entry.value_type == REG_SZ.0
+                && entry
+                    .data
+                    .trim_end_matches('\0')
+                    .eq_ignore_ascii_case(file_name)
+        })
+        .map(|entry| entry.name.clone())
+        .collect()
 }
 
 #[cfg(windows)]
@@ -830,11 +1041,13 @@ fn unregister_font(_file_name: &str) -> Result<bool, FontError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        BUNDLED_FONTS, BijoyFontChoice, EXPECTED_FONT_HASHES, FontError, FontRole, InstallOptions,
-        font_family_name, font_registry_value_name, install_font_per_user_with_options,
-        list_bundled_fonts, resolve_bijoy_font, uninstall_font_per_user_with_options,
+        BUNDLED_FONTS, BijoyFontChoice, EXPECTED_FONT_HASHES, FontError, FontInstallationProbe,
+        FontRole, InstallOptions, font_family_name, font_registry_value_name,
+        install_font_per_user_with_options, is_font_installed, list_bundled_fonts,
+        resolve_bijoy_font, resolve_bijoy_font_with_probe, uninstall_font_per_user_with_options,
         verify_font_hash, verify_staged_font,
     };
+    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -986,11 +1199,14 @@ mod tests {
             uninstall_font_per_user_with_options("kalpurush.ttf", &options).expect("uninstall");
         assert!(removed.removed_file);
         assert!(!removed.removed_registration);
+        // Dry runs skip every Win32 call, including session removal.
+        assert!(!removed.removed_resource);
         assert!(!dst.join("kalpurush.ttf").exists());
 
         let again = uninstall_font_per_user_with_options("kalpurush.ttf", &options)
             .expect("uninstall again");
         assert!(!again.removed_file);
+        assert!(!again.removed_resource);
     }
 
     #[test]
@@ -1158,5 +1374,173 @@ mod tests {
         let removed = uninstall_font_per_user_with_options("SutonnyMJ Regular.ttf", &options)
             .expect("uninstall");
         assert!(removed.removed_file);
+    }
+
+    /// In-memory [`FontInstallationProbe`] for deterministic resolution tests.
+    #[derive(Default)]
+    struct MockProbe {
+        files: HashMap<String, PathBuf>,
+    }
+
+    impl MockProbe {
+        fn with(files: &[(&str, &str)]) -> Self {
+            let mut probe = Self::default();
+            for (family, path) in files {
+                probe
+                    .files
+                    .insert(family.to_ascii_lowercase(), PathBuf::from(path));
+            }
+            probe
+        }
+    }
+
+    impl FontInstallationProbe for MockProbe {
+        fn installed_font_file(&self, family: &str) -> Option<PathBuf> {
+            self.files.get(&family.to_ascii_lowercase()).cloned()
+        }
+    }
+
+    #[test]
+    fn probe_resolution_prefers_installed_or_staged_sutonny() {
+        let empty = MockProbe::default();
+
+        // Neither staged nor installed: typed, non-fatal missing.
+        let dir = temp_dir("probe-neither");
+        assert_eq!(
+            resolve_bijoy_font_with_probe(&dir, &empty),
+            BijoyFontChoice::NoneAvailable
+        );
+
+        // Installed only (no staged file): installed SutonnyMJ wins.
+        let dir = temp_dir("probe-installed");
+        let installed_only = MockProbe::with(&[("SutonnyMJ", "C:\\Windows\\Fonts\\sutonnymj.ttf")]);
+        assert_eq!(
+            resolve_bijoy_font_with_probe(&dir, &installed_only),
+            BijoyFontChoice::SutonnyMJ(PathBuf::from("C:\\Windows\\Fonts\\sutonnymj.ttf"))
+        );
+
+        // Staged only (nothing installed): staged SutonnyMJ wins.
+        let dir = temp_dir("probe-staged");
+        let staged = write_font(
+            &dir,
+            "SutonnyMJ Regular.ttf",
+            &sfnt_with_family("SutonnyMJ"),
+        );
+        assert_eq!(
+            resolve_bijoy_font_with_probe(&dir, &empty),
+            BijoyFontChoice::SutonnyMJ(staged)
+        );
+
+        // Installed and staged: the staged file wins (same family).
+        let installed_too = MockProbe::with(&[("SutonnyMJ", "C:\\Windows\\Fonts\\other.ttf")]);
+        let staged_path = dir.join("SutonnyMJ Regular.ttf");
+        assert_eq!(
+            resolve_bijoy_font_with_probe(&dir, &installed_too),
+            BijoyFontChoice::SutonnyMJ(staged_path)
+        );
+
+        // Kalpurush ANSI installed as fallback when SutonnyMJ is absent.
+        let dir = temp_dir("probe-ansi");
+        let ansi_only = MockProbe::with(&[("Kalpurush ANSI", "C:\\Windows\\Fonts\\kpan.ttf")]);
+        assert_eq!(
+            resolve_bijoy_font_with_probe(&dir, &ansi_only),
+            BijoyFontChoice::KalpurushAnsi(PathBuf::from("C:\\Windows\\Fonts\\kpan.ttf"))
+        );
+    }
+
+    #[test]
+    fn installed_probe_is_case_insensitive() {
+        let probe = MockProbe::with(&[("sutonnymj", "C:\\Windows\\Fonts\\s.ttf")]);
+        assert_eq!(
+            probe.installed_font_file("SutonnyMJ"),
+            Some(PathBuf::from("C:\\Windows\\Fonts\\s.ttf"))
+        );
+        assert_eq!(probe.installed_font_file("Kalpurush"), None);
+    }
+
+    #[test]
+    fn is_font_installed_rejects_unknown_families() {
+        // Deterministic negative: no such family is ever registered.
+        assert!(!is_font_installed("Okkhor No Such Font Family 12345"));
+    }
+
+    #[test]
+    fn family_matching_uses_name_prefix() {
+        use super::font_value_belongs_to_family;
+        assert!(font_value_belongs_to_family(
+            "SutonnyMJ (TrueType)",
+            "SutonnyMJ"
+        ));
+        assert!(font_value_belongs_to_family(
+            "sutonnymj (truetype)",
+            "SutonnyMJ"
+        ));
+        assert!(font_value_belongs_to_family(
+            "Kalpurush ANSI (TrueType)",
+            "Kalpurush ANSI"
+        ));
+        // "Kalpurush (" must not swallow the ANSI sibling.
+        assert!(!font_value_belongs_to_family(
+            "Kalpurush ANSI (TrueType)",
+            "Kalpurush"
+        ));
+        assert!(!font_value_belongs_to_family(
+            "Kalpurush (TrueType)",
+            "SutonnyMJ"
+        ));
+    }
+
+    #[test]
+    fn reg_sz_decodes_utf16le() {
+        let bytes: Vec<u8> = "sutonnymj.ttf\0"
+            .encode_utf16()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
+        assert_eq!(super::decode_reg_sz(&bytes), "sutonnymj.ttf\0");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn duplicate_registrations_for_one_file_all_match() {
+        use super::{SnapshotFontValue, registration_names_for_file};
+        use windows::Win32::System::Registry::REG_SZ;
+
+        let entries = vec![
+            SnapshotFontValue {
+                name: "SutonnyMJ (TrueType)".to_owned(),
+                value_type: REG_SZ.0,
+                data: "SutonnyMJ Regular.ttf\0".to_owned(),
+            },
+            SnapshotFontValue {
+                name: "SutonnyMJ (Legacy Duplicate)".to_owned(),
+                value_type: REG_SZ.0,
+                data: "sutonnymj regular.ttf\0".to_owned(),
+            },
+            SnapshotFontValue {
+                name: "Kalpurush (TrueType)".to_owned(),
+                value_type: REG_SZ.0,
+                data: "kalpurush.ttf\0".to_owned(),
+            },
+            // Wrong type: must never match even with identical data.
+            SnapshotFontValue {
+                name: "SutonnyMJ (Binary)".to_owned(),
+                value_type: 3,
+                data: "SutonnyMJ Regular.ttf\0".to_owned(),
+            },
+        ];
+        // Both values pointing at the same file match (I3 regression: the
+        // old in-loop delete skipped one per delete).
+        assert_eq!(
+            registration_names_for_file(&entries, "SutonnyMJ Regular.ttf"),
+            vec![
+                "SutonnyMJ (TrueType)".to_owned(),
+                "SutonnyMJ (Legacy Duplicate)".to_owned()
+            ]
+        );
+        assert_eq!(
+            registration_names_for_file(&entries, "kalpurush.ttf"),
+            vec!["Kalpurush (TrueType)".to_owned()]
+        );
+        assert!(registration_names_for_file(&entries, "missing.ttf").is_empty());
     }
 }

@@ -9,6 +9,16 @@ encoding data is imported from owner-supplied JSON (see
 
 ## Fonts
 
+### Kalpurush — SIL Open Font License 1.0
+
+- **Copyright/design:** Tanbin Islam Siyam, Avro Font Development Project,
+  http://www.omicronlab.com (per the font's name-table records; Kalpurush
+  declares OFL 1.0, Version 0.258).
+- **License text:** `assets/fonts/OFL-Kalpurush.txt` (SPDX-canonical OFL 1.0
+  text; upstream verbatim unobtainable — omicronlab.com font/license pages
+  return 404 as of 2026-11-23).
+- Unicode UI/editor font.
+
 ### SutonnyMJ — proprietary, owner-approved for release builds
 
 - **Copyright:** SutonnyMJ © Mustafa Jabbar, Ananda Computers
@@ -22,14 +32,18 @@ encoding data is imported from owner-supplied JSON (see
   committed to git. It is Okkhor's default Bijoy rendering font, with
   Kalpurush ANSI as fallback.
 
-### Kalpurush / Kalpurush ANSI — SIL Open Font License 1.0
+### Kalpurush ANSI — Avro Free Bangla Font Project, owner-approved
 
-- **Copyright/design:** Tanbin Islam Siyam, Avro Font Development Project,
-  http://www.omicronlab.com (per the fonts' name-table records;
-  Kalpurush declares OFL 1.0, Version 0.258).
-- **License text:** `assets/fonts/OFL-Kalpurush.txt`.
-- Kalpurush is the Unicode UI/editor font; Kalpurush ANSI is the fallback
-  Bijoy-ANSI rendering font.
+- **License:** Avro Free Bangla Font Project with the owner's redistribution
+  approval for Okkhor release builds. The font embeds **no** license
+  declaration (verified 2026-11-23: its name table carries family
+  "Kalpurush ANSI" and subfamily only — no copyright, license, or
+  description records). It is therefore **not** recorded as OFL; the
+  `OFL-Kalpurush.txt` file covers Kalpurush only.
+- **Source:** https://www.omicronlab.com/download/fonts/kalpurush%20ANSI.ttf
+  (113300 bytes, SHA256
+  `BFB06B2360A558424C61405A29C24B09C70487757204814C6DD04621A2A9EEBC`).
+- Fallback Bijoy-ANSI rendering font (SutonnyMJ is the default).
 
 ### Noto Sans Bengali — SIL Open Font License 1.1
 
