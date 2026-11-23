@@ -38,7 +38,12 @@ pub use protocol::{
     WordRemove, WordRemoveResult, WordsExport, WordsExported, WordsImport, WordsImported,
     WordsListQuery, WordsPage, normalize_words_list_limit, validate_insert_text,
 };
-pub use settings::{Accent, Language, Settings, SettingsError, SettingsPatch, Theme, parse_hotkey};
+pub use settings::{
+    Accent, FontBijoy, FontUnicode, InputMode, Language, OutputEncoding, QUICKBAR_COORD_MAX,
+    QUICKBAR_COORD_MIN, QUICKBAR_OPACITY_MAX, QUICKBAR_OPACITY_MIN, Settings, SettingsError,
+    SettingsPatch, TOGGLE_HOTKEY_MAX_LEN, Theme, is_known_layout, parse_hotkey,
+    parse_toggle_hotkey,
+};
 #[cfg(windows)]
 pub use transport::{Client, ClientError, Handler, Server, TransportError};
 pub use words::{

@@ -513,6 +513,8 @@ mod tests {
                     paused: false,
                     language: "bn".to_owned(),
                     layout: "avro".to_owned(),
+                    input_mode: crate::settings::InputMode::Bangla,
+                    output_encoding: crate::settings::OutputEncoding::Unicode,
                     popup_visible: false,
                     words_total: 0,
                     learning_enabled: true,

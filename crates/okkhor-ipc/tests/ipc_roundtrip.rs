@@ -44,6 +44,8 @@ impl MemoryHandler {
                 okkhor_ipc::Language::En => "en".to_owned(),
             },
             layout: settings.layout.clone(),
+            input_mode: settings.input_mode,
+            output_encoding: settings.output_encoding,
             popup_visible: false,
             words_total: words.len() as u64,
             learning_enabled: settings.learning_enabled,
@@ -230,20 +232,35 @@ async fn ipc_round_trip_status_settings_words() {
     // settings.get returns defaults; settings.update merges and clamps.
     let settings = client.settings_get().await.expect("settings.get");
     assert_eq!(settings, Settings::default());
+    assert_eq!(settings.input_mode, okkhor_ipc::InputMode::Bangla);
     let updated = client
         .settings_update(&SettingsPatch {
             theme: Some(okkhor_ipc::Theme::Dark),
+            input_mode: Some(okkhor_ipc::InputMode::English),
+            output_encoding: Some(okkhor_ipc::OutputEncoding::Bijoy),
+            toggle_hotkey: Some("Ctrl+Space".to_owned()),
+            quickbar_x: Some(Some(120)),
+            quickbar_opacity: Some(9.0),
             popup_max_items: Some(99),
             ..SettingsPatch::default()
         })
         .await
         .expect("settings.update");
     assert_eq!(updated.theme, okkhor_ipc::Theme::Dark);
+    assert_eq!(updated.input_mode, okkhor_ipc::InputMode::English);
+    assert_eq!(updated.output_encoding, okkhor_ipc::OutputEncoding::Bijoy);
+    assert_eq!(updated.toggle_hotkey, "Ctrl+Space");
+    assert_eq!(updated.quickbar_x, Some(120));
+    assert_eq!(updated.quickbar_opacity, 1.0);
     assert_eq!(updated.popup_max_items, 9);
     assert_eq!(
         client.settings_get().await.expect("get").theme,
         okkhor_ipc::Theme::Dark
     );
+    // Status reflects the updated mode and encoding for the quick bar.
+    let status = client.status().await.expect("status");
+    assert_eq!(status.input_mode, okkhor_ipc::InputMode::English);
+    assert_eq!(status.output_encoding, okkhor_ipc::OutputEncoding::Bijoy);
 
     // layouts.list.
     let layouts = client.layouts_list().await.expect("layouts.list");
