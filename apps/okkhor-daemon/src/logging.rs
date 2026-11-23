@@ -57,6 +57,13 @@ pub enum Scope {
     Hotkey,
     Tray,
     Registry,
+    // G1: constructed by §6.3 daemon wiring (follow-up); allow until then.
+    #[allow(dead_code)]
+    Lang,
+    #[allow(dead_code)]
+    Transliterate,
+    #[allow(dead_code)]
+    Compat,
 }
 
 impl Scope {
@@ -68,6 +75,9 @@ impl Scope {
             Self::Hotkey => "hotkey",
             Self::Tray => "tray",
             Self::Registry => "registry",
+            Self::Lang => "lang",
+            Self::Transliterate => "transliterate",
+            Self::Compat => "compat",
         }
     }
 }
@@ -282,5 +292,8 @@ mod tests {
         assert_eq!(Command::AutostartEnable.as_str(), "autostart-enable");
         assert_eq!(Scope::Tray.as_str(), "tray");
         assert_eq!(Scope::Registry.as_str(), "registry");
+        assert_eq!(Scope::Lang.as_str(), "lang");
+        assert_eq!(Scope::Transliterate.as_str(), "transliterate");
+        assert_eq!(Scope::Compat.as_str(), "compat");
     }
 }
