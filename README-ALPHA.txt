@@ -10,11 +10,12 @@ Unzip the portable folder anywhere you can write, e.g. Desktop or
 Documents. Keep the folder layout intact:
 
   Okkhor-<version>-win64/
-    okkhor.exe            the daemon (run from a terminal)
+    okkhor.exe            the daemon (run from a terminal; `okkhor --version`
+                          must print the artifact version below — see §7)
     fonts/                staged font files (may be empty, see below)
     okkhor.ico            app icon (cosmetic)
-    THIRD_PARTY_LICENSES.md
-    OFL-*.txt             font license texts (when present)
+    LICENSES/             THIRD_PARTY_LICENSES.md + OFL-*.txt font
+                          license texts (when present)
     README-ALPHA.txt      this file
     BUILD-INFO.json       exact build identity (version, commit, date)
 
@@ -91,3 +92,11 @@ Check the engine without typing:
 Include: BUILD-INFO.json (version + commit), Windows build (winver),
 the exact keys typed, and the relevant log lines. Never paste private
 text you typed — logs contain none, and neither should the report.
+
+7. VERSION IDENTITY (QA checklist B1)
+-------------------------------------
+The binary version must match the artifact version. From the extracted
+folder, `.\okkhor.exe --version` must print exactly the version in the
+folder/zip name (e.g. `okkhor 0.5.0-alpha.1`) and in BUILD-INFO.json.
+If it does not, stop: the artifact is mislabeled — rebuild from the
+tagged commit instead of testing it.

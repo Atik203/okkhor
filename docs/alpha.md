@@ -54,6 +54,12 @@ Run from the extracted artifact:
 `BUILD-INFO.json` in the artifact records version, git commit, UTC date,
 `rustc` version, and target triple.
 
+> Version identity (QA checklist B1): `okkhor --version` must print
+> exactly `okkhor <Version>` matching the artifact name and
+> `BUILD-INFO.json`. `scripts/build-alpha.ps1` enforces this after every
+> build and refuses to stage a mislabeled artifact; verify it again on
+> the extracted build before any QA run.
+
 ## Known limits
 
 - No F9 or tray toggle for Bangla/English yet; pause to type English.

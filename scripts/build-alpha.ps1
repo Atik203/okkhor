@@ -41,6 +41,19 @@ if ($LASTEXITCODE -ne 0) { throw "Release build failed (exit $LASTEXITCODE)." }
 $Exe = Join-Path $RepoRoot 'target\release\okkhor.exe'
 if (-not (Test-Path $Exe)) { throw "Build reported success but $Exe is missing." }
 
+# Identity gate (checklist B1): the binary must report exactly the artifact
+# version, or the artifact would be mislabeled. Compare trimmed stdout
+# against the expected string; anything else fails closed.
+Write-Host '==> okkhor --version (identity gate)' -ForegroundColor Cyan
+$actualVersion = & $Exe --version 2>&1
+if ($LASTEXITCODE -ne 0) { throw "--version failed (exit $LASTEXITCODE)." }
+$actualVersion = "$actualVersion".Trim()
+$expectedVersion = "okkhor $Version"
+if ($actualVersion -ne $expectedVersion) {
+  throw "Version mismatch: binary reports '$actualVersion', expected '$expectedVersion'. refusing to stage."
+}
+Write-Host "Identity: $actualVersion" -ForegroundColor Green
+
 Write-Host '==> okkhor self-check' -ForegroundColor Cyan
 & $Exe self-check
 if ($LASTEXITCODE -ne 0) { throw "self-check failed (exit $LASTEXITCODE)." }
@@ -82,11 +95,14 @@ if (Test-Path $Icon) {
   Write-Warning "Icon not found at assets/branding/okkhor.ico; skipping."
 }
 
-# Licenses: required for redistribution, but only warn here so a license-text
-# gap is visible without masking the exe/README gate below.
+# Licenses (checklist B6): staged under LICENSES/. Required for
+# redistribution, but only warn here so a license-text gap is visible
+# without masking the exe/README gate below.
+$LicensesDir = Join-Path $StageDir 'LICENSES'
+New-Item -ItemType Directory -Force -Path $LicensesDir | Out-Null
 $Licenses = Join-Path $RepoRoot 'THIRD_PARTY_LICENSES.md'
 if (Test-Path $Licenses) {
-  Copy-Item -Force $Licenses (Join-Path $StageDir 'THIRD_PARTY_LICENSES.md')
+  Copy-Item -Force $Licenses (Join-Path $LicensesDir 'THIRD_PARTY_LICENSES.md')
 } else {
   Write-Warning 'THIRD_PARTY_LICENSES.md is missing; shipping without it.'
 }
@@ -94,7 +110,7 @@ $oflCopied = $false
 $AssetsFontsDir = Join-Path $RepoRoot 'assets\fonts'
 if (Test-Path $AssetsFontsDir) {
   foreach ($ofl in (Get-ChildItem -Path $AssetsFontsDir -Filter 'OFL-*.txt' -File -ErrorAction SilentlyContinue)) {
-    Copy-Item -Force $ofl.FullName (Join-Path $StageDir $ofl.Name)
+    Copy-Item -Force $ofl.FullName (Join-Path $LicensesDir $ofl.Name)
     $oflCopied = $true
   }
 }
@@ -113,12 +129,24 @@ try {
   $rustcOut = & rustc --version 2>$null
   if ($LASTEXITCODE -eq 0 -and $rustcOut) { $rustc = "$rustcOut".Trim() }
 } catch { $rustc = 'unknown' }
+# Host triple for BUILD-INFO.json: parsed from `rustc -vV` (`host: <triple>`).
+# Falls back to the known Windows target only if the probe fails.
+$hostTarget = 'x86_64-pc-windows-msvc'
+try {
+  $verbose = & rustc -vV 2>$null
+  if ($LASTEXITCODE -eq 0 -and $verbose) {
+    $hostLine = @($verbose | Select-String '^host:') | Select-Object -First 1
+    if ($hostLine -and "$hostLine".Trim() -match '^host:\s*(\S+)\s*$') {
+      $hostTarget = $Matches[1]
+    }
+  }
+} catch { $hostTarget = 'x86_64-pc-windows-msvc' }
 $buildInfo = [ordered]@{
   version = $Version
   commit  = $commit
   date_utc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
   rustc   = $rustc
-  target  = 'x86_64-pc-windows-msvc'
+  target  = $hostTarget
 }
 ($buildInfo | ConvertTo-Json) | Set-Content -Path (Join-Path $StageDir 'BUILD-INFO.json') -Encoding utf8
 
