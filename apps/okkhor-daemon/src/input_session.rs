@@ -10,7 +10,7 @@
 //! logged, never persisted, and cleared on commit, cancel, and pause.
 
 use okkhor_transliterate::{
-    RuleSet, RuleTransliterator, TransliterationOptions, TransliteratorEngine,
+    PhoneticTransliterator, TransliterationOptions, TransliterationOutput, TransliteratorEngine,
 };
 
 /// Maximum roman letters kept in the composition buffer.
@@ -80,7 +80,7 @@ pub fn vk_to_digit_index(vk: u16) -> Option<usize> {
 ///
 /// Bounded: the buffer holds at most [`MAX_BUFFER_LEN`] bytes and the
 /// candidate list at most [`MAX_CANDIDATES`] strings. No logging, no I/O.
-pub struct InputSession<E = RuleTransliterator> {
+pub struct InputSession<E = DefaultEngine> {
     engine: E,
     buffer: String,
     candidates: Vec<String>,
@@ -241,66 +241,84 @@ impl<E: TransliteratorEngine> InputSession<E> {
     }
 }
 
-/// Build the engine from the rule table committed with this milestone.
+/// Engine backing live sessions: the embedded Avro phonetic table.
 ///
-/// The table is embedded so the daemon needs no dictionary file or I/O on the
-/// key path. It covers the Bangla vowels, common consonants, and a small set
-/// of frequent words; ranking beyond literal prefix order is future work.
-pub fn default_engine() -> RuleTransliterator {
-    const RULES_JSON: &str = r#"{
-        "schema": 1,
-        "rules": [
-            { "id": "rule_a", "input": "a", "output": "আ", "language": "bangla", "priority": 100 },
-            { "id": "rule_i", "input": "i", "output": "ই", "language": "bangla", "priority": 100 },
-            { "id": "rule_u", "input": "u", "output": "উ", "language": "bangla", "priority": 100 },
-            { "id": "rule_e", "input": "e", "output": "এ", "language": "bangla", "priority": 100 },
-            { "id": "rule_o", "input": "o", "output": "অ", "language": "bangla", "priority": 100 },
-            { "id": "rule_k", "input": "k", "output": "ক", "language": "bangla", "priority": 100 },
-            { "id": "rule_g", "input": "g", "output": "গ", "language": "bangla", "priority": 100 },
-            { "id": "rule_c", "input": "c", "output": "চ", "language": "bangla", "priority": 100 },
-            { "id": "rule_j", "input": "j", "output": "জ", "language": "bangla", "priority": 100 },
-            { "id": "rule_t", "input": "t", "output": "ত", "language": "bangla", "priority": 100 },
-            { "id": "rule_d", "input": "d", "output": "দ", "language": "bangla", "priority": 100 },
-            { "id": "rule_n", "input": "n", "output": "ন", "language": "bangla", "priority": 100 },
-            { "id": "rule_p", "input": "p", "output": "প", "language": "bangla", "priority": 100 },
-            { "id": "rule_b", "input": "b", "output": "ব", "language": "bangla", "priority": 100 },
-            { "id": "rule_m", "input": "m", "output": "ম", "language": "bangla", "priority": 100 },
-            { "id": "rule_r", "input": "r", "output": "র", "language": "bangla", "priority": 100 },
-            { "id": "rule_l", "input": "l", "output": "ল", "language": "bangla", "priority": 100 },
-            { "id": "rule_s", "input": "s", "output": "স", "language": "bangla", "priority": 100 },
-            { "id": "rule_h", "input": "h", "output": "হ", "language": "bangla", "priority": 100 },
-            { "id": "rule_y", "input": "y", "output": "য", "language": "bangla", "priority": 100 },
-            { "id": "rule_f", "input": "f", "output": "ফ", "language": "bangla", "priority": 80 },
-            { "id": "rule_kh", "input": "kh", "output": "খ", "language": "bangla", "priority": 50 },
-            { "id": "rule_ch", "input": "ch", "output": "ছ", "language": "bangla", "priority": 50 },
-            { "id": "rule_th", "input": "th", "output": "থ", "language": "bangla", "priority": 50 },
-            { "id": "rule_dh", "input": "dh", "output": "ধ", "language": "bangla", "priority": 50 },
-            { "id": "rule_ph", "input": "ph", "output": "ফ", "language": "bangla", "priority": 50 },
-            { "id": "rule_bh", "input": "bh", "output": "ভ", "language": "bangla", "priority": 50 },
-            { "id": "rule_sh", "input": "sh", "output": "শ", "language": "bangla", "priority": 50 },
-            { "id": "rule_bha", "input": "bha", "output": "ভা", "language": "bangla", "priority": 50 },
-            { "id": "rule_ami", "input": "ami", "output": "আমি", "language": "bangla", "priority": 10 },
-            { "id": "rule_tumi", "input": "tumi", "output": "তুমি", "language": "bangla", "priority": 10 },
-            { "id": "rule_bhalo", "input": "bhalo", "output": "ভালো", "language": "bangla", "priority": 10 },
-            { "id": "rule_kotha", "input": "kotha", "output": "কথা", "language": "bangla", "priority": 10 },
-            { "id": "rule_bangla", "input": "bangla", "output": "বাংলা", "language": "bangla", "priority": 10 },
-            { "id": "rule_kore", "input": "kore", "output": "করে", "language": "bangla", "priority": 10 },
-            { "id": "rule_ache", "input": "ache", "output": "আছে", "language": "bangla", "priority": 10 },
-            { "id": "rule_na", "input": "na", "output": "না", "language": "bangla", "priority": 10 },
-            { "id": "rule_ki", "input": "ki", "output": "কি", "language": "bangla", "priority": 10 },
-            { "id": "rule_tomake", "input": "tomake", "output": "তোমাকে", "language": "bangla", "priority": 10 },
-            { "id": "rule_dhonnobad", "input": "dhonnobad", "output": "ধন্যবাদ", "language": "bangla", "priority": 10 }
-        ]
-    }"#;
-    let rules = RuleSet::from_json_str(RULES_JSON).expect("embedded rules are valid");
-    RuleTransliterator::new(rules).expect("embedded rules validate")
+/// The table is compiled once at startup, off the typing path; conversion
+/// itself performs no I/O. If the embedded table somehow fails to load, this
+/// falls back to [`DefaultEngine::Empty`], which yields no candidates so keys
+/// pass through untouched. The daemon logs the failure once at startup as an
+/// allowlisted scope/kind/code record (never text); nothing here panics and
+/// nothing here logs.
+#[derive(Debug, Clone)]
+pub enum DefaultEngine {
+    /// Live path: the embedded Avro table.
+    Phonetic(PhoneticTransliterator),
+    /// Load-failure fallback: yields no candidates.
+    Empty {
+        /// Allowlisted `kind` string for the daemon startup log.
+        kind: &'static str,
+    },
+}
+
+impl DefaultEngine {
+    /// Whether this is the load-failure fallback (yields no candidates).
+    pub fn is_fallback(&self) -> bool {
+        matches!(self, Self::Empty { .. })
+    }
+
+    /// Allowlisted failure kind for the daemon startup log; `None` when the
+    /// live table loaded. Carries no input, output, or rule text.
+    pub fn fallback_kind(&self) -> Option<&'static str> {
+        match self {
+            Self::Phonetic(_) => None,
+            Self::Empty { kind } => Some(kind),
+        }
+    }
+
+    /// Number of compiled table rules; `0` on the fallback.
+    ///
+    /// Live sessions only need [`TransliteratorEngine`]; this is a startup
+    /// health check (and a test hook), kept off the typing path.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn rule_count(&self) -> usize {
+        match self {
+            Self::Phonetic(engine) => engine.rule_count(),
+            Self::Empty { .. } => 0,
+        }
+    }
+}
+
+impl TransliteratorEngine for DefaultEngine {
+    fn transliterate(
+        &self,
+        input: &str,
+        options: &TransliterationOptions,
+    ) -> Vec<TransliterationOutput> {
+        match self {
+            Self::Phonetic(engine) => engine.transliterate(input, options),
+            Self::Empty { .. } => Vec::new(),
+        }
+    }
+}
+
+/// Build the engine from the embedded Avro phonetic table.
+///
+/// Never panics: a load failure yields the empty fallback (no candidates,
+/// keys pass through) and the daemon logs [`DefaultEngine::fallback_kind`]
+/// once at startup. Dictionary-based corrections (আপনি, ধন্যবাদ) are a later
+/// task; where they differ from intuition, the table form wins.
+pub fn default_engine() -> DefaultEngine {
+    match PhoneticTransliterator::from_embedded_avro() {
+        Ok(engine) => DefaultEngine::Phonetic(engine),
+        Err(error) => DefaultEngine::Empty { kind: error.kind() },
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        BackspaceOutcome, InputSession, MAX_BUFFER_LEN, MAX_CANDIDATES, default_engine,
-        vk_to_digit_index, vk_to_letter,
+        BackspaceOutcome, DefaultEngine, InputSession, MAX_BUFFER_LEN, MAX_CANDIDATES,
+        default_engine, vk_to_digit_index, vk_to_letter,
     };
     use okkhor_core::Language;
     use okkhor_transliterate::{
@@ -352,9 +370,65 @@ mod tests {
         }
     }
 
+    /// Stub engine yielding a fixed candidate list: keeps selection and
+    /// commit tests independent of the committed Avro table (which yields
+    /// at most one deterministic candidate per buffer).
+    struct FixedEngine {
+        candidates: Vec<String>,
+    }
+
+    impl FixedEngine {
+        fn new(candidates: &[&str]) -> Self {
+            Self {
+                candidates: candidates.iter().map(|text| text.to_string()).collect(),
+            }
+        }
+    }
+
+    impl TransliteratorEngine for FixedEngine {
+        fn transliterate(
+            &self,
+            _input: &str,
+            options: &TransliterationOptions,
+        ) -> Vec<TransliterationOutput> {
+            self.candidates
+                .iter()
+                .take(options.max_candidates)
+                .map(|text| TransliterationOutput {
+                    text: text.clone(),
+                    language: Language::Bangla,
+                    confidence: 1.0,
+                    rule_id: RuleId::from_code("rule_stub").expect("valid stub id"),
+                })
+                .collect()
+        }
+    }
+
     #[test]
-    fn default_engine_builds_with_committed_rules() {
-        assert!(default_engine().rule_count() > 0);
+    fn default_engine_builds_embedded_avro_table() {
+        let engine = default_engine();
+        assert!(!engine.is_fallback(), "embedded Avro table loads");
+        assert_eq!(engine.fallback_kind(), None);
+        assert!(engine.rule_count() > 0);
+    }
+
+    #[test]
+    fn fallback_engine_yields_no_candidates() {
+        // Load-failure shape: typing passes through instead of panicking.
+        let engine = DefaultEngine::Empty {
+            kind: "transliterate_invalid_pattern",
+        };
+        assert!(engine.is_fallback());
+        assert_eq!(
+            engine.fallback_kind(),
+            Some("transliterate_invalid_pattern")
+        );
+        assert_eq!(engine.rule_count(), 0);
+        let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
+        type_text(&mut session, "bhalo");
+        assert!(session.candidates().is_empty());
+        assert_eq!(session.commit(true), None);
+        assert_eq!(session.buffer(), "bhalo");
     }
 
     #[test]
@@ -389,10 +463,33 @@ mod tests {
         assert_eq!(session.buffer(), "bhalo");
         assert!(session.is_composing());
         assert_eq!(session.selected(), 0);
-        assert_eq!(
-            session.candidates().first().map(String::as_str),
-            Some("ভালো")
-        );
+        // Avro table form: lowercase `o` after a consonant is the inherent
+        // vowel (deleted); capital `O` would give ভালো.
+        assert_eq!(session.candidates().first().map(String::as_str), Some("ভাল"));
+    }
+
+    #[test]
+    fn live_table_end_to_end_words() {
+        for (roman, expected) in [
+            ("bangla", "বাংলা"),
+            ("tumi", "তুমি"),
+            ("kemon", "কেমন"),
+            ("amar", "আমার"),
+        ] {
+            let mut live = session();
+            type_text(&mut live, roman);
+            let commit = live.commit(false).expect("live table commits");
+            assert_eq!(commit.text, expected, "roman {roman:?}");
+            assert_eq!(commit.erase_chars, roman.len());
+            assert!(!live.is_composing());
+        }
+    }
+
+    #[test]
+    fn live_table_partial_prefix_top_candidate() {
+        let mut live = session();
+        type_text(&mut live, "bhal");
+        assert_eq!(live.candidates().first().map(String::as_str), Some("ভাল"));
     }
 
     #[test]
@@ -444,7 +541,10 @@ mod tests {
 
     #[test]
     fn digits_select_and_commit() {
-        let mut session = session();
+        // Multi-candidate behavior via stub: the live Avro table yields at
+        // most one candidate per buffer.
+        let mut session: InputSession<FixedEngine> =
+            InputSession::new(FixedEngine::new(&["ভাল", "ভালো", "ভালোবাসা"]));
         type_text(&mut session, "bha");
         assert!(session.candidates().len() >= 3);
         let second = session.candidates()[1].clone();
@@ -457,7 +557,8 @@ mod tests {
 
     #[test]
     fn digit_out_of_range_leaves_state_untouched() {
-        let mut session = session();
+        let mut session: InputSession<FixedEngine> =
+            InputSession::new(FixedEngine::new(&["ভাল", "ভালো"]));
         type_text(&mut session, "bha");
         let before = session.buffer().to_owned();
         let out_of_range = session.candidates().len();
@@ -470,7 +571,10 @@ mod tests {
 
     #[test]
     fn arrows_cycle_and_wrap() {
-        let mut session = session();
+        // Multi-candidate behavior via stub: the live Avro table yields at
+        // most one candidate per buffer.
+        let mut session: InputSession<FixedEngine> =
+            InputSession::new(FixedEngine::new(&["ভাল", "ভালো", "ভালোবাসা"]));
         type_text(&mut session, "bha");
         let len = session.candidates().len();
         assert!(len >= 3);
@@ -486,7 +590,8 @@ mod tests {
         }
         assert_eq!(session.selected(), 1);
         // Wrap backward from zero to the last candidate.
-        let mut fresh: InputSession = InputSession::new(default_engine());
+        let mut fresh: InputSession<FixedEngine> =
+            InputSession::new(FixedEngine::new(&["ভাল", "ভালো", "ভালোবাসা"]));
         type_text(&mut fresh, "bha");
         fresh.move_selection(-1);
         assert_eq!(fresh.selected(), fresh.candidates().len() - 1);
@@ -512,7 +617,10 @@ mod tests {
 
     #[test]
     fn space_commits_selected_with_trailing_space() {
-        let mut session = session();
+        // Multi-candidate behavior via stub: the live Avro table yields at
+        // most one candidate per buffer.
+        let mut session: InputSession<FixedEngine> =
+            InputSession::new(FixedEngine::new(&["আমি", "আমার"]));
         type_text(&mut session, "ami");
         session.move_selection(1);
         let expected = session.candidates()[1].clone();
@@ -590,7 +698,8 @@ mod tests {
 
     #[test]
     fn pause_reset_clears_everything() {
-        let mut session = session();
+        let mut session: InputSession<FixedEngine> =
+            InputSession::new(FixedEngine::new(&["ভাল", "ভালো", "ভালোবাসা"]));
         type_text(&mut session, "bhalo");
         session.move_selection(2);
         session.reset();
