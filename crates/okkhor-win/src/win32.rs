@@ -10,6 +10,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
@@ -175,10 +176,24 @@ fn run_hook_thread(ready_tx: mpsc::Sender<Result<u32, HookError>>) {
         return;
     }
 
-    // SAFETY: keyboard_proc has the required HOOKPROC signature and remains
-    // valid for the lifetime of this process. A global WH_KEYBOARD_LL hook uses
-    // a null module handle and thread id 0.
-    let hook = match unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), None, 0) } {
+    // SAFETY: GetModuleHandleW has no preconditions. A global low-level hook
+    // must be associated with the process module that contains the callback.
+    let module = match unsafe { GetModuleHandleW(None) } {
+        Ok(module) => module,
+        Err(error) => {
+            let _ = ready_tx.send(Err(HookError::Win32 {
+                operation: "GetModuleHandleW",
+                code: error.code().0,
+            }));
+            return;
+        }
+    };
+
+    // SAFETY: keyboard_proc has the required HOOKPROC signature, module is the
+    // current process module, and thread id 0 installs a global hook.
+    let hook = match unsafe {
+        SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), Some(module.into()), 0)
+    } {
         Ok(hook) => hook,
         Err(error) => {
             let _ = ready_tx.send(Err(HookError::Win32 {
