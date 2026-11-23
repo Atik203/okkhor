@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "bn_bha_prefix",
+      "prefix": "ভা",
+      "language": "bangla",
+      "layout": "avro",
+      "context": [],
+      "expected_top5": ["ভাই", "ভাত", "ভাবনা", "ভালো", "ভাষা"]
+    },
+    {
+      "id": "en_hel_prefix",
+      "prefix": "hel",
+      "language": "english",
+      "context": [],
+      "expected_top5": ["held", "helix", "hello", "helm", "help"]
+    },
+    {
+      "id": "bn_roman_bha",
+      "prefix": "bha",
+      "language": "bangla",
+      "layout": "avro",
+      "context": [],
+      "expected_top5": ["ভালো", "ব"]
+    }
+  ]
+}
