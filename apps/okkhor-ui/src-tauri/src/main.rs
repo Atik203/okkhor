@@ -585,16 +585,27 @@ async fn quickbar_save_position(app: AppHandle) -> Result<(), UiError> {
     Ok(())
 }
 
-/// Quit Okkhor from the bar: ask the daemon to exit cleanly, then close this
-/// UI process (which owns the bar). Works when the daemon is down too - the
-/// bar must never become impossible to close.
+/// Quit Okkhor from the bar: ask the daemon to exit cleanly, then terminate
+/// this UI process. A watchdog guarantees the bar closes even if the IPC call
+/// stalls; works when the daemon is already down.
 #[tauri::command]
-async fn quickbar_quit(app: AppHandle) -> Result<(), UiError> {
+async fn quickbar_quit() -> Result<(), UiError> {
+    // Watchdog: a stuck pipe must never leave an unclosable bar behind.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        std::process::exit(0);
+    });
     #[cfg(windows)]
-    if let Ok(mut client) = connect().await {
-        let _ = client.shutdown().await;
-    }
-    app.exit(0);
+    std::thread::spawn(|| {
+        tauri::async_runtime::block_on(async {
+            if let Ok(mut client) = connect().await {
+                let _ = client.shutdown().await;
+            }
+        });
+        std::process::exit(0);
+    });
+    #[cfg(not(windows))]
+    std::process::exit(0);
     Ok(())
 }
 

@@ -814,7 +814,12 @@ impl IpcServer {
                 let runtime = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()?;
-                runtime.block_on(server.run(shutdown_rx))
+                let result = runtime.block_on(server.run(shutdown_rx));
+                // Do not let a lingering client connection delay process exit:
+                // in-flight handlers had their chance, and the token is removed
+                // by the caller immediately after this join.
+                runtime.shutdown_timeout(std::time::Duration::from_millis(200));
+                result
             })?;
         Ok(Self {
             shutdown: Some(shutdown_tx),

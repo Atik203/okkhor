@@ -123,8 +123,15 @@ cargo test
   the daemon launches `okkhor-ui.exe --quickbar` instead.
 - Quit: the power button arms a confirmation on the first click and, on the
   second, sends the authenticated IPC `shutdown` request (daemon exits
-  cleanly and removes the tray) then closes the UI process. It still exits the
-  UI when the daemon is down, so the bar can never become impossible to close.
+  cleanly and removes the tray) then terminates the UI process. A 3-second
+  watchdog guarantees the bar closes even if the pipe stalls; when the daemon
+  is already down only the UI exits, so the bar can never become impossible to
+  close.
+- Resize: the right-edge handle starts a native poll loop in Rust that tracks
+  the physical cursor and calls `SetWindowPos` (no activation, height held at
+  60), so the pointer can leave the bar without losing the drag. The window
+  resize listener clamps to 320-720 px, switches between labelled and
+  icon-only chips at 420 px, and remembers the width locally.
 - Settings: "Show quick bar" toggle and the 0.5–1.0 opacity slider write
   the existing `quickbar_*` fields through `settings.update`. Daemon down:
   mode/encoding/pause return `daemon_unavailable` (chips disable, banner

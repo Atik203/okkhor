@@ -322,6 +322,7 @@ fn is_known_method(method: &str) -> bool {
             | "words.export"
             | "text.insert"
             | "capture.set"
+            | "shutdown"
             | "ai.complete"
     )
 }
@@ -417,6 +418,10 @@ mod tests {
         assert!(matches!(
             Request::from_json(r#"{"status":{}}"#),
             Ok(Request::Status(_))
+        ));
+        assert!(matches!(
+            Request::from_json(r#"{"shutdown":{}}"#),
+            Ok(Request::Shutdown(_))
         ));
         assert_eq!(
             Request::from_json(r#"{"nope":{}}"#),

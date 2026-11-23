@@ -265,8 +265,10 @@ export default function StatusPage({ readOnly }: { readOnly: boolean }) {
                 <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-teal-700 text-[11px] font-bold text-white">
                   3
                 </span>
-                Add your own roman <span aria-hidden="true">→</span> Bangla words in
-                Words. They rank first and stay encrypted on this PC.
+                <span>
+                  Add your own roman <span aria-hidden="true">→</span> Bangla words
+                  in Words. They rank first and stay encrypted on this PC.
+                </span>
               </li>
             </ol>
           </CardContent>
