@@ -1,6 +1,6 @@
 # ADR 0004: UI shell and native suggestion popup
 
-- Status: Proposed
+- Status: Accepted (amended by ADR 0012: IPC, settings ownership, store)
 - Date: 2026-11-23
 
 ## Context
