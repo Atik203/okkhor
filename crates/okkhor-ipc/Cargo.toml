@@ -1,0 +1,26 @@
+[package]
+name = "okkhor-ipc"
+description = "IPC protocol, framing, auth, transport, settings, and word types for the Okkhor settings UI (0.5)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+getrandom.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# Only the SDDL hardening in `sddl` needs this (owner-only pipe DACL,
+# ADR 0012 §2). Kept crate-local so no other crate gains the dependency.
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+] }
+
+[lints]
+workspace = true
