@@ -14,6 +14,8 @@
 | [0010](0010-core-contracts.md) | Core contracts for the 0.3 multi-agent sprint | Accepted |
 | [0011](0011-candidate-engine.md) | Candidate engine and 0.4 contracts | Accepted |
 | [0012](0012-ui-ipc-and-settings.md) | UI process, IPC, settings ownership, encrypted store | Accepted |
+| [0013](0013-encodings-and-fonts.md) | Bangla output encodings and bundled fonts | Accepted |
+| [0014](0014-input-modes-hotkeys-fonts.md) | Input modes, one-key toggle, zero-config fonts | Accepted |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.
