@@ -193,6 +193,34 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
 ```
 
+## University GPU (uiu-h200) — model training only
+
+Scope: this resource is for this project's model-training work only. These
+rules bind every agent and session. If an action is not explicitly allowed
+here, ask the user for permission first.
+
+- Access: SSH via the local alias `uiu-h200` only. Do not expose ports or
+  create another connection method.
+- GPU: H200 MIG `1g.18gb` slice, 18 GB VRAM maximum. Use only this slice;
+  never request or use a larger profile.
+- Driver / CUDA: NVIDIA driver 580.178.04, CUDA 13.5. Do not change,
+  overwrite, reinstall, or upgrade either; do not replace system libraries.
+- Do not change: GPU clocks, power limits, MIG settings, SSH daemon, host
+  keys, account name, login method, or other users' `authorized_keys`.
+- Storage: 200 GB maximum. Check `df -h` and `du -sh` before large writes;
+  stay inside the project space; do not change mounts, quotas, or permissions;
+  do not delete other users' files.
+- Python: use a project-local venv or conda environment only. No system-wide
+  packages and no `sudo` without administrator approval.
+- Jobs: run long jobs under `tmux` or `screen`; stop idle GPU jobs. No mining,
+  public services, port scanning, or unrelated workloads.
+- Secrets: never commit a server address, hostname, username, account ID,
+  password, SSH key, or host fingerprint. The only allowed identifiers are
+  `uiu-h200`, `H200 1g.18gb`, driver `580.178.04`, and `CUDA 13.5`.
+- Policy: follow the university's monitoring, acceptable-use, and
+  data-handling policies. Training data must still satisfy the privacy rules
+  above: no raw keystrokes, no user text, synthetic or licensed corpora only.
+
 ## Definition of done
 
 A change is done only when:
