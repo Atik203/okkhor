@@ -1,4 +1,4 @@
-Okkhor 0.5.1 beta - Windows 11 x64 portable
+Okkhor 0.6.0 beta - Windows 11 x64 portable
 ===========================================
 
 This is an UNSIGNED beta. It has no installer and no auto-update. It is not
@@ -10,7 +10,7 @@ milestones. Everything runs per-user; no admin is required.
 Unzip the folder anywhere you can write, e.g. Desktop or Documents. Keep the
 folder layout:
 
-  Okkhor-0.5.1-win64/
+  Okkhor-0.6.0-win64/
     Okkhor.exe          THE APP - double-click this one
     bin/
       okkhor-engine.exe resident input engine (started by Okkhor.exe)
@@ -35,7 +35,7 @@ That warning is expected for unsigned software and disappears once 1.0 ships
 with an Authenticode signature. If you prefer to verify the download first,
 compare the zip hash with SHA256SUMS.txt:
 
-  Get-FileHash .\Okkhor-0.5.1-win64-portable.zip -Algorithm SHA256
+  Get-FileHash .\Okkhor-0.6.0-win64-portable.zip -Algorithm SHA256
 
 The value must match SHA256SUMS.txt exactly. Only trust a zip that matches.
 
@@ -66,9 +66,13 @@ The engine creates a per-user IPC token under
 
 5. USE
 ------
-- Type Banglish and press Space to commit Bangla. Digits 1-9 and 0 select a
-  candidate (up to ten); arrows move; Backspace edits; Esc keeps the roman
-  text. The caret list offers a curated correction first, then alternatives.
+- Type Banglish and press Space to commit Bangla. The caret list shows eight
+  rows by default (up to ten); digits 1-9 and 0 select a row, arrows move,
+  Backspace edits, Esc keeps the roman text. Curated corrections, the direct
+  roman dictionary, and the Avro word list all feed the same ranked list.
+- In English mode, three letters open a quiet completion list. Tab accepts the
+  highlighted word, a click accepts any row, Esc hides it. Space, Enter, and
+  punctuation never replace what you typed.
 - **F9** toggles Bangla/English and plays a short click (disable in Settings
   > Hotkeys). If F9 is already taken, Okkhor falls back to
   Ctrl+Space and tells you once.
@@ -86,7 +90,7 @@ The engine creates a per-user IPC token under
 - Closing Settings leaves the engine (and typing) running; quit from the tray
   or the bar's power button.
 
-6. WHAT IS IN 0.5.1
+6. WHAT IS IN 0.6.0
 -------------------
 - Single-entry-point launch: Okkhor.exe starts the engine automatically, so
   the read-only "engine is not running" state only appears if startup fails.
@@ -112,9 +116,9 @@ letters; use Unicode there. The font is bundled and can be installed with
 - UNSIGNED: SmartScreen will warn. Do not distribute outside the test group.
 - No installer/uninstaller; delete the folder to remove the app. Per-user
   fonts remain until `fonts uninstall`.
-- Suggestions use a curated starter list; the full dictionary and learned
-  reranker land after 0.5.
-- No speech, AI rewrite, or clipboard fallback yet (0.6+).
+- The first popup in a new window may take one extra frame while UI Automation
+  resolves the caret; the latest-wins caret thread is a 0.6.1 polish item.
+- No installer, updater, speech, or AI rewrite yet (1.0 / later).
 - Autostart launches the engine directly; it is a console subsystem binary,
   so a console window can flash at sign-in. Use the tray instead if that
   bothers you until 1.0.
@@ -122,7 +126,7 @@ letters; use Unicode there. The font is bundled and can be installed with
 
 8. VERSION IDENTITY
 -------------------
-`.\bin\okkhor-engine.exe --version` must print `okkhor 0.5.1`, matching
+`.\bin\okkhor-engine.exe --version` must print `okkhor 0.6.0`, matching
 BUILD-INFO.json and the folder name. If it does not, stop and rebuild from
 the tag.
 

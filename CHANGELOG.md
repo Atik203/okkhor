@@ -3,6 +3,50 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.6.0] - 2026-11-24
+
+### Added
+
+- **The full local dictionary is now wired into typing.** The engine loads a
+  committed `OKS1` index with 184,775 Bangla words, 114,193 roman→Bangla
+  phonetic pairs, 1,161 autocorrect pairs, 722 suffix rules, and 58,928
+  English words. Curated exact forms, the direct roman index, the Avro word
+  list, and `wordfreq` popularity are merged and ranked, then `Smriti` adds
+  personal frequency, recency, and previous-word context.
+- **Eight suggestion rows by default**, up to ten. Digits `1`-`9` and `0`
+  still select; the popup paints every row.
+- **English prefix completions.** After three letters the caret popup offers
+  completions. `Tab` accepts the highlighted row, a click accepts any row,
+  `Esc` dismisses. Space, Enter, and punctuation never replace text. The
+  feature is a Settings toggle and is suppressed in password fields.
+- **Instant quick-bar state.** The daemon signals mode, pause, and encoding
+  changes with a session-local event; the bar refetches immediately instead of
+  waiting for the 15 s poll (now a 5 s fallback).
+- **Learning persists.** Accepted and corrected words are saved to an
+  encrypted `data/learning.bin` snapshot (DPAPI current-user), loaded at
+  startup; a corrupt file starts empty.
+- Settings: English suggestions toggle, a clearer row-count label with an
+  "8 is the default" hint, and the inert AI/speech card removed.
+
+### Changed
+
+- The suggestion path is the staged `SuggestRequest` engine (curated → user →
+  roman → autocorrect → rule → dictionary → suffix → Smriti) with a 64
+  candidate bound and a 3 ms p99 budget. Measured on the development machine:
+  0.37 ms p50 / 0.80 ms p99 over 2,000 prefix queries.
+- The golden corpus reports 92.9% top-1 and 100% top-5 over 113 everyday
+  cases (`cargo test -p okkhor-engine --test suggestions`).
+- The popup theme is cached for one second instead of reading the registry on
+  every show.
+
+### Known limits
+
+- The UI Automation caret resolver still runs on the worker for the first
+  popup in a window; a dedicated latest-wins thread is a 0.6.1 polish item.
+- Installer, auto-update, and code signing remain 1.0 work.
+- The index is built from the owner-provided Avro/Nms installs and `wordfreq`;
+  the manifest records source hashes and counts.
+
 ## [0.5.1] - 2026-11-24
 
 ### Fixed
