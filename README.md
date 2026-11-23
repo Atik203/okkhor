@@ -67,9 +67,37 @@ Or:
 .\scripts\check.ps1
 ```
 
+## What works now (0.5 input pipeline)
+
+The daemon (`okkhor daemon`) now types Bangla end to end on Windows:
+
+- Type Banglish letters (`bhalo`) — a non-activating popup near the caret shows
+  up to 5 numbered Bangla candidates, refreshed per keystroke.
+- `Space` erases the roman buffer and commits the selected candidate plus a
+  space; `Enter` commits without the space. The highlight defaults to the first
+  candidate; `1`–`5` commit a numbered candidate, arrow keys cycle with wrap,
+  `Backspace` edits, `Esc`/`Tab` cancel and leave typed text untouched.
+- The pause hotkey (`Ctrl+Alt+Shift+P`) and the tray toggle cancel any
+  composition and hide the popup. While paused, everything passes through, so
+  **English typing requires pausing capture**.
+- Injected keystrokes (`LLKHF_INJECTED`) are never re-captured, so our own
+  erase/inject `SendInput` cannot feed the loop. Nothing is swallowed: the hook
+  keeps pass-through for every key.
+- Safety: if the foreground window changed since the buffer started, or if the
+  erase step fails, nothing is erased or injected — failures log an allowlisted
+  code only, never text. See `docs/input-pipeline.md` for the state diagram
+  and the full failure table.
+
+Known limitations: `Enter` while composing commits instead of newline;
+`Backspace` at an empty buffer passes through (never erases beyond the
+buffer); Ctrl/Alt/Win chords cancel the composition; the candidate table is a
+small committed starter set with literal-prefix ranking only; learning commits
+are queued to a background `Smriti` with no rerank yet.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Input pipeline (composition MVP)](docs/input-pipeline.md)
 - [Roadmap](docs/roadmap.md)
 - [Personal learning (Smriti)](docs/learning.md)
 - [Model roadmap](docs/model-roadmap.md)

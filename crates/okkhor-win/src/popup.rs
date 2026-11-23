@@ -20,6 +20,16 @@ pub enum PopupError {
     Win32 { operation: &'static str, code: i32 },
 }
 
+impl PopupError {
+    /// Numeric code for redacted logging. The operation name is static and
+    /// safe to log as a `kind`; no user text is ever attached.
+    pub fn code(&self) -> Option<i32> {
+        match self {
+            Self::Win32 { code, .. } => Some(*code),
+        }
+    }
+}
+
 /// A top-level, non-activating window that shows plain text near the caret.
 pub struct SuggestionPopup {
     window: HWND,

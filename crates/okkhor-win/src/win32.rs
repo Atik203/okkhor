@@ -13,8 +13,9 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL,
+    GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LWIN,
+    VK_MENU, VK_RWIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
@@ -245,7 +246,13 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         };
 
         if let (Some(queue), Some(phase)) = (HOOK_TX.get(), phase) {
-            if CAPTURE_ENABLED.load(Ordering::Relaxed) {
+            // Never re-capture our own injection: SendInput backspaces and text
+            // carry LLKHF_INJECTED. Skipping them here keeps the composition
+            // loop from feeding on itself. Pass-through is unaffected — every
+            // event is still forwarded below.
+            if CAPTURE_ENABLED.load(Ordering::Relaxed)
+                && !crate::input::is_injected_event(data.flags.0)
+            {
                 let _ = queue.try_send(KeyEvent {
                     virtual_key: data.vkCode as u16,
                     scan_code: data.scanCode as u16,
@@ -313,6 +320,73 @@ impl TextInjector for WindowsInjector {
             Err(InjectError::Blocked) => inject_via_clipboard(text, target),
             Err(error) => Err(error),
         }
+    }
+}
+
+/// Upper bound for one [`send_backspaces`] call.
+///
+/// The composition buffer never exceeds 32 characters; the cap leaves headroom
+/// while keeping the `SendInput` batch bounded.
+pub const MAX_SEND_BACKSPACES: usize = 64;
+
+/// Send `count` Backspace key presses via `SendInput`.
+///
+/// Used to erase the roman buffer before injecting the committed Bangla text.
+/// A count of zero is a no-op that touches no Win32 API; larger counts are
+/// clamped to [`MAX_SEND_BACKSPACES`]. Like all injection, the resulting events
+/// carry `LLKHF_INJECTED` and are skipped by the hook filter.
+pub fn send_backspaces(count: usize) -> Result<(), InjectError> {
+    let count = count.min(MAX_SEND_BACKSPACES);
+    if count == 0 {
+        return Ok(());
+    }
+    let mut inputs = Vec::with_capacity(count.saturating_mul(2));
+    for _ in 0..count {
+        inputs.push(virtual_key_input(VK_BACK, KEYBD_EVENT_FLAGS(0)));
+        inputs.push(virtual_key_input(VK_BACK, KEYEVENTF_KEYUP));
+    }
+    // SAFETY: inputs is a valid, fully initialized INPUT slice and the
+    // structure size is provided to SendInput.
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent as usize == inputs.len() {
+        Ok(())
+    } else {
+        let code = last_error_code();
+        if sent == 0 && code == 5 {
+            Err(InjectError::Blocked)
+        } else {
+            Err(InjectError::Win32 {
+                operation: "SendInput",
+                code,
+            })
+        }
+    }
+}
+
+/// Identifier of the current foreground window for the composition guard.
+///
+/// The daemon records this when a composition starts and refuses to erase when
+/// it changes before commit, so a focus switch can never delete text in the
+/// wrong window. A null handle maps to `0`, which never equals a live window.
+pub fn foreground_window_id() -> isize {
+    // SAFETY: GetForegroundWindow has no pointer preconditions.
+    unsafe { GetForegroundWindow() }.0 as isize
+}
+
+/// Whether Ctrl, Alt, or the Windows key is currently held.
+///
+/// The composition loop calls this before treating a letter as composition
+/// input, so shortcuts such as Ctrl+C never grow the roman buffer (the target
+/// application receives no letter for those chords, and erasing afterwards
+/// would delete the user's real text).
+pub fn ctrl_or_alt_pressed() -> bool {
+    // SAFETY: GetAsyncKeyState with a virtual-key code has no pointer
+    // preconditions; a negative return means the key is currently down.
+    unsafe {
+        GetAsyncKeyState(i32::from(VK_CONTROL.0)) < 0
+            || GetAsyncKeyState(i32::from(VK_MENU.0)) < 0
+            || GetAsyncKeyState(i32::from(VK_LWIN.0)) < 0
+            || GetAsyncKeyState(i32::from(VK_RWIN.0)) < 0
     }
 }
 
@@ -582,6 +656,11 @@ mod tests {
     fn each_code_unit_has_down_and_up_events() {
         let inputs = unicode_inputs(&[0x09, 0x3F]);
         assert_eq!(inputs.len(), 4);
+    }
+
+    #[test]
+    fn zero_backspaces_is_a_noop() {
+        assert!(super::send_backspaces(0).is_ok());
     }
 
     #[test]

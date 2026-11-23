@@ -54,6 +54,7 @@ dependencies = [
  "okkhor-core",
  "okkhor-learn",
  "okkhor-storage",
+ "okkhor-transliterate",
  "okkhor-win",
  "serde_json",
 ]
