@@ -34,6 +34,9 @@ pub enum Command {
     AutostartEnable,
     AutostartDisable,
     AutostartStatus,
+    FontsStatus,
+    FontsInstall,
+    FontsUninstall,
 }
 
 impl Command {
@@ -44,6 +47,9 @@ impl Command {
             Self::AutostartEnable => "autostart-enable",
             Self::AutostartDisable => "autostart-disable",
             Self::AutostartStatus => "autostart-status",
+            Self::FontsStatus => "fonts-status",
+            Self::FontsInstall => "fonts-install",
+            Self::FontsUninstall => "fonts-uninstall",
         }
     }
 }

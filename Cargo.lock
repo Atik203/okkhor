@@ -176,6 +176,7 @@ name = "okkhor-daemon"
 version = "0.2.0"
 dependencies = [
  "okkhor-core",
+ "okkhor-lang",
  "okkhor-learn",
  "okkhor-storage",
  "okkhor-transliterate",

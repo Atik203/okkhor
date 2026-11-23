@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 okkhor-core.workspace = true
+okkhor-lang.workspace = true
 okkhor-learn.workspace = true
 okkhor-storage.workspace = true
 okkhor-transliterate.workspace = true
