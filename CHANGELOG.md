@@ -12,6 +12,11 @@ Versioning once it reaches 1.0.
 
 ### Added
 
+- New `okkhor-lang` crate (0.3 sprint, Task 1): layout/encoding/dictionary
+  data types (`Layout`, `EncodingTable`, `Dictionary`) plus a synthetic-fixture
+  importer (`import_fixture_dir`, `import_asset`) with `FixtureEnvelope`
+  schema enforcement, deterministic `BTreeMap` ordering, and daemon-safe
+  `LangError::kind()`/`code()` reporting. No transliteration, FFI, or Win32.
 - QA-only `okkhor inject <text>` command with a focus delay and forced
   `SendInput` option for manual live-app QA.
 
