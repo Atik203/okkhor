@@ -1,0 +1,16 @@
+[package]
+name = "okkhor-transliterate"
+description = "Pure transliteration rule engine and Bangla/English normalization helpers for Okkhor."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+okkhor-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
