@@ -118,10 +118,11 @@ Rules:
 - Training and inference must use the same normalization and tokenization.
 - Never include raw text in a feature vector sent to a global trainer.
 
-Replay notes (0.6 Task 1, ADR 0015): the schema is implemented as
-`FeatureVectorV1` (`SCHEMA_VERSION = 1`) in the offline `okkhor-train` crate,
-in the exact field order of the table above (the optional `trigram_score` is
-out of v1). Categorical fields use stable codes (`candidate_source`:
+Replay notes (0.6 Task 1, ADR 0015; amended by ADR 0017): the schema is
+implemented as `FeatureVectorV1` (`SCHEMA_VERSION = 1`) in the shipped
+`okkhor-features` crate and re-exported by the offline `okkhor-train` crate, in
+the exact field order of the table above (the optional `trigram_score` is out of
+v1). Categorical fields use stable codes (`candidate_source`:
 dictionary 0, transliteration 1, user-history 2, recent 3, context 4, AI 5;
 `language`: English 0, Bangla 1; `layout`: none 0, avro 1, bijoy 2, national
 3, probhat 4, banglish 5, khipro 6, unibijoy 7, other 8; `context_language`:
@@ -225,8 +226,11 @@ keep the previous model and report a non-blocking error.
 
 Planned crates:
 
-- `okkhor-model`: manifest, signature, inference adapters, deadline handling.
-- `okkhor-learn`: Smriti baseline, local adapter, feature extraction.
+- `okkhor-features`: shipped, dependency-light `FeatureVectorV1` and
+  `extract_features` (ADR 0017); re-exported by `okkhor-train`.
+- `okkhor-model`: manifest, checksum/signature, logistic inference, bounded
+  work and baseline fallback (ADR 0017/0019).
+- `okkhor-learn`: Smriti baseline and later the local adapter.
 - `okkhor-train`: offline training and replay (not shipped).
 - `okkhor-core`: `Ranker`/`Candidate`/`SuggestionRequest` traits and types.
 
@@ -234,15 +238,20 @@ Runtime shape:
 
 ```rust
 struct HybridRanker {
-    baseline: Smriti,
+    baseline: Arc<Smriti>,
     global: Option<Model>,
-    local: Option<LocalAdapter>,
+    local: Option<LocalAdapter>, // 1.0
 }
 ```
 
 Rules:
 
-- `rank()` never blocks; a model miss returns the baseline result.
+- `rank()` never blocks; a model miss or invalid score returns the baseline
+  result.
+- No clock read inside the engine: Tier 1 uses a structural work bound
+  (ADR 0019), and the daemon measures p99 around the call.
+- The model only reorders the existing pool; it never adds or removes
+  candidates.
 - Model weights are swapped atomically with `arc-swap`.
 - Cache key includes prefix, context, language, layout, feature schema, and
   model version.
@@ -273,7 +282,8 @@ Online:
 | Stage | Work |
 |---|---|
 | 0.4 | Smriti v1 counts/linear; stable feature schema; replay harness |
-| 0.6 | Tier 1 local logistic reranker; pure Rust; A/B against baseline |
+| 0.6 | suggestion dictionary and English completions; feature schema and replay landed (reranker deferred) |
+| 0.7 | dataset manifests/trainer; Tier 1 local logistic reranker; pure Rust; A/B against baseline |
 | 1.0 | Global prior from public corpora; local adapter; signed model packages |
 | 1.x | Optional Tier 2 GBDT/MLP for next-word; cache and deadline tuning |
 | 2.0 | Federated/DP pilot; Tier 3 transformer for idle suggestions |

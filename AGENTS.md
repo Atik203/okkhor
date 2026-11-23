@@ -166,9 +166,9 @@ benchmarks/              harness notes and future corpora
 scripts/                 developer checks and importers
 ```
 
-Planned but not created yet: `okkhor-speech`, `okkhor-ai`, `okkhor-model`,
-`okkhor-worker`, `okkhor-license`, `okkhor-update`. Create them only when the
-roadmap reaches them.
+Planned but not created yet: `okkhor-features`, `okkhor-speech`, `okkhor-ai`,
+`okkhor-model`, `okkhor-worker`, `okkhor-license`, `okkhor-update`. Create them
+only when the roadmap reaches them.
 
 ## Build and test
 

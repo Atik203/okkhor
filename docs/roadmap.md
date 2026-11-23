@@ -56,11 +56,11 @@ UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
 | 2. Bornomala core | 0.3 | 8–14 | dictionaries, layouts, transliteration, candidates |
 | 3. Smriti v1 | 0.4 | 14–20 | persistent learning, ranking, migration, replay |
 | 4. UI | 0.5 | 20–28 | settings, on-screen keyboard, word manager, themes |
-| 5. Language data, model, AI text | 0.6 | 28–36 | datasets, Tier 1 reranker, AI text worker |
-| 6. Hardening | 0.7 | 36–40 | IME/RDP/DPI, stress, accessibility, reliability |
-| 7. Parity | 0.8 | 40–44 | real dictionaries/layouts, importers, migration, parity matrix |
-| 8. Voice typing | 0.9 | 44–46 | opt-in dictation, last feature phase |
-| 9. Release 1.0 | 1.0 | 46–50 | signed installer, updater, SBOM, beta hardening |
+| 5. Suggestion quality | 0.6 | 28–36 | `OKS1` dictionary, English completions, eight rows, instant state |
+| 6. Hardening, model, AI | 0.7 | 36–44 | IME/RDP/DPI, stress, Tier 1 reranker, opt-in AI worker |
+| 7. Parity | 0.8 | 44–48 | real dictionaries/layouts, importers, migration, parity matrix |
+| 8. Voice typing | 0.9 | 48–50 | opt-in dictation, last feature phase |
+| 9. Release 1.0 | 1.0 | 50–54 | signed installer, updater, SBOM, beta hardening |
 
 Weeks are relative to project start, not calendar dates. Add 20–30% buffer for
 Windows compatibility and Bengali edge cases.
@@ -73,7 +73,8 @@ language, or UI phases. See [model-roadmap.md](model-roadmap.md) and ADR 0007.
 | Stage | Model work |
 | --- | --- |
 | 0.4 | candidate engine and deterministic ranking baseline; no learned reranker |
-| 0.6 | feature schema v1; replay harness; Tier 1 logistic reranker; A/B |
+| 0.6 | feature schema v1; replay harness; suggestion dictionary (A/B deferred) |
+| 0.7 | dataset manifests; deterministic trainer; Tier 1 logistic reranker; A/B |
 | 1.0 | global prior from licensed corpora + local adapter; checksummed packages |
 | 1.x | Optional Tier 2 ONNX next-word; deadline tuning |
 | 2.0 | Federated/DP pilot; Tier 3 transformer for idle only |
@@ -189,9 +190,10 @@ Exit criteria:
 ## Phase 5 - Suggestion quality (0.6)
 
 0.6 ships the local dictionary and the surrounding UX. The dataset manifests,
-Tier 1 reranker, and AI worker that were originally scheduled here move to
-0.7/0.8 (see `0.6-model-data-ai.md`); ADR-0016 is the binding decision for the
-suggestion index, English completions, and instant state.
+Tier 1 reranker, and AI worker that were originally scheduled here move to 0.7
+together with hardening (see `0.6-model-data-ai.md` and
+`superpowers/plans/0.7-hardening-and-model.md`); ADR-0016 is the binding decision
+for the suggestion index, English completions, and instant state.
 
 Deliverables:
 
@@ -214,19 +216,28 @@ Exit criteria:
 - F9 updates the bar chip within 100 ms;
 - owner QA signs off the real-key pass.
 
-### Deferred from Phase 5 (0.7/0.8)
+### Deferred from Phase 5 (now 0.7)
+
+Feature schema v1 and the frozen replay harness landed in 0.6 (ADR 0015). The
+remaining work moved to 0.7 by owner decision (2026-11-24):
 
 - dataset manifests, license review, remote-only corpus handling;
-- feature schema v1 and a frozen replay harness;
+- deterministic logistic trainer and model coefficients;
 - Tier 1 deterministic logistic reranker with deadline and fallback;
 - A/B report against the deterministic baseline;
 - `AiProvider` abstraction, cache, circuit breaker, worker, and AI status;
 - privacy controls for cloud text features.
 
-## Phase 6 — Hardening (0.7)
+## Phase 6 — Hardening, model, AI (0.7)
+
+Plan of record: `superpowers/plans/0.7-hardening-and-model.md`.
 
 Deliverables:
 
+- 0.6.1 latest-wins caret thread and owner-QA fixes;
+- dataset manifests, fail-closed verifier, and deterministic trainer;
+- `okkhor-model` Tier 1 reranker with deadline, fallback, and A/B report;
+- opt-in `okkhor-ai` worker, provider trait, cache, breaker, and UI panel;
 - IME on/off, RDP, elevated windows, multi-monitor, and 100–200% DPI passes;
 - 10,000-event hook stress and sleep/resume tests;
 - crash isolation for UI and worker;
@@ -237,7 +248,9 @@ Exit criteria:
 
 - no lost or duplicated keys in stress runs;
 - typing works with the UI closed, crashed, or not installed;
-- elevated-window failure is explicit and never corrupts text.
+- elevated-window failure is explicit and never corrupts text;
+- hybrid rerank p99 < 1 ms with a proven baseline fallback;
+- AI outage, timeout, cancel, or worker kill never delays a keystroke.
 
 ## Phase 7 — Parity (0.8)
 
