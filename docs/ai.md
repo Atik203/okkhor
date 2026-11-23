@@ -1,6 +1,7 @@
 # AI text actions (0.7)
 
-Status: **design for 0.7**. The worker and provider are not implemented yet.
+Status: **design for 0.7**. The provider slice is implemented behind the
+non-default `http` Cargo feature; the worker, daemon, and IPC wiring are not.
 Binding rules: `AGENTS.md` §2, ADR 0002 (AI off the hot path), ADR 0018
 (opt-in AI worker), `docs/security-privacy.md`.
 
@@ -37,6 +38,33 @@ or provider outage cannot delay a keystroke.
 
 The provider is a trait. OpenAI is the first live implementation behind the
 `http` Cargo feature; Gemini remains a future provider.
+
+### Implementation status
+
+| Piece | State |
+| --- | --- |
+| `crates/okkhor-ai` core (policy, cache, breaker, single-flight, cancel) | implemented |
+| `MockProvider`, `DisabledProvider` | implemented, used by tests |
+| `OpenAiProvider` (`http` feature) | implemented, offline-tested against a local fake server |
+| `apps/okkhor-worker`, daemon IPC `ai.*` | not implemented |
+
+- The `http` feature is **not** a default feature. The default build and CI
+  stay offline; provider tests run with `cargo test -p okkhor-ai --features http`.
+- Endpoint: `POST {base_url}/chat/completions`, with the base URL defaulting to
+  `https://api.openai.com/v1`. The JSON body carries `model`, `messages`
+  (optional `system`, then `user`), `max_completion_tokens`, and `temperature`.
+  The crate-internal `AiRequest.max_tokens` limit maps to the wire field
+  `max_completion_tokens`; the deprecated `max_tokens` field is never sent.
+- The provider reads `choices[0].message.content` and
+  `usage.prompt_tokens` / `usage.completion_tokens`.
+- Plain HTTP is rejected for remote hosts; only `127.0.0.1` and `localhost` are
+  allowed for the local fake server in tests.
+- The transport is `reqwest` 0.12 (blocking client, rustls TLS, no default
+  features; MIT or Apache-2.0), compiled only for the `http` feature.
+- Failures are typed and carry no key, prompt, or response text: 401/403 →
+  `KeyMissing`, other non-success → `Provider { status }`, unparsable body or
+  missing content → `InvalidResponse`, deadline → `Timeout`, other transport
+  errors → `Internal`.
 
 | Setting | Value |
 | --- | --- |

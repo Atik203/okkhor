@@ -44,6 +44,9 @@ unicode-normalization = "0.1"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 # OS CSPRNG for the 32-byte IPC session token (ADR 0012 §2).
 getrandom = "0.3"
+# Live AI provider transport, built only for the `http` feature (ADR 0018).
+# Blocking JSON client over rustls; no default features, so no native TLS.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
