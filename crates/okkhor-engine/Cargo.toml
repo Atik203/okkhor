@@ -8,8 +8,8 @@ publish.workspace = true
 
 [dependencies]
 okkhor-core.workspace = true
-okkhor-lang = { path = "../okkhor-lang" }
-okkhor-transliterate = { path = "../okkhor-transliterate" }
+okkhor-lang.workspace = true
+okkhor-transliterate.workspace = true
 okkhor-learn.workspace = true
 serde.workspace = true
 serde_json.workspace = true
