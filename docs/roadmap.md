@@ -19,12 +19,18 @@ set (`docs/design/0.3-core-contracts.md`, ADR 0010/0011), the `okkhor-lang`,
 synthetic golden corpus, engine parity benchmarking, the 0.3/0.4 QA and
 performance records, and the G1–G4 gates.
 
-**0.5–1.0 are planned**: `docs/superpowers/plans/0.5-ui.md`,
-`0.6-model-data-ai.md`, `0.9-voice.md`, and `1.0-release.md`. The 0.5 UI
+**0.5-1.0 are planned**: `docs/superpowers/plans/0.5-ui.md`,
+`0.6-suggestion-quality.md`, `0.9-voice.md`, and `1.0-release.md`. The 0.5 UI
 decision is ADR 0004 amended by ADR 0012 (Tauri UI process, named-pipe IPC,
 daemon-owned settings, DPAPI-encrypted word store). Dataset rules live in
 `docs/design/datasets.md`; heavy corpora are downloaded and processed only on
 the cloud GPU, never locally and never committed.
+
+0.6 is the suggestion-quality slice: the full local dictionary, eight rows,
+English completions, instant quick-bar state, and a Settings pass (ADR-0016).
+The dataset manifests, Tier 1 reranker, and AI worker from
+`0.6-model-data-ai.md` move to 0.7/0.8; that plan is retained for the later
+work.
 
 Voice typing is the **last** feature phase (0.9). Keyboard input, language
 data, the reranker, UI, and release mechanics come first.
@@ -180,25 +186,42 @@ Exit criteria:
 - 100–200% DPI and multi-monitor checks pass;
 - feature parity list is explicit about remaining gaps.
 
-## Phase 5 — Language data, model, and AI text (0.6)
+## Phase 5 - Suggestion quality (0.6)
+
+0.6 ships the local dictionary and the surrounding UX. The dataset manifests,
+Tier 1 reranker, and AI worker that were originally scheduled here move to
+0.7/0.8 (see `0.6-model-data-ai.md`); ADR-0016 is the binding decision for the
+suggestion index, English completions, and instant state.
 
 Deliverables:
 
-- dataset manifests, license review, and remote-only corpus handling;
-- feature schema v1 and a frozen replay harness;
-- Tier 1 deterministic logistic reranker with deadline and fallback;
-- A/B report against the deterministic baseline;
-- `AiProvider` abstraction, in-memory cache, circuit breaker, and worker;
-- visible AI status without blocking typing;
-- privacy controls for cloud features (text only; no microphone).
+- committed `OKS1` suggestion index built from the Avro database, autocorrect
+  dictionary, curated starter list, and `wordfreq` popularity;
+- bounded engine stages: curated, user, autocorrect, rule, dictionary exact,
+  dictionary prefix, suffix expansion, Smriti rank;
+- eight rows by default (max ten), caret-following popup;
+- English prefix completions accepted with Tab/click, never auto-replaced;
+- quick-bar state event (F9/tray/pause/encoding) with a 5 s fallback poll;
+- caret resolution off the key path when measurements justify it;
+- Settings sections, responsive at 960/1280/1600 px in light and dark.
 
 Exit criteria:
 
-- model miss or AI outage never delays a keystroke;
-- hybrid rerank p99 under 1 ms with proven fallback;
-- no raw text or audio in logs;
-- dataset licenses and checksums recorded;
-- no claim beyond the evaluated dataset's provenance.
+- top-1 >= 80% and top-5 >= 95% on the 150-case golden corpus;
+- suggestion p99 < 3 ms; popup/key-path budgets hold;
+- corrupt or missing index falls back to rule output without a panic;
+- English never replaces on Space/Enter; exact tokens pass Tab through;
+- F9 updates the bar chip within 100 ms;
+- owner QA signs off the real-key pass.
+
+### Deferred from Phase 5 (0.7/0.8)
+
+- dataset manifests, license review, remote-only corpus handling;
+- feature schema v1 and a frozen replay harness;
+- Tier 1 deterministic logistic reranker with deadline and fallback;
+- A/B report against the deterministic baseline;
+- `AiProvider` abstraction, cache, circuit breaker, worker, and AI status;
+- privacy controls for cloud text features.
 
 ## Phase 6 — Hardening (0.7)
 

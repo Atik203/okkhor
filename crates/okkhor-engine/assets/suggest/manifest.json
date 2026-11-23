@@ -1,0 +1,32 @@
+{
+  "bytes": 7679538,
+  "counts": {
+    "autocorrect": 1161,
+    "avro_raw": 159426,
+    "bangla": 184775,
+    "bangla_with_popularity": 72315,
+    "curated": 229,
+    "english": 58928,
+    "suffix": 722
+  },
+  "generator": "build-suggestion-index.py",
+  "index": "suggest-v1.bin",
+  "notes": "Bangla words are single-word NFC; ASCII/Latin entries are rejected.",
+  "schema": 1,
+  "sha256": "c5407db2080e809d3e45d6424b75bcc6e2f2ceeaeb8ca564b46de95dc33b674e",
+  "sources": {
+    "avro_autocorrect": {
+      "name": "autodict.dct",
+      "sha256": "a1be6481291e57759cd1c21884cc5e8edc6d2b92c575bef8a2eeec31c247b456"
+    },
+    "avro_database": {
+      "name": "Database.db3",
+      "sha256": "20eb434390b9bb5328b535ae996f15fdb73e2097a65d9d032fb2d0b80c0b46b1"
+    },
+    "starter": {
+      "name": "bn-starter-v1.json",
+      "sha256": "b9b6e963da43b5c75cbf00936754302eb1ef4a99edb1822630cdd08ac8c69bda"
+    }
+  },
+  "wordfreq": "3.1.1"
+}

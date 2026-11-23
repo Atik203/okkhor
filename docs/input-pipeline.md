@@ -1,8 +1,25 @@
-# Okkhor input pipeline (0.5 composition MVP)
+# Okkhor input pipeline (0.6 composition + suggestions)
 
 How a Banglish keystroke becomes committed Bangla text, and what happens when
 each step fails. For the privacy contract behind every rule here, see
-[`security-privacy.md`](../security-privacy.md).
+[`security-privacy.md`](../security-privacy.md). The suggestion index and
+English completion rules are in ADR-0016.
+
+## 0.6 additions
+
+- **Suggestion engine** (`okkhor-engine::suggest`) replaces the session's
+  ad-hoc starter + rule merge. Stage order: curated exact, user exact,
+  autocorrect exact, rule output/vowel variant, dictionary exact, dictionary
+  prefix, suffix expansion, Smriti rank.
+- **Rows:** `popup_max_items` defaults to 8 (max 10); digits `1`-`9` and `0`
+  select the tenth.
+- **English completions:** a separate token tracker in the daemon; the popup
+  shows after three letters. `Tab` accepts only while visible, `Esc` dismisses,
+  a click accepts. Space/Enter/punctuation never replace.
+- **State:** the daemon signals `Local\Okkhor.State.Changed.v1` on mode, pause,
+  encoding, and bar visibility changes; the quick bar refetches its snapshot.
+- **Caret:** resolved on a dedicated latest-wins thread when the measurement
+  gate passes; the key path never blocks on UI Automation.
 
 ## Components
 
@@ -10,10 +27,11 @@ each step fails. For the privacy contract behind every rule here, see
 | --- | --- | --- | --- |
 | Low-level hook | `okkhor-win/src/win32.rs` (`keyboard_proc`) | hook thread | timestamp + enqueue, skip `LLKHF_INJECTED`; allocation-free, no I/O |
 | Composition worker | `okkhor-daemon` (`run_daemon` loop, every 5 ms) | worker | session updates, popup, erase + inject |
-| State machine | `okkhor-daemon/src/input_session.rs` | worker (pure) | buffer ≤ 32, candidates ≤ 5, selection; no Win32, no I/O, no logging |
+| State machine | `okkhor-daemon/src/input_session.rs` | worker (pure) | buffer ≤ 32, candidates ≤ 10 (default 8), selection; no Win32, no I/O, no logging |
+| Suggestion engine | `okkhor-engine/src/suggest` | worker (pure) | dictionary/prefix/autocorrect stages over the embedded `OKS1` index; bounded, no I/O, no clock |
 | Suggestion popup | `okkhor-win` (`SuggestionPopup`, caret-aware) | worker | non-activating numbered list, no focus theft |
 | Injector | `okkhor-win` (`inject_commit`, `WindowsInjector`) | worker | commits go out as one `SendInput` batch (erase + text + space); `WindowsInjector` remains for diagnostics/`text.insert` with `WM_CHAR`/clipboard paths |
-| Learning queue | `okkhor-daemon` → `okkhor-learn::Smriti` | background | bounded `sync_channel(1024)`, `try_send` drop-and-count; `TransliterationCommitted` only; no I/O, never blocks typing |
+| Learning queue | `okkhor-daemon` → `okkhor-learn::Smriti` | background | bounded `sync_channel(1024)`, `try_send` drop-and-count; transliteration, accepted-suggestion, and correction events; encrypted `learning.bin` snapshots; no key-path I/O |
 
 ## State diagram
 
