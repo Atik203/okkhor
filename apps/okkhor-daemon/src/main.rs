@@ -17,13 +17,9 @@ use okkhor_storage::JsonFileRepository;
 mod logging;
 
 mod input_session;
-// Task 2 stores. Task 3 wires them into the daemon loop and IPC handlers;
-// until then they are exercised by their unit tests.
-#[allow(dead_code)]
+mod ipc;
 mod paths;
-#[allow(dead_code)]
 mod settings_store;
-#[allow(dead_code)]
 mod words_store;
 
 fn main() {
@@ -131,12 +127,12 @@ fn main() {
 
 fn print_help() {
     println!(
-        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon [--encoding unicode|bijoy] [--mode bangla|english] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
+        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon [--encoding unicode|bijoy] [--mode bangla|english] [--no-ipc] [--ui] | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status> | fonts <status|install|uninstall <name>>]\n\n\
          `self-check` exercises the learning engine, ranking, and persistence.\n\
          `hook-demo` installs a global hook for 5 seconds and prints key events.\n\
          `popup-demo` shows a non-activating popup near the caret for 3 seconds.\n\
          `tray-demo` shows the tray menu for 10 seconds.\n\
-         `daemon [--encoding unicode|bijoy] [--mode bangla|english]` runs the resident daemon with hook, mode + pause hotkeys, and tray (defaults: unicode, bangla).\n\
+         `daemon [--encoding unicode|bijoy] [--mode bangla|english]` runs the resident daemon with hook, mode + pause hotkeys, tray, and the settings-UI pipe (defaults: unicode, bangla; `--no-ipc` disables the pipe; `--ui` launches the settings UI once at startup).\n\
          `inject` is a QA-only command for synthetic text; focus the target during the delay.\n\
          `autostart enable|disable|status` manages the per-user login entry.\n\
          `fonts status` lists staged font files, roles, and per-user install state (read-only, no admin).\n\
@@ -179,7 +175,7 @@ impl OutputEncoding {
 
 /// Usage text for the `daemon` subcommand (also the exit-2 message).
 const DAEMON_USAGE: &str =
-    "usage: okkhor daemon [--encoding unicode|bijoy] [--mode bangla|english]";
+    "usage: okkhor daemon [--encoding unicode|bijoy] [--mode bangla|english] [--no-ipc] [--ui]";
 
 /// Input mode: Bangla phonetic composition or English pass-through
 /// (contract §2, ADR 0014 §1). Default is Bangla. Pause stays separate.
@@ -227,20 +223,32 @@ impl InputMode {
 struct DaemonOptions {
     encoding: OutputEncoding,
     mode: InputMode,
+    /// Skip the settings-UI pipe (typing, tray, and hotkeys keep working).
+    no_ipc: bool,
+    /// Launch the settings UI once at startup (tray Settings always can).
+    ui: bool,
 }
 
 impl DaemonOptions {
     const fn new(encoding: OutputEncoding, mode: InputMode) -> Self {
-        Self { encoding, mode }
+        Self {
+            encoding,
+            mode,
+            no_ipc: false,
+            ui: false,
+        }
     }
 }
 
 /// Parse `okkhor daemon` arguments. Pure: no I/O, no process state.
-/// Accepts `--encoding <v>` / `--encoding=<v>` and `--mode <v>` /
-/// `--mode=<v>` in any order; anything else is a usage error.
+/// Accepts `--encoding <v>` / `--encoding=<v>`, `--mode <v>` /
+/// `--mode=<v>`, and the bare flags `--no-ipc` / `--ui`, in any order;
+/// anything else is a usage error.
 fn parse_daemon_args(args: &[String]) -> Result<DaemonOptions, &'static str> {
     let mut encoding = OutputEncoding::Unicode;
     let mut mode = InputMode::Bangla;
+    let mut no_ipc = false;
+    let mut ui = false;
     let mut index = 0;
     while index < args.len() {
         let arg = args[index].as_str();
@@ -258,11 +266,63 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonOptions, &'static str> {
             let value = args.get(index + 1).ok_or(DAEMON_USAGE)?;
             mode = InputMode::parse(value).ok_or(DAEMON_USAGE)?;
             index += 2;
+        } else if arg == "--no-ipc" {
+            no_ipc = true;
+            index += 1;
+        } else if arg == "--ui" {
+            ui = true;
+            index += 1;
         } else {
             return Err(DAEMON_USAGE);
         }
     }
-    Ok(DaemonOptions::new(encoding, mode))
+    let mut options = DaemonOptions::new(encoding, mode);
+    options.no_ipc = no_ipc;
+    options.ui = ui;
+    Ok(options)
+}
+
+/// Shared daemon/IPC state type: DPAPI-backed words on Windows.
+#[cfg(windows)]
+type ProdState = crate::ipc::DaemonState<crate::words_store::DpapiProtector>;
+
+/// Convert the daemon's CLI/mode enums to the IPC settings enums (and back).
+/// The daemon owns the key-path copies; the IPC state owns the persisted ones;
+/// these keep the two in sync without sharing types across the boundary.
+#[cfg(windows)]
+const fn ipc_input_mode(mode: crate::InputMode) -> okkhor_ipc::settings::InputMode {
+    match mode {
+        crate::InputMode::Bangla => okkhor_ipc::settings::InputMode::Bangla,
+        crate::InputMode::English => okkhor_ipc::settings::InputMode::English,
+    }
+}
+
+#[cfg(windows)]
+const fn daemon_input_mode(mode: okkhor_ipc::settings::InputMode) -> crate::InputMode {
+    match mode {
+        okkhor_ipc::settings::InputMode::Bangla => crate::InputMode::Bangla,
+        okkhor_ipc::settings::InputMode::English => crate::InputMode::English,
+    }
+}
+
+#[cfg(windows)]
+const fn ipc_output_encoding(
+    encoding: crate::OutputEncoding,
+) -> okkhor_ipc::settings::OutputEncoding {
+    match encoding {
+        crate::OutputEncoding::Unicode => okkhor_ipc::settings::OutputEncoding::Unicode,
+        crate::OutputEncoding::Bijoy => okkhor_ipc::settings::OutputEncoding::Bijoy,
+    }
+}
+
+#[cfg(windows)]
+const fn daemon_output_encoding(
+    encoding: okkhor_ipc::settings::OutputEncoding,
+) -> crate::OutputEncoding {
+    match encoding {
+        okkhor_ipc::settings::OutputEncoding::Unicode => crate::OutputEncoding::Unicode,
+        okkhor_ipc::settings::OutputEncoding::Bijoy => crate::OutputEncoding::Bijoy,
+    }
 }
 
 /// Usage text for the `fonts` subcommand (also the exit-2 message).
@@ -591,6 +651,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
 
     /// Everything one key event needs. Kept in one struct so the hot loop
     /// stays a thin dispatch with no globals and no cross-thread sharing.
+    /// `state` is the IPC mirror (lock-free atomics only — never a store
+    /// lock, never disk I/O); `injection` serializes commit erase+inject
+    /// against explicit UI inserts (commit wins, never interleaves).
     struct CompositionCtx<'a> {
         session: &'a mut InputSession<DefaultEngine>,
         popup: &'a mut Option<SuggestionPopup>,
@@ -599,20 +662,35 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         learn_dropped: &'a AtomicU64,
         compose_window: &'a mut isize,
         encoding: crate::OutputEncoding,
+        learning_enabled: bool,
+        state: Option<&'a ProdState>,
+        injection: &'a std::sync::Mutex<()>,
     }
 
-    fn hide_popup(popup: &mut Option<SuggestionPopup>) {
+    fn hide_popup(popup: &mut Option<SuggestionPopup>, state: Option<&ProdState>) {
         if let Some(window) = popup {
             window.hide();
+        }
+        if let Some(state) = state {
+            state.set_popup_visible(false);
         }
     }
 
     fn refresh_popup(ctx: &mut CompositionCtx<'_>) {
+        let enabled = ctx.popup_enabled();
+        let state = ctx.state;
+        if !enabled {
+            hide_popup(ctx.popup, state);
+            return;
+        }
         let Some(window) = ctx.popup.as_mut() else {
             return;
         };
         if !ctx.session.is_composing() || ctx.session.candidates().is_empty() {
             window.hide();
+            if let Some(state) = state {
+                state.set_popup_visible(false);
+            }
             return;
         }
         let mut text = String::new();
@@ -635,9 +713,29 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 if let Err(error) = window.show(&text, placement) {
                     ctx.logger
                         .error(logging::Scope::Daemon, "popup_show", error.code());
+                    if let Some(state) = ctx.state {
+                        state.set_popup_visible(false);
+                    }
+                } else if let Some(state) = ctx.state {
+                    state.set_popup_visible(true);
                 }
             }
-            None => window.hide(),
+            None => {
+                window.hide();
+                if let Some(state) = ctx.state {
+                    state.set_popup_visible(false);
+                }
+            }
+        }
+    }
+
+    impl CompositionCtx<'_> {
+        /// Whether the popup may show. Without IPC state the popup behaves as
+        /// before (enabled); with state it follows the persisted setting live.
+        fn popup_enabled(&self) -> bool {
+            self.state
+                .map(|state| state.popup_enabled())
+                .unwrap_or(true)
         }
     }
 
@@ -671,7 +769,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     fn do_commit(ctx: &mut CompositionCtx<'_>, commit: Commit, roman: String) {
         if foreground_window_id() != *ctx.compose_window {
             ctx.session.reset();
-            hide_popup(ctx.popup);
+            hide_popup(ctx.popup, ctx.state);
             ctx.logger
                 .error(logging::Scope::Daemon, "focus_changed", None);
             return;
@@ -691,14 +789,24 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
             },
         };
+        // The injection lock serializes this erase+inject batch against
+        // explicit UI inserts: the commit always wins (blocking wait of at
+        // most one UI `SendInput`), so the two can never interleave.
+        let _injection = ctx
+            .injection
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if let Err(error) = inject_commit(commit.erase_chars, &inject_text, commit.trailing_space) {
             ctx.logger
                 .error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
             ctx.session.reset();
-            hide_popup(ctx.popup);
+            hide_popup(ctx.popup, ctx.state);
             return;
         }
-        hide_popup(ctx.popup);
+        hide_popup(ctx.popup, ctx.state);
+        if !ctx.learning_enabled {
+            return;
+        }
         // Queue learning for the background thread. The channel is bounded and
         // `try_send` never blocks, so a stalled learn thread can never stall
         // the key path; the drop is counted (a count carries no text) and
@@ -720,7 +828,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // `cancel` returns the raw roman buffer, which the caller deliberately
         // drops: already-typed text stays untouched in the target.
         let _ = ctx.session.cancel();
-        hide_popup(ctx.popup);
+        hide_popup(ctx.popup, ctx.state);
     }
 
     /// Record or re-validate the composition window around one keystroke.
@@ -731,7 +839,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         let foreground = foreground_window_id();
         if ctx.session.is_composing() && foreground != *ctx.compose_window {
             ctx.session.reset();
-            hide_popup(ctx.popup);
+            hide_popup(ctx.popup, ctx.state);
         }
         if !ctx.session.is_composing() {
             *ctx.compose_window = foreground;
@@ -791,7 +899,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     // or Enter key itself passes through untouched.
                     None => {
                         ctx.session.reset();
-                        hide_popup(ctx.popup);
+                        hide_popup(ctx.popup, ctx.state);
                     }
                 }
             }
@@ -811,6 +919,135 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 cancel_composition(ctx);
             }
             _ => {}
+        }
+    }
+
+    /// Open the IPC stores and seed a fresh data home from the CLI flags.
+    /// The CLI selects the initial mode only (ADR 0014 §1): afterwards the
+    /// persisted last mode wins. Any failure returns an allowlisted log kind;
+    /// the caller degrades to typing-without-IPC, never a dead daemon.
+    fn setup_ipc_state(
+        options: &DaemonOptions,
+        injection: &Arc<std::sync::Mutex<()>>,
+    ) -> Result<ProdState, &'static str> {
+        use okkhor_ipc::settings::SettingsPatch;
+        let fresh = !crate::paths::settings_path()
+            .map_err(|_| "ipc_state")?
+            .exists();
+        let settings =
+            crate::settings_store::SettingsStore::load_default().map_err(|_| "ipc_state")?;
+        let words = crate::words_store::WordsStore::open_default(
+            crate::words_store::DpapiProtector::words(),
+        )
+        .map_err(|_| "ipc_state")?;
+        let state = crate::ipc::DaemonState::from_stores(
+            settings,
+            words,
+            Arc::new(crate::ipc::ProductionSink),
+            Arc::clone(injection),
+        );
+        if fresh {
+            let mut patch = SettingsPatch::default();
+            if state.mode() != ipc_input_mode(options.mode) {
+                patch.input_mode = Some(ipc_input_mode(options.mode));
+            }
+            if state.encoding() != ipc_output_encoding(options.encoding) {
+                patch.output_encoding = Some(ipc_output_encoding(options.encoding));
+            }
+            if patch != SettingsPatch::default() {
+                state.update_settings(&patch).map_err(|_| "ipc_state")?;
+            }
+        }
+        Ok(state)
+    }
+
+    /// Persist a local (tray/F9) mode toggle without touching the key path.
+    /// The live mirror is already flipped by the caller; the file write runs
+    /// on a throwaway thread and surfaces through the store-failure counter
+    /// the loop watches (one allowlisted code, never text).
+    fn persist_mode(state: &Arc<ProdState>, mode: crate::InputMode) {
+        use okkhor_ipc::settings::SettingsPatch;
+        let state = Arc::clone(state);
+        let desired = ipc_input_mode(mode);
+        let _ = std::thread::Builder::new()
+            .name("okkhor-mode-persist".to_owned())
+            .spawn(move || {
+                let patch = SettingsPatch {
+                    input_mode: Some(desired),
+                    ..SettingsPatch::default()
+                };
+                let _ = state.update_settings(&patch);
+            });
+    }
+
+    /// Re-register hotkeys after a settings change (daemon loop only — the
+    /// IPC thread cannot touch the hotkey threads). Feasible chords apply
+    /// live; anything else stays deferred and is logged with one allowlisted
+    /// code (never the chord text).
+    #[allow(clippy::too_many_lines)]
+    fn rebind_hotkeys(
+        state: &ProdState,
+        mode_hotkey: &mut ModeHotkey,
+        pause_hotkey: &mut PauseHotkey,
+        mode_ready: &mut bool,
+        pause_ready: &mut bool,
+        logger: &logging::Logger,
+    ) {
+        let Some((toggle, pause)) = state.hotkey_chords() else {
+            // Settings lock contended (an IPC write is in flight): retry next poll.
+            state.request_rebind();
+            return;
+        };
+        let mut toggle_ok = false;
+        match okkhor_win::ModeBinding::parse(&toggle) {
+            Some(binding) if *mode_ready && mode_hotkey.binding() == binding => {
+                toggle_ok = true;
+            }
+            Some(binding) => match mode_hotkey.start_with(binding) {
+                Ok(actual) => {
+                    *mode_ready = true;
+                    toggle_ok = actual == binding;
+                }
+                Err(_) => {
+                    *mode_ready = false;
+                }
+            },
+            None => {}
+        }
+        if !toggle_ok {
+            logger.error(logging::Scope::Hotkey, "hotkey_rebind", None);
+        }
+        let mut pause_ok = false;
+        if pause_is_default(&pause) {
+            if pause_hotkey.is_running() {
+                pause_ok = true;
+            } else {
+                pause_hotkey.stop();
+                match pause_hotkey.start() {
+                    Ok(()) => {
+                        *pause_ready = true;
+                        pause_ok = true;
+                    }
+                    Err(_) => {
+                        *pause_ready = false;
+                    }
+                }
+            }
+        }
+        if !pause_ok {
+            logger.error(logging::Scope::Hotkey, "hotkey_rebind", None);
+        }
+        state.note_rebound(toggle_ok, pause_ok);
+    }
+
+    /// Whether `pause` names the daemon's baked chord (the only one a
+    /// `PauseHotkey` can register). Compared parsed, not verbatim, so
+    /// `ctrl+alt+shift+p` counts as the default too.
+    fn pause_is_default(pause: &str) -> bool {
+        use okkhor_ipc::settings::parse_hotkey;
+        match (parse_hotkey(pause), parse_hotkey("Ctrl+Alt+Shift+P")) {
+            (Ok(got), Ok(want)) => got == want,
+            _ => false,
         }
     }
 
@@ -837,7 +1074,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
 
     let mut hotkey = PauseHotkey::new();
-    let hotkey_ready = match hotkey.start() {
+    let mut hotkey_ready = match hotkey.start() {
         Ok(()) => true,
         Err(error) => {
             logger.error(logging::Scope::Hotkey, "hotkey_start", None);
@@ -851,6 +1088,18 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         Err(error) => {
             logger.error(logging::Scope::Tray, "tray_create", None);
             return Err(error.into());
+        }
+    };
+
+    // IPC mirror + injection lock. The injection mutex is shared with the
+    // commit path (commit wins, never interleaves); the stores sit behind the
+    // state mutex at IPC rate only — never on the hook thread.
+    let injection_lock = Arc::new(std::sync::Mutex::new(()));
+    let ipc_state: Option<Arc<ProdState>> = match setup_ipc_state(&options, &injection_lock) {
+        Ok(state) => Some(Arc::new(state)),
+        Err(kind) => {
+            logger.error(logging::Scope::Ipc, kind, None);
+            None
         }
     };
 
@@ -893,9 +1142,19 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
     let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
     let mut compose_window = foreground_window_id();
-    let encoding = options.encoding;
+    let mut encoding = options.encoding;
     let mut mode = options.mode;
+    let mut learning_enabled = true;
+    if let Some(state) = ipc_state.as_deref() {
+        // Persisted last mode wins over the CLI flags (the flags seed a fresh
+        // home only — see `setup_ipc_state`).
+        mode = daemon_input_mode(state.mode());
+        encoding = daemon_output_encoding(state.encoding());
+        learning_enabled = state.learning();
+    }
     let mut toast_until_ms: u64 = 0;
+    let mut last_apply_seq: u64 = 0;
+    let mut last_store_failures: u64 = 0;
 
     fn tray_mode_of(mode: crate::InputMode) -> TrayMode {
         match mode {
@@ -908,12 +1167,16 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         popup: &mut Option<SuggestionPopup>,
         logger: &logging::Logger,
         mode: crate::InputMode,
+        state: Option<&ProdState>,
     ) -> bool {
         let Some(window) = popup.as_mut() else {
             return false;
         };
         let Some(anchor) = caret_anchor() else {
             window.hide();
+            if let Some(state) = state {
+                state.set_popup_visible(false);
+            }
             return false;
         };
         // Small fixed toast near the caret; never activates, never steals
@@ -921,7 +1184,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         let placement = place_popup(&anchor, 160, 48);
         if let Err(error) = window.show(mode_toast_text(mode), placement) {
             logger.error(logging::Scope::Daemon, "popup_show", error.code());
+            if let Some(state) = state {
+                state.set_popup_visible(false);
+            }
             return false;
+        }
+        if let Some(state) = state {
+            state.set_popup_visible(true);
         }
         true
     }
@@ -929,6 +1198,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     // Mode toggle: flip Bangla/English, drop any partial composition, update
     // the tray label, and show a short non-activating toast. Never blocks the
     // key path: no sleep, no I/O, no logging of text — one allowlisted code.
+    // The last mode also persists through the IPC state (mirror first, file
+    // write on a throwaway thread).
     fn toggle_mode(
         session: &mut InputSession<DefaultEngine>,
         popup: &mut Option<SuggestionPopup>,
@@ -936,14 +1207,18 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         logger: &logging::Logger,
         mode: &mut crate::InputMode,
         toast_until_ms: &mut u64,
+        state: Option<&Arc<ProdState>>,
     ) {
         *mode = mode.toggle();
         session.reset();
-        if let Some(window) = popup.as_mut() {
-            window.hide();
-        }
+        let live = state.map(|state| &**state);
+        hide_popup(popup, live);
         tray.set_mode(tray_mode_of(*mode));
-        if show_mode_toast(popup, logger, *mode) {
+        if let Some(state) = state {
+            state.set_mode_live(ipc_input_mode(*mode));
+            persist_mode(state, *mode);
+        }
+        if show_mode_toast(popup, logger, *mode, live) {
             *toast_until_ms = now_ms().saturating_add(MODE_TOAST_MS);
         } else {
             *toast_until_ms = 0;
@@ -964,7 +1239,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
     // Mode hotkey: F9 by default, Ctrl+Space if F9 is already claimed.
     let mut mode_hotkey = ModeHotkey::new();
-    let mode_hotkey_ready = match mode_hotkey.start() {
+    let mut mode_hotkey_ready = match mode_hotkey.start() {
         Ok(binding) => {
             println!("daemon: {} toggles Bangla/English", binding.name());
             if binding != okkhor_win::ModeBinding::F9 {
@@ -988,10 +1263,37 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
     println!("daemon: use the tray menu or pause hotkey to pause");
 
+    // IPC pipe (unless --no-ipc): token create/rotate, then serve on a
+    // dedicated thread. Any failure degrades to typing-without-IPC (logged
+    // with one allowlisted code); the pipe is owner-only per ADR 0012 §2.
+    let mut ipc_server: Option<(crate::ipc::IpcServer, std::path::PathBuf)> = None;
+    if !options.no_ipc {
+        if let Some(state) = ipc_state.clone() {
+            match crate::paths::token_path() {
+                Ok(token_path) => match crate::ipc::install_token(&token_path) {
+                    Ok(token) => match crate::ipc::IpcServer::start(state, token) {
+                        Ok(server) => {
+                            logger.error(logging::Scope::Ipc, "ipc_start", None);
+                            println!("daemon: IPC ready for the settings UI");
+                            ipc_server = Some((server, token_path));
+                        }
+                        Err(_) => logger.error(logging::Scope::Ipc, "ipc_server", None),
+                    },
+                    Err(_) => logger.error(logging::Scope::Ipc, "ipc_token", None),
+                },
+                Err(_) => logger.error(logging::Scope::Ipc, "ipc_token", None),
+            }
+        }
+    }
+
+    if options.ui {
+        open_settings_ui(&tray, logger);
+    }
+
     'run: loop {
         while let Some(event) = tray.try_next() {
             match event {
-                TrayEvent::TogglePause => toggle_capture(&hook, &tray),
+                TrayEvent::TogglePause => toggle_capture(&hook, &tray, ipc_state.as_ref()),
                 TrayEvent::ToggleMode => toggle_mode(
                     &mut session,
                     &mut popup,
@@ -999,13 +1301,15 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     logger,
                     &mut mode,
                     &mut toast_until_ms,
+                    ipc_state.as_ref(),
                 ),
+                TrayEvent::Settings => open_settings_ui(&tray, logger),
                 TrayEvent::Exit => break 'run,
             }
         }
 
         if hotkey_ready && hotkey.try_next() {
-            toggle_capture(&hook, &tray);
+            toggle_capture(&hook, &tray, ipc_state.as_ref());
         }
 
         if mode_hotkey_ready && mode_hotkey.try_next() {
@@ -1016,7 +1320,60 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 logger,
                 &mut mode,
                 &mut toast_until_ms,
+                ipc_state.as_ref(),
             );
+        }
+
+        // IPC live sync: the UI flips `capture.set` and settings, and the loop
+        // applies them here so the hook thread and the blocking IPC threads
+        // never meet. All reads are lock-free atomics except the hotkey chords
+        // (try_lock — a contended settings write retries next poll).
+        if let Some(state) = ipc_state.as_deref() {
+            let want_enabled = !state.paused();
+            if hook.capture_enabled() != want_enabled {
+                hook.set_capture_enabled(want_enabled);
+            }
+            if tray.paused() != state.paused() {
+                tray.set_paused(state.paused());
+            }
+            let live_mode = daemon_input_mode(state.mode());
+            if live_mode != mode {
+                // IPC-driven mode change: the visible effects of a local
+                // toggle, minus the toast (no caret access from this path).
+                mode = live_mode;
+                session.reset();
+                hide_popup(&mut popup, Some(state));
+                tray.set_mode(tray_mode_of(mode));
+                println!("daemon: mode {}", mode.as_str());
+            }
+            let live_encoding = daemon_output_encoding(state.encoding());
+            if live_encoding != encoding {
+                encoding = live_encoding;
+                println!("daemon: encoding {}", encoding.as_str());
+            }
+            learning_enabled = state.learning();
+            if state.take_rebind_request() {
+                rebind_hotkeys(
+                    state,
+                    &mut mode_hotkey,
+                    &mut hotkey,
+                    &mut mode_hotkey_ready,
+                    &mut hotkey_ready,
+                    logger,
+                );
+            }
+            let seq = state.apply_seq();
+            if seq != last_apply_seq {
+                last_apply_seq = seq;
+                if matches!(state.last_apply(), crate::ipc::LiveApply::Deferred { .. }) {
+                    logger.error(logging::Scope::Ipc, "settings_deferred", None);
+                }
+            }
+            let failures = state.store_failures();
+            if failures != last_store_failures {
+                last_store_failures = failures;
+                logger.error(logging::Scope::Ipc, "store_persist", None);
+            }
         }
 
         // Toast expiry: hide the mode toast after ~800 ms unless composition
@@ -1024,7 +1381,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if toast_until_ms != 0 && now_ms() >= toast_until_ms {
             toast_until_ms = 0;
             if !session.is_composing() {
-                hide_popup(&mut popup);
+                hide_popup(&mut popup, ipc_state.as_deref());
             }
         }
 
@@ -1033,7 +1390,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             // popup hides, and no key is swallowed (the hook passes through).
             if session.is_composing() {
                 session.reset();
-                hide_popup(&mut popup);
+                hide_popup(&mut popup, ipc_state.as_deref());
             }
             toast_until_ms = 0;
             // Drain injected and real events alike while paused.
@@ -1051,7 +1408,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 session.reset();
             }
             if toast_until_ms == 0 {
-                hide_popup(&mut popup);
+                hide_popup(&mut popup, ipc_state.as_deref());
             }
             while hook.try_next().is_some() {}
             std::thread::sleep(Duration::from_millis(10));
@@ -1073,6 +1430,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 learn_dropped: &learn_dropped,
                 compose_window: &mut compose_window,
                 encoding,
+                learning_enabled,
+                state: ipc_state.as_deref(),
+                injection: &injection_lock,
             };
             handle_key(event.virtual_key, &mut ctx);
         }
@@ -1083,6 +1443,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     hook.stop();
     hotkey.stop();
     mode_hotkey.stop();
+    if let Some((mut server, token_path)) = ipc_server {
+        server.stop();
+        logger.error(logging::Scope::Ipc, "ipc_stop", None);
+        if crate::ipc::remove_token_file(&token_path).is_err() {
+            logger.error(logging::Scope::Ipc, "ipc_token", None);
+        }
+    }
     tray.remove();
     // A dropped-learn count carries no text, so it is safe to print.
     let dropped = learn_dropped.load(Ordering::Relaxed);
@@ -1093,13 +1460,38 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(windows)]
-fn toggle_capture(hook: &okkhor_win::WindowsKeyboardHook, tray: &okkhor_win::TrayIcon) {
+fn toggle_capture(
+    hook: &okkhor_win::WindowsKeyboardHook,
+    tray: &okkhor_win::TrayIcon,
+    state: Option<&std::sync::Arc<ProdState>>,
+) {
     let enabled = hook.toggle_capture();
     tray.set_paused(!enabled);
+    if let Some(state) = state {
+        state.set_paused(!enabled);
+    }
     println!(
         "daemon: capture {}",
         if enabled { "enabled" } else { "paused" }
     );
+}
+
+/// Launch the settings UI next to the daemon (tray Settings, `daemon --ui`).
+/// A missing UI shows a tray balloon and logs one allowlisted code — never a
+/// user path.
+#[cfg(windows)]
+fn open_settings_ui(tray: &okkhor_win::TrayIcon, logger: &logging::Logger) {
+    match crate::ipc::launch_ui() {
+        Ok(()) => logger.error(logging::Scope::Ipc, "ui_launch", None),
+        Err(crate::ipc::UiLaunchError::NotFound) => {
+            logger.error(logging::Scope::Ipc, "ui_missing", None);
+            tray.show_balloon("Okkhor", "Settings UI was not found next to the daemon");
+        }
+        Err(crate::ipc::UiLaunchError::SpawnFailed) => {
+            logger.error(logging::Scope::Ipc, "ui_launch_failed", None);
+            tray.show_balloon("Okkhor", "Settings UI failed to start");
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -1399,6 +1791,9 @@ fn tray_demo() -> Result<(), Box<dyn Error>> {
                     tray.set_mode(next);
                     println!("tray-demo: mode {}", next.label());
                 }
+                TrayEvent::Settings => {
+                    println!("tray-demo: settings (the daemon would launch okkhor-ui.exe)");
+                }
                 TrayEvent::Exit => {
                     println!("tray-demo: exit");
                     tray.remove();
@@ -1649,6 +2044,8 @@ mod tests {
         assert!(parse_daemon_args(&args(&["--mode=BANGLA"])).is_err());
         assert!(parse_daemon_args(&args(&["--other"])).is_err());
         assert!(parse_daemon_args(&args(&["--encoding", "bijoy", "extra"])).is_err());
+        assert!(parse_daemon_args(&args(&["--no-ipc=yes"])).is_err());
+        assert!(parse_daemon_args(&args(&["--ui=no"])).is_err());
         assert_eq!(
             OutputEncoding::parse("unicode"),
             Some(OutputEncoding::Unicode)
@@ -1659,6 +2056,48 @@ mod tests {
         assert_eq!(InputMode::parse("english"), Some(InputMode::English));
         assert_eq!(InputMode::parse("bengali"), None);
         assert_eq!(InputMode::parse(""), None);
+    }
+
+    #[test]
+    fn daemon_args_ipc_and_ui_flags() {
+        // Bare flags in any order; everything else from the earlier tests
+        // still parses with both flags off.
+        assert_eq!(
+            parse_daemon_args(&args(&[])),
+            Ok(DaemonOptions {
+                encoding: OutputEncoding::Unicode,
+                mode: InputMode::Bangla,
+                no_ipc: false,
+                ui: false,
+            })
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--no-ipc"])),
+            Ok(DaemonOptions {
+                encoding: OutputEncoding::Unicode,
+                mode: InputMode::Bangla,
+                no_ipc: true,
+                ui: false,
+            })
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--ui", "--mode=english", "--no-ipc"])),
+            Ok(DaemonOptions {
+                encoding: OutputEncoding::Unicode,
+                mode: InputMode::English,
+                no_ipc: true,
+                ui: true,
+            })
+        );
+        assert_eq!(
+            parse_daemon_args(&args(&["--encoding", "bijoy", "--mode", "english", "--ui"])),
+            Ok(DaemonOptions {
+                encoding: OutputEncoding::Bijoy,
+                mode: InputMode::English,
+                no_ipc: false,
+                ui: true,
+            })
+        );
     }
 
     #[test]

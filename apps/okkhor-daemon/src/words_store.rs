@@ -152,15 +152,15 @@ pub struct WordsStore<P> {
     next_id: u64,
 }
 
-// Manual `Debug`: word text must never appear in debug output or logs.
+// Manual `Debug`: word text must never appear in debug output or logs, and
+// the repository path can contain the user's name, so neither is rendered.
 impl<P> std::fmt::Debug for WordsStore<P> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("WordsStore")
-            .field("path", &self.repository.path())
             .field("words", &self.file.words.len())
             .field("next_id", &self.next_id)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -194,7 +194,9 @@ impl<P: Protector> WordsStore<P> {
         Self::open(&path, protector)
     }
 
-    /// File this store persists to.
+    /// File this store persists to. Test introspection only: the path can
+    /// contain the user's name, so production code never renders it.
+    #[cfg(test)]
     #[must_use]
     pub fn path(&self) -> &Path {
         self.repository.path()
@@ -206,7 +208,8 @@ impl<P: Protector> WordsStore<P> {
         self.file.words.len()
     }
 
-    /// Whether the store holds no words.
+    /// Whether the store holds no words. Test introspection only.
+    #[cfg(test)]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.file.words.is_empty()

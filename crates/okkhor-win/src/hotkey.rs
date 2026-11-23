@@ -350,6 +350,19 @@ impl ModeHotkey {
         self.binding
     }
 
+    /// Stop any running registration and start exactly `binding` (no implicit
+    /// fallback). Returns the binding that is now active, or the error with
+    /// the previous registration already stopped. The daemon uses this to
+    /// honor a `toggle_hotkey` settings change; anything outside the
+    /// F9/Ctrl+Space pair never reaches this API (it stays deferred).
+    pub fn start_with(&mut self, binding: ModeBinding) -> Result<ModeBinding, HotkeyError> {
+        self.stop();
+        self.inner = GlobalHotkey::with_spec(binding.spec()).with_name("okkhor-mode-hotkey");
+        self.inner.start()?;
+        self.binding = binding;
+        Ok(binding)
+    }
+
     pub fn stop(&mut self) {
         self.inner.stop();
     }
