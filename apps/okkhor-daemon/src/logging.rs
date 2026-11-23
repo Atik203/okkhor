@@ -57,8 +57,12 @@ pub enum Scope {
     Hotkey,
     Tray,
     Registry,
+    // G1: constructed by §6.3 daemon wiring (follow-up); allow until then.
+    #[allow(dead_code)]
     Lang,
+    #[allow(dead_code)]
     Transliterate,
+    #[allow(dead_code)]
     Compat,
 }
 
