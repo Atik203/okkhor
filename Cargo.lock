@@ -139,6 +139,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "okkhor-ai"
+version = "0.6.0"
+dependencies = [
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "okkhor-bench"
 version = "0.6.0"
 dependencies = [
