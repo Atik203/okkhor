@@ -5,6 +5,7 @@ members = [
     "apps/okkhor-daemon",
     "crates/okkhor-core",
     "crates/okkhor-learn",
+    "crates/okkhor-lang",
     "crates/okkhor-storage",
     "crates/okkhor-win",
     "crates/okkhor-transliterate",

@@ -1,0 +1,1 @@
+{"schema":1,"assets":[{"kind":"layout","path":"layouts/avro.json"},{"kind":"encoding","path":"encodings/legacy_ascii.json"},{"kind":"dictionary","path":"dictionaries/bn_basic.json"}]}
