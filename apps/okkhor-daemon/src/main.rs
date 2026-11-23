@@ -54,6 +54,13 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("inject") => {
+            let arguments: Vec<String> = std::env::args().skip(2).collect();
+            if let Err(error) = inject_cli(&arguments) {
+                eprintln!("inject failed: {error}");
+                std::process::exit(1);
+            }
+        }
         Some("autostart") => match parse_autostart_action(std::env::args().nth(2).as_deref()) {
             Some(action) => {
                 if let Err(error) = autostart_cli(action) {
@@ -77,12 +84,13 @@ fn main() {
 
 fn print_help() {
     println!(
-        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon | autostart <enable|disable|status>]\n\n\
+        "Okkhor {}\n\nUSAGE:\n    okkhor [--help | --version | self-check | hook-demo | popup-demo | tray-demo | daemon | inject <text> [--sendinput] [--delay-ms N] | autostart <enable|disable|status>]\n\n\
          `self-check` exercises the learning engine, ranking, and persistence.\n\
          `hook-demo` installs a global hook for 5 seconds and prints key events.\n\
          `popup-demo` shows a non-activating popup near the caret for 3 seconds.\n\
          `tray-demo` shows the tray menu for 10 seconds.\n\
          `daemon` runs the resident daemon with hook, pause hotkey, and tray.\n\
+         `inject` is a QA-only command for synthetic text; focus the target during the delay.\n\
          `autostart enable|disable|status` manages the per-user login entry.\n\
          The demos are manual smoke tests; run them only in a disposable session.",
         env!("CARGO_PKG_VERSION")
@@ -400,6 +408,71 @@ fn popup_demo() -> Result<(), Box<dyn Error>> {
     std::thread::sleep(Duration::from_secs(3));
     popup.hide();
     Ok(())
+}
+
+#[cfg(windows)]
+fn inject_cli(arguments: &[String]) -> Result<(), Box<dyn Error>> {
+    use okkhor_win::{TextInjector, WindowsInjector};
+    use std::time::Duration;
+
+    let mut delay = Duration::from_secs(3);
+    let mut force_sendinput = false;
+    let mut words = Vec::new();
+    let mut index = 0;
+
+    while index < arguments.len() {
+        match arguments[index].as_str() {
+            "--sendinput" => {
+                force_sendinput = true;
+                index += 1;
+            }
+            "--delay-ms" => {
+                let value = arguments
+                    .get(index + 1)
+                    .ok_or("missing value for --delay-ms")?;
+                delay = Duration::from_millis(value.parse()?);
+                index += 2;
+            }
+            argument if argument.starts_with("--delay-ms=") => {
+                let value = argument.trim_start_matches("--delay-ms=");
+                delay = Duration::from_millis(value.parse()?);
+                index += 1;
+            }
+            argument => {
+                words.push(argument.to_owned());
+                index += 1;
+            }
+        }
+    }
+
+    let text = words.join(" ");
+    if text.is_empty() {
+        return Err("usage: okkhor inject <text> [--sendinput] [--delay-ms N]".into());
+    }
+
+    println!(
+        "inject: focus the target window within {} ms; use synthetic text only",
+        delay.as_millis()
+    );
+    std::thread::sleep(delay);
+
+    let injector = WindowsInjector;
+    let method = if force_sendinput {
+        injector.inject_unicode_only(&text)?
+    } else {
+        injector.inject(&text)?
+    };
+    println!("inject: completed with method {method:?}");
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn inject_cli(_arguments: &[String]) -> Result<(), Box<dyn Error>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "inject is only available on Windows",
+    )
+    .into())
 }
 
 #[cfg(not(windows))]

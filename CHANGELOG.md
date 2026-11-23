@@ -10,6 +10,11 @@ Versioning once it reaches 1.0.
 - Associate the global low-level keyboard hook with the process module handle
   instead of passing a null module handle. Hook QA with real keys passes.
 
+### Added
+
+- QA-only `okkhor inject <text>` command with a focus delay and forced
+  `SendInput` option for manual live-app QA.
+
 ## [0.2.0] - 2026-11-23
 
 ### Added
