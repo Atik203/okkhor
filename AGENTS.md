@@ -20,22 +20,21 @@ scope.
 
 ## Current state
 
-- This repository is **0.3/0.4 code-complete**. It contains the Win32 input
-  boundary, resident daemon, tray/autostart/logging, benchmark harness, the
-  0.2 QA documentation, the four new 0.3/0.4 crates (`okkhor-lang`,
-  `okkhor-transliterate`, `okkhor-compat`, `okkhor-engine`), the bench
-  `--candidates` parity/latency mode, and the 0.3/0.4 contracts with ADRs
-  0010/0011 (lead gates G1–G4 closed).
-- `okkhor-win` now contains a real Win32 low-level keyboard hook, a Unicode
-  `SendInput` injector with a guarded clipboard fallback and a native-control
-  `WM_CHAR` fast path, a per-user single-instance guard, a capture pause state, a
-  global pause hotkey, a caret-aware non-activating popup scaffold, per-user
-  autostart, and a minimal `Shell_NotifyIconW` tray. The daemon has redacted
-  JSON-lines logging and a resident `daemon` mode. `okkhor-bench` measures
-  Smriti ranking and both injection paths without installing a hook. The Settings
-  tray action, full suggestion rendering, hook-level end-to-end benchmarks, UI,
-  IPC, speech, AI workers, and the learned model are **not implemented yet**.
-  Do not pretend they are.
+- This repository is **0.6 code-complete**. The live typing path is the Win32
+  hook, the resident daemon, the Avro phonetic table, and the embedded `OKS1`
+  suggestion engine (184k Bangla words, 114k roman pairs, curated corrections,
+  `wordfreq` popularity). English mode offers prefix completions (Tab/click,
+  never auto-replace). The quick bar receives pushed mode/pause/encoding
+  state. Learning is persisted to an encrypted `data/learning.bin`.
+- 0.5 shipped the Tauri UI, named-pipe IPC, daemon-owned settings,
+  DPAPI-encrypted word store, on-screen keyboard, quick bar, tray, autostart,
+  and the packaged `Okkhor.exe` + `bin\okkhor-engine.exe` layout. 0.6 adds the
+  full local dictionary, eight rows, English completions, and instant state.
+- The AI worker, learned logistic reranker, speech, installer, updater, and
+  code signing are **not implemented yet**. 0.6 is a personal/QA beta; 1.0
+  needs the installer and signature. Do not claim those exist.
+- The legacy application is a read-only reference installation supplied by the
+  owner. It is not part of this repository; see `docs/compatibility.md`.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - **Never run the legacy executable or its installer.** Use static analysis or
@@ -146,9 +145,13 @@ not automatically acceptable.
 ## Repository map
 
 ```text
-apps/okkhor-bench/       non-hook ranking and injection benchmark harness
+apps/okkhor-bench/       non-hook ranking/suggestion/injection benchmarks
 apps/okkhor-daemon/      resident daemon, tray/logging wiring, and demos
+apps/okkhor-ui/          Tauri settings + quick bar + on-screen keyboard
 crates/okkhor-core/      language, text, candidate, ranking primitives
+crates/okkhor-ipc/       named-pipe protocol, settings, words
+crates/okkhor-engine/    suggestion engine + embedded OKS1 index
+crates/okkhor-train/     offline dataset/replay tooling (not shipped)
 crates/okkhor-learn/     Smriti: personalization and ranking
 crates/okkhor-storage/   snapshot persistence and future redb adapter
 crates/okkhor-win/       Win32 hook and Unicode injection boundary
@@ -163,9 +166,8 @@ benchmarks/              harness notes and future corpora
 scripts/                 developer checks and importers
 ```
 
-Planned but not created yet: `okkhor-ui`, `okkhor-ipc`, `okkhor-speech`,
-`okkhor-ai`, `okkhor-model`, `okkhor-train`, `okkhor-worker`,
-`okkhor-license`, `okkhor-update`. Create them only when the
+Planned but not created yet: `okkhor-speech`, `okkhor-ai`, `okkhor-model`,
+`okkhor-worker`, `okkhor-license`, `okkhor-update`. Create them only when the
 roadmap reaches them.
 
 ## Build and test

@@ -65,8 +65,10 @@ a runtime dependency.
 1. The low-level hook receives keydown/keyup, timestamps it, and enqueues it.
    It does not allocate, log, lock, or call the language engine.
 2. The input worker updates the buffer and language/layout state.
-3. Bornomala returns local candidates from the dictionary, layouts, phonetics,
-   recency, and user deltas.
+3. The suggestion engine (`okkhor-engine::suggest`) returns local candidates
+   from the embedded `OKS1` index (curated corrections, the direct roman
+   dictionary, the Avro word list, autocorrect, suffixes, `wordfreq`
+   popularity) plus the phonetic table.
 4. Smriti reranks them using local statistics and request context.
 5. The popup shows the top N without activating.
 6. A commit is injected with batched Unicode `SendInput`, or clipboard paste
@@ -84,9 +86,11 @@ The path never performs network I/O, disk I/O, AI calls, or UI-thread waits.
 | `okkhor-storage` | snapshot load/save, future redb adapter | contain ranking policy |
 | `okkhor-win` | hook, injection, caret, focus, clipboard | contain language policy |
 | `okkhor-daemon` | composition, lifecycle, tray, workers | own algorithm internals |
-| `okkhor-bench` (dev) | synthetic ranking and injection measurements | install hooks, persist user data, or ship in a release |
-| `okkhor-ui` (planned) | settings, word manager, on-screen keyboard | sit on the hot path |
-| `okkhor-ipc` (planned) | authenticated local messages | expose raw text broadly |
+| `okkhor-engine` | embedded `OKS1` suggestion stages, ranking input | perform I/O, read a clock, or use `unsafe` |
+| `okkhor-train` (dev) | dataset manifests, replay and training tooling | ship in a release |
+| `okkhor-bench` (dev) | synthetic ranking/suggestion/injection measurements | install hooks, persist user data, or ship in a release |
+| `okkhor-ui` | settings, word manager, on-screen keyboard, quick bar | sit on the hot path |
+| `okkhor-ipc` | authenticated local messages, settings, words | expose raw text broadly |
 | `okkhor-speech` (planned) | audio capture, provider adapters | block typing |
 | `okkhor-ai` (planned) | Gemini/other providers, cache, cancellation | decide quick suggestions |
 
