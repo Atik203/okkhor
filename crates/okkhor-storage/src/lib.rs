@@ -26,6 +26,81 @@ pub enum StorageError {
     Json(#[from] serde_json::Error),
     #[error("unsupported storage format {found}; expected {expected}")]
     UnsupportedFormat { found: u32, expected: u32 },
+    /// The file does not exist yet. Callers that treat a missing file as an
+    /// empty store handle this; everything else propagates it.
+    #[error("stored data was not found")]
+    NotFound,
+    /// Magic, version, ciphertext, or JSON failed validation. The message is
+    /// static: it never echoes file bytes, which may be user text.
+    #[error("stored data is corrupt")]
+    Corrupt,
+    /// The protector cannot run on this platform (e.g. DPAPI off Windows).
+    #[error("encrypted storage is not supported on this platform")]
+    Unsupported,
+    /// Plaintext or file exceeds the repository size cap.
+    #[error("stored data exceeds the size limit")]
+    TooLarge,
+    /// Protection failed. The OS error is retained as the source for a
+    /// numeric code only; it carries no protected bytes.
+    #[error("protection failed")]
+    Protect(#[source] std::io::Error),
+}
+
+pub mod encrypted;
+
+pub use encrypted::{
+    ENVELOPE_MAGIC, ENVELOPE_VERSION, EncryptedJsonRepository, FakeProtector,
+    MAX_ENCRYPTED_JSON_BYTES, Protector,
+};
+
+/// Atomically replace `path` with `bytes`: write to a sibling temporary file
+/// (same directory, so the rename stays on one filesystem) and rename over
+/// the target. The temporary file holds exactly `bytes` — callers writing
+/// secrets must pass ciphertext, never plaintext.
+pub(crate) fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temp_path = sibling_temp_path(path);
+    fs::write(&temp_path, bytes)?;
+
+    match fs::rename(&temp_path, path) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::AlreadyExists | ErrorKind::PermissionDenied
+            ) =>
+        {
+            // Windows can refuse to replace an existing file (AV locks, ACL
+            // timing). Remove and retry once; the new bytes are preserved if
+            // the fallback also fails, and the old file is untouched until a
+            // rename succeeds.
+            fs::remove_file(path)?;
+            fs::rename(&temp_path, path)?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(&temp_path);
+            Err(error.into())
+        }
+    }
+}
+
+fn sibling_temp_path(path: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut name = path
+        .file_name()
+        .map(|value| value.to_os_string())
+        .unwrap_or_else(|| "okkhor-store".into());
+    name.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    path.with_file_name(name)
 }
 
 #[derive(Debug, Serialize, Deserialize)]

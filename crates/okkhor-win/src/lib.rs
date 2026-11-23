@@ -9,6 +9,7 @@
 //! `// SAFETY:` comment that names the invariant and the API contract being
 //! upheld. No other crate may call Win32 directly.
 
+pub mod dpapi;
 pub mod fonts;
 pub mod inject;
 pub mod input;
@@ -30,6 +31,7 @@ mod tray;
 #[cfg(windows)]
 mod win32;
 
+pub use dpapi::{DpapiError, MAX_DPAPI_BYTES, protect, unprotect};
 pub use fonts::{
     BUNDLED_FONTS, BijoyFontChoice, BundledFont, EXPECTED_FONT_HASHES, FontError,
     FontInstallationProbe, FontRole, InstallOptions, InstalledFont, RemovedFont, SystemFontProbe,

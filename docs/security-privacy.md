@@ -71,6 +71,32 @@ arbitrary messages.
 - Backups must be encrypted and bounded.
 - Never deserialize Python pickle or arbitrary object graphs.
 
+### Encrypted user store (0.5 implementation)
+
+- `settings.json` is plaintext (normal sensitivity); the daemon is the only
+  writer. Unknown fields are ignored on read and dropped on write.
+- User words live only in `%LOCALAPPDATA%\Okkhor\data\words.bin`, sealed with
+  Windows DPAPI (`CryptProtectData`/`CryptUnprotectData`, current-user scope,
+  `CRYPTPROTECT_UI_FORBIDDEN`, additional entropy `Okkhor/words.bin/v1`).
+- On-disk envelope: `OKE1` magic + little-endian `u32` version (`1`) + DPAPI
+  ciphertext. Plaintext JSON is capped at 8 MiB; a single DPAPI input at
+  64 MiB.
+- Writes are atomic (sibling temporary file + rename). The temporary file
+  holds ciphertext only — plaintext is never written to disk, even briefly.
+- Tampering, truncation, wrong entropy, a foreign-user blob, or an unknown
+  envelope version fails closed as `Corrupt`: no partial load, and a failed
+  write never touches the previous file.
+- Errors and logs carry no word text: the typed errors (`NotFound`,
+  `Corrupt`, `Unsupported`, `TooManyWords`, …) use static messages, the word
+  store's `Debug` output reports counts only, and DPAPI failures from
+  unprotect are deliberately indistinguishable (tamper vs wrong entropy).
+- Unit tests use a deterministic fake (XOR) protector so CI needs no DPAPI;
+  one Windows-gated test proves the DPAPI-backed round trip. Empty plaintext
+  is rejected with a typed error (the OS refuses zero-length DPAPI input).
+- `OKKHOR_DATA_HOME` overrides the data home for tests, dev, and portable
+  use only. It mirrors `okkhor-ipc` token resolution; production never sets
+  it.
+
 ## IPC
 
 - Named pipe with a per-user DACL.
