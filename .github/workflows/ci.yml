@@ -34,3 +34,42 @@ jobs:
 
       - name: Daemon self-check
         run: cargo run --package okkhor-daemon -- self-check
+
+  ui:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/okkhor-ui/src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/okkhor-ui/package-lock.json
+
+      - name: Install JS deps
+        run: npm ci
+        working-directory: apps/okkhor-ui
+
+      - name: Build UI
+        run: npm run build
+        working-directory: apps/okkhor-ui
+
+      - name: Test UI
+        run: npm test -- --run
+        working-directory: apps/okkhor-ui
+
+      - name: Test UI shell
+        run: cargo test
+        working-directory: apps/okkhor-ui/src-tauri

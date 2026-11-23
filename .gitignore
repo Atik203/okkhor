@@ -10,9 +10,13 @@
 **/*.tmp
 .env
 .env.*
+node_modules/
+apps/okkhor-ui/dist/
+apps/okkhor-ui/src-tauri/target/
 .idea/
 .vscode/
 bench-out/
 dist/
 data/imported/
 assets/private/
+apps/okkhor-ui/src-tauri/gen/
