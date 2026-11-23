@@ -69,7 +69,26 @@ menu and UI to avoid stealing a second function key.
   block typing on a font problem.
 - Font install is idempotent and reversible from Settings → Fonts.
 
-### 5. Failure behavior
+### 5. Quick control bar
+
+- A compact **native** bar owned by the daemon (not the Tauri UI), so it remains
+  available when the settings window is closed or crashed.
+- Default: a 300×40 px pill, top-right of the primary monitor, always-on-top,
+  never activating, no taskbar entry, ~90% opacity, 8 px corners.
+- Contents: mode chip (`বাংলা`/`EN`), encoding chip (`ইউনিকোড`/`বিজয়`), pause,
+  on-screen keyboard, settings, collapse. Microphone is added in 0.9.
+- Clicking the mode chip toggles Bangla/English; the encoding chip cycles
+  Unicode/Bijoy; settings/OSK open the Tauri UI at that route; pause toggles
+  capture; collapse shrinks the bar to a 40×40 orb.
+- The bar is draggable from its background (not the buttons), snaps to screen
+  edges, remembers position, and follows the active monitor's DPI.
+- Double-clicking the orb restores the bar; right-clicking shows the tray menu.
+- The bar never takes focus and never shows user text.
+- Theme follows system light/dark plus the accent; Bangla labels use Kalpurush.
+- Settings: `quickbar_visible` (default true), `quickbar_collapsed` (false),
+  `quickbar_x`/`quickbar_y` (null = auto), `quickbar_opacity` (0.5–1.0).
+
+### 6. Failure behavior
 
 | Failure | Behavior |
 | --- | --- |
