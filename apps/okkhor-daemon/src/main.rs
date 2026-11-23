@@ -1427,6 +1427,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         state: Option<&Arc<ProdState>>,
     ) {
         *mode = mode.toggle();
+        let _ = okkhor_win::signal_state_changed();
         session.reset();
         let live = state.map(|state| &**state);
         hide_popup(popup, live);
@@ -1574,6 +1575,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 // IPC-driven mode change: the visible effects of a local
                 // toggle, minus the toast (no caret access from this path).
                 mode = live_mode;
+                let _ = okkhor_win::signal_state_changed();
                 session.reset();
                 hide_popup(&mut popup, Some(state));
                 tray.set_mode(tray_mode_of(mode));
@@ -1826,6 +1828,7 @@ fn toggle_capture(
     state: Option<&std::sync::Arc<ProdState>>,
 ) {
     let enabled = hook.toggle_capture();
+    let _ = okkhor_win::signal_state_changed();
     tray.set_paused(!enabled);
     if let Some(state) = state {
         state.set_paused(!enabled);

@@ -29,6 +29,8 @@ mod quickbar_show;
 #[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]
+mod state_event;
+#[cfg(windows)]
 mod tray;
 #[cfg(windows)]
 mod win32;
@@ -71,6 +73,10 @@ pub use quickbar_show::{
 #[cfg(windows)]
 pub use single_instance::{SingleInstance, SingleInstanceError};
 pub use sound::play_toggle_click;
+#[cfg(windows)]
+pub use state_event::{
+    STATE_CHANGED_EVENT, StateChangeError, signal_state_changed, spawn_state_change_listener,
+};
 #[cfg(windows)]
 pub use tray::{TrayError, TrayEvent, TrayIcon, TrayMode};
 #[cfg(windows)]

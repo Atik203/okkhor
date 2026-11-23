@@ -947,6 +947,12 @@ fn main() {
                     let _ = handle.emit("okkhor:quickbar-show", ());
                 });
             }
+            {
+                let handle = app.handle().clone();
+                let _ = okkhor_win::spawn_state_change_listener(move || {
+                    let _ = handle.emit("okkhor:state-changed", ());
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

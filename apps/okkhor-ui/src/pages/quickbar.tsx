@@ -69,7 +69,7 @@ function useSnapshot() {
     // Mode can change outside the bar (F9 hotkey, tray); re-sync cheaply.
     // While the engine is starting, retry faster so the bar lights up as soon
     // as the pipe answers (it is a local connect, not a network call).
-    refetchInterval: (probe) => (probe.state.status === "error" ? 1_500 : 15_000),
+    refetchInterval: (probe) => (probe.state.status === "error" ? 1_500 : 5_000),
   });
 
   // The settings window normally starts the engine; a bar-only launch can
@@ -469,6 +469,27 @@ export default function QuickbarPage() {
       unlisten?.();
     };
   }, []);
+
+  // Daemon pushes mode/pause/encoding changes; refetch the snapshot so the
+  // language chip updates without waiting for the fallback poll.
+  React.useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void listen("okkhor:state-changed", () => {
+      void queryClient.invalidateQueries({ queryKey: ["quickbar"] });
+      void queryClient.invalidateQueries({ queryKey: ["status"] });
+    }).then((stop) => {
+      if (disposed) {
+        stop();
+      } else {
+        unlisten = stop;
+      }
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [queryClient]);
 
   React.useEffect(
     () => () => {
