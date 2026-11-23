@@ -20,5 +20,15 @@ serde_json = "1"
 thiserror = "2"
 okkhor-ipc = { path = "../../../crates/okkhor-ipc" }
 
+# Win32 no-activate styling for the quick bar window (`quickbar_native`).
+# Same major version the Tauri shell already pulls in (see Cargo.lock).
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"]
+
 [lints.rust]
-unsafe_code = "forbid"
+# `deny` (not `forbid`) so the single explicitly-reviewed Win32 FFI module
+# below (`quickbar_native`) can `#[allow(unsafe_code)]` with SAFETY comments.
+# See ADR 0012 §5 and the ADR 0014 amendment (2026-11-23): Windows handle
+# work stays in a small `unsafe` module with SAFETY comments.
+unsafe_code = "deny"

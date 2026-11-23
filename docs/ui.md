@@ -27,7 +27,9 @@ WebView (React) ──invoke──▶ src-tauri (Rust commands) ──named pipe
   needs (`ipc:`/`http://ipc.localhost` for invoke, `asset:`/`data:` images,
   local inline styles). No remote fonts, assets, or telemetry.
 - The suggestion popup stays native Win32 (`okkhor-win`); the WebView never
-  renders per-keystroke suggestions and creates no always-on-top windows.
+  renders per-keystroke suggestions. The only always-on-top WebView is the
+  second `quickbar` window (see "Quick bar" below); the settings window is a
+  normal window.
 
 ## Routes
 
@@ -37,6 +39,7 @@ WebView (React) ──invoke──▶ src-tauri (Rust commands) ──named pipe
 | `#/settings` | Settings | every contract §2 field (incl. quickbar X/Y + Automatic toggle), live validation, dirty guard, Save/Reset, toasts |
 | `#/keyboard` | On-screen keyboard | layout selector, Unicode key table + Shift layer, reorderable groups, favorites, session recents, bundled emoji search |
 | `#/words` | Word manager | paginated table (50 default), search, add/remove, CSV/JSON import preview + export download |
+| `#/quickbar` | Quick bar | compact 340×48 pill (see below); also auto-hosted by the `quickbar` window with no nav chrome |
 | `#/about` | About | versions, data locations, privacy summary, licenses pointer |
 
 Unknown hashes fall back to `#/` (status). First run shows no wizard and no
@@ -72,6 +75,39 @@ cargo test
 `ipc_list_words`, `ipc_add_word`, `ipc_remove_word`,
 `ipc_import_words`, `ipc_export_words` — all async, typed
 `UiError { code, message }`, no `unwrap` on user paths.
+
+## Quick bar (`#/quickbar`, second Tauri window)
+
+- Per the ADR 0014 amendment (2026-11-23), the bar is the **`quickbar`
+  window in this UI process** — not a native daemon window. Typing/daemon
+  independence holds while the UI lives (the daemon never links UI code),
+  but **the bar disappears if the UI process dies**, unlike a daemon window.
+- Launch: `okkhor-ui --quickbar` shows only the bar and keeps `main` hidden
+  until "Open settings" (`quickbar_open_settings` shows `main` and navigates
+  it to `/settings` via `okkhor:navigate`). A normal launch shows `main` and
+  keeps the bar parked hidden; the tray serves the bar via `--quickbar`.
+- No focus, always on top: `decorations: false`, `transparent: true`,
+  `skipTaskbar: true`, `alwaysOnTop: true`, `focus: false`; on Windows the
+  setup path applies `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`
+  to the bar HWND and shows it with `SW_SHOWNOACTIVATE`. Clicking chips,
+  pause, settings, or collapse never activates the window.
+- Geometry: 340×48 pill, collapsible to a 44×44 orb (double-click/click the
+  orb to expand). Placed top-right of the primary monitor with per-monitor
+  DPI scaling (`scale_factor`); the background is a
+  `data-tauri-drag-region` (no custom drag command), buttons stay clickable.
+- Contents: mode chip (`বাংলা`/`EN`), encoding chip (`ইউনিকোড`/`বিজয়`),
+  pause, settings, collapse; status dot (text-announced, never color-only)
+  for daemon availability; error toasts only. No text capture: the view
+  renders static labels and never reads keystrokes.
+- Settings: "Show quick bar" toggle and the 0.5–1.0 opacity slider write
+  the existing `quickbar_*` fields through `settings.update`. Daemon down:
+  mode/encoding/pause return `daemon_unavailable` (chips disable, banner
+  rules apply) while collapse/expand/open-settings stay local.
+- Limitations: the initial window show happens before `setup` applies the
+  ex-styles, so a first frame could theoretically activate on a slow
+  machine; `setup` immediately re-asserts no-activate. The bar does not
+  auto-follow the active monitor after a manual drag, and it cannot
+  outlive the UI process.
 
 ## On-screen keyboard (`#/keyboard`)
 
@@ -123,7 +159,9 @@ cargo test
   daemon's message string); unrecognized codes and local protocol violations
   → `internal`/generic. Messages are static; no tokens, paths, or user text.
 - **No focus theft**: the settings window may activate; the popup/toast never
-  do. The UI creates no `WS_EX_TOPMOST` windows of its own.
+  do. The `quickbar` window additionally carries `WS_EX_NOACTIVATE |
+  WS_EX_TOOLWINDOW | WS_EX_TOPMOST`, is shown with `SW_SHOWNOACTIVATE`, and
+  declines focus (`focus: false`), so clicking it never steals typing focus.
 - Theme follows system by default; accent and font scale apply live from
   settings (preview is local state until Save).
 - Accessibility: landmarks, labelled controls, visible focus rings, Escape

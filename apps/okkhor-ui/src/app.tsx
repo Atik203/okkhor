@@ -8,6 +8,8 @@ import {
   Info,
 } from "lucide-react";
 import { Toaster } from "sonner";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./lib/ipc";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
 import { cn } from "./lib/utils";
@@ -16,13 +18,14 @@ import StatusPage from "./pages/status";
 import AboutPage from "./pages/about";
 
 // Route-level code splitting: the settings form (react-hook-form + zod), the
-// keyboard (Unicode table + emoji list), and the word manager load on demand,
-// keeping the initial JS bundle under the 350 KiB gzip budget.
+// keyboard (Unicode table + emoji list), the word manager, and the quick bar
+// load on demand, keeping the initial JS bundle under the 350 KiB gzip budget.
 const SettingsPage = React.lazy(() => import("./pages/settings"));
 const KeyboardPage = React.lazy(() => import("./pages/keyboard"));
 const WordsPage = React.lazy(() => import("./pages/words"));
+const QuickbarPage = React.lazy(() => import("./pages/quickbar"));
 
-export type Route = "/" | "/settings" | "/keyboard" | "/words" | "/about";
+export type Route = "/" | "/settings" | "/keyboard" | "/words" | "/about" | "/quickbar";
 
 const ROUTES: { path: Route; label: string; icon: React.ReactNode }[] = [
   { path: "/", label: "Status", icon: <Gauge className="size-4" aria-hidden="true" /> },
@@ -34,6 +37,10 @@ const ROUTES: { path: Route; label: string; icon: React.ReactNode }[] = [
 
 function routeFromHash(): Route {
   const hash = window.location.hash.replace(/^#/, "");
+  // The bar route has no nav entry (the `quickbar` window renders it alone).
+  if (hash === "/quickbar") {
+    return "/quickbar";
+  }
   const found = ROUTES.find((route) => route.path === hash);
   // Unknown routes fall back to status (contract §5).
   return found ? found.path : "/";
@@ -41,11 +48,31 @@ function routeFromHash(): Route {
 
 export function isKnownRoute(hash: string): boolean {
   const path = hash.replace(/^#/, "");
+  if (path === "/quickbar") {
+    return true;
+  }
   return ROUTES.some((route) => route.path === path);
 }
 
 export default function App() {
   const [route, setRoute] = React.useState<Route>(() => routeFromHash());
+  // The `quickbar` Tauri window hosts only the bar: detect the window label
+  // (outside Tauri — e.g. `npm run dev` in a browser — fall back to the hash).
+  const [quickbarWindow, setQuickbarWindow] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    try {
+      const label = getCurrentWindow().label;
+      if (!cancelled && label === "quickbar") {
+        setQuickbarWindow(true);
+      }
+    } catch {
+      // Not running inside Tauri (browser dev): hash routing decides.
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const connection = useConnection();
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -59,6 +86,25 @@ export default function App() {
     const onHashChange = () => setRoute(routeFromHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  // `quickbar_open_settings` shows this process's `main` window and emits
+  // `okkhor:navigate`; honor it even when the user is on another tab.
+  React.useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<string>("okkhor:navigate", (event) => {
+      const path = event.payload;
+      if (path === "/settings" || path === "/") {
+        window.location.hash = `#${path}`;
+      }
+    })
+      .then((stop) => {
+        unlisten = stop;
+      })
+      .catch(() => {
+        // Not running inside Tauri (browser dev): nothing to listen on.
+      });
+    return () => unlisten?.();
   }, []);
 
   const settings = settingsQuery.data;
@@ -86,6 +132,20 @@ export default function App() {
   }, []);
 
   const readOnly = !connection.available;
+
+  // The quick bar window renders only the bar — no nav, no banner chrome.
+  // Reachable both as the `quickbar` window and, for browser dev, `#/quickbar`.
+  if (quickbarWindow || route === "/quickbar") {
+    return (
+      <React.Suspense
+        fallback={
+          <div aria-label="Loading quick bar" className="h-12 w-[340px] animate-pulse" />
+        }
+      >
+        <QuickbarPage />
+      </React.Suspense>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">
