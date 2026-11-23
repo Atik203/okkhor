@@ -50,6 +50,16 @@ untrusted.
   personal text, passwords, or credentials.
 - Do not run the legacy application, its installer, or its DLLs. See
   [compatibility.md](../compatibility.md).
+- For live-app injection rows, use the QA-only command:
+
+  ```powershell
+  okkhor inject "synthetic text" --delay-ms 3000
+  # force the universal fallback:
+  okkhor inject "synthetic text" --delay-ms 3000 --sendinput
+  ```
+
+  Focus the target window during the delay. Never use real user text with this
+  command; the process command line is visible to other users.
 - Close other keyboard utilities and remappers unless a row tests hook
   coexistence.
 - Know how to stop: `hook-demo` exits after five seconds or on `Esc`; a hung
