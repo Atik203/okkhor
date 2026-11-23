@@ -77,13 +77,13 @@ cargo test
 
 - Layout selector sourced from `ipc_list_layouts` (Avro, Khipro, Banglish,
   Bijoy, …), falling back to a bundled code list when the daemon is
-  unreachable. The layout applies to hardware typing; the table below always
-  inserts Unicode text.
+  unreachable. The selector is display-only and does not persist: the hardware
+  layout is owned by daemon settings and switched in Settings. The table below
+  always inserts Unicode text.
 - The grid is a static Unicode Bangla table (vowels, consonants, vowel
   signs/marks, digits, punctuation/symbols, common conjuncts) with a Shift
   layer for digits/symbols. Per-layout roman keystroke maps are intentionally
-  not bundled (no invented mappings); a layout with no table shows an explicit
-  "layout table not bundled" state instead of guessing.
+  not bundled (no invented mappings).
 - Clicking a key calls `ipc_insert_text` with the key's Unicode text, capped
   by the daemon at 512 UTF-16 units. A "Bijoy bytes" note explains that Bijoy
   output is chosen via Output encoding in Settings.
@@ -92,7 +92,8 @@ cargo test
   versioned, non-sensitive key `okkhor.osk.v1.groupOrder` (ids only — no user
   text). Favorites (pinned single keys, capped) persist under
   `okkhor.osk.v1.favorites`; recents are session-only in-memory state and are
-  never persisted.
+  never persisted. (Lead ruling 2026-11-23, recorded in contract §5: UI
+  preferences stay out of the settings document and word store.)
 - A bundled emoji list (~120 entries with English/Bengali keywords, no
   network) supports search and click-to-insert through the same path.
 - Daemon unavailable: all keys disable with an explanation; every insert shows
@@ -121,9 +122,6 @@ cargo test
   name through verbatim as `code` with the code's static message (never the
   daemon's message string); unrecognized codes and local protocol violations
   → `internal`/generic. Messages are static; no tokens, paths, or user text.
-
-## UI rules (contract §5)
-
 - **No focus theft**: the settings window may activate; the popup/toast never
   do. The UI creates no `WS_EX_TOPMOST` windows of its own.
 - Theme follows system by default; accent and font scale apply live from
