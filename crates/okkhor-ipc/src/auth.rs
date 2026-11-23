@@ -4,9 +4,11 @@
 //! `%LOCALAPPDATA%\Okkhor\runtime\ipc.token`.
 //!
 //! The daemon rotates the token on every start and removes it on clean
-//! shutdown. Tests use an explicit temp directory instead of the real path
-//! (pass a path, or set `OKKHOR_DATA_HOME`, which is honored as a test-only
-//! override by [`default_runtime_dir`]).
+//! shutdown. Tests pass explicit temp paths; [`default_runtime_dir`] also
+//! honors `OKKHOR_DATA_HOME` as a supported override (tests, dev, portable
+//! use). The override reads the daemon process's own environment, so it is a
+//! same-user convenience, not a security boundary — the token file itself is
+//! still owner-only.
 
 use std::path::{Path, PathBuf};
 
@@ -104,8 +106,9 @@ pub enum TokenFileError {
 
 /// Resolve `%LOCALAPPDATA%\Okkhor\runtime`.
 ///
-/// When `OKKHOR_DATA_HOME` is set (tests only), `<override>\runtime` is used
-/// instead so tests never touch the real profile.
+/// When `OKKHOR_DATA_HOME` is set, `<override>\runtime` is used instead — a
+/// supported override for tests, dev, and portable installs (same-user
+/// process environment; not a security boundary).
 pub fn default_runtime_dir() -> Result<PathBuf, TokenFileError> {
     let home_override = std::env::var(DATA_HOME_OVERRIDE_ENV)
         .ok()
@@ -309,6 +312,27 @@ mod tests {
             Err(TokenFileError::Malformed)
         ));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn token_errors_carry_no_token_text() {
+        // Error displays are fixed strings: even with a live token in scope,
+        // no variant can echo it (no variant carries a payload at all).
+        let token = Token::generate().expect("entropy");
+        let hex = token.hex();
+        for error in [
+            TokenFileError::Entropy,
+            TokenFileError::Malformed,
+            TokenFileError::AlreadyExists,
+            TokenFileError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "probe")),
+        ] {
+            let rendered = format!("{error}");
+            assert!(!rendered.contains(&hex), "no token text in {rendered:?}");
+            assert!(
+                !rendered.contains("ipc.token"),
+                "no path text in {rendered:?}"
+            );
+        }
     }
 
     #[test]

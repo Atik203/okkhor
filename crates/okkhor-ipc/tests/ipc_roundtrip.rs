@@ -81,7 +81,8 @@ impl Handler for MemoryHandler {
             ]),
             Request::WordsList(query) => {
                 let words = self.words.lock().expect("words");
-                let limit = query.limit.min(okkhor_ipc::MAX_WORDS_LIST_LIMIT);
+                // Production clamp from `okkhor_ipc` (contract §4: limit ≤ 200).
+                let limit = okkhor_ipc::normalize_words_list_limit(query.limit);
                 let total = words.len() as u64;
                 let start = (query.offset as usize).min(words.len());
                 let end = start.saturating_add(limit as usize).min(words.len());
@@ -176,8 +177,10 @@ impl Handler for MemoryHandler {
                 })
             }
             Request::TextInsert(insert) => {
-                if insert.text.encode_utf16().count() > okkhor_ipc::MAX_INSERT_UTF16 {
-                    return Response::error(ErrorCode::TextTooLong);
+                // Production cap from `okkhor_ipc` (contract §4: 512 UTF-16
+                // units, reject — never truncate an explicit insertion).
+                if let Err(code) = okkhor_ipc::validate_insert_text(&insert.text) {
+                    return Response::error(code);
                 }
                 Response::Inserted(okkhor_ipc::TextInserted { inserted: true })
             }
@@ -329,7 +332,7 @@ async fn ipc_round_trip_status_settings_words() {
         Some(ErrorCode::Unsupported)
     );
 
-    // Clean shutdown; a second client is refused afterwards.
+    // Clean shutdown: the run loop exits on shutdown.
     drop(client);
     let _ = shutdown_tx.send(());
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), task).await;

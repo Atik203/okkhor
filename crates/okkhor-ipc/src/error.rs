@@ -114,8 +114,33 @@ mod tests {
 
     #[test]
     fn messages_are_static_and_text_free() {
-        // Every message must be a fixed string with no room for user text.
-        assert!(!ErrorCode::Unauthorized.message().is_empty());
-        assert!(!ErrorCode::Unsupported.message().is_empty());
+        // Every code maps to a fixed message: non-empty, and the `Debug`
+        // rendering of a code never leaks into its message.
+        for code in [
+            ErrorCode::FrameTooLarge,
+            ErrorCode::Truncated,
+            ErrorCode::Timeout,
+            ErrorCode::Unauthorized,
+            ErrorCode::ProtocolMismatch,
+            ErrorCode::UnknownMethod,
+            ErrorCode::InvalidRequest,
+            ErrorCode::UnsupportedSchema,
+            ErrorCode::InvalidLayout,
+            ErrorCode::InvalidHotkey,
+            ErrorCode::InvalidSettings,
+            ErrorCode::InvalidWord,
+            ErrorCode::DuplicateWord,
+            ErrorCode::TooManyWords,
+            ErrorCode::TextTooLong,
+            ErrorCode::ExportTooLarge,
+            ErrorCode::Unsupported,
+            ErrorCode::Internal,
+        ] {
+            assert!(!code.message().is_empty(), "{code:?} has a message");
+            assert!(
+                !code.message().contains(&format!("{code:?}")),
+                "{code:?} message carries no debug payload"
+            );
+        }
     }
 }

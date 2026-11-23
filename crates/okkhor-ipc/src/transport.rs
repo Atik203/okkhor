@@ -6,17 +6,16 @@
 //! connection, and bump a saturating counter. Requests run under a 5 s
 //! deadline; inbound reads time out after 10 s.
 //!
-//! Tokio's `ServerOptions` cannot carry a security descriptor, so each pipe
-//! instance is hardened with the owner-only DACL from [`crate::sddl`]
-//! immediately after creation, before it is connected.
+//! Each pipe instance is created with the owner-only DACL already attached
+//! ([`crate::sddl::create_server_instance`]), so the descriptor is present
+//! from the first byte — at no point is an instance reachable under the
+//! default DACL.
 
-use std::os::windows::io::AsRawHandle as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeServer, ServerOptions};
 use tokio::sync::Semaphore;
-use windows::Win32::Foundation::HANDLE;
 
 use crate::auth::Token;
 use crate::error::ErrorCode;
@@ -25,7 +24,6 @@ use crate::protocol::{
     MAX_CLIENTS, PIPE_NAME, PROTOCOL_VERSION, READ_TIMEOUT, REQUEST_DEADLINE, Request, Response,
     ServerHello,
 };
-use crate::sddl::apply_owner_only_dacl;
 
 /// Transport failures. None carry user text, tokens, or paths.
 #[derive(Debug, thiserror::Error)]
@@ -34,8 +32,6 @@ pub enum TransportError {
     Io(#[from] std::io::Error),
     #[error("framing failed: {0}")]
     Frame(#[from] FrameError),
-    #[error("security hardening failed")]
-    Hardening,
 }
 
 /// Client-side failures: transport problems, typed daemon errors, or local
@@ -68,6 +64,7 @@ pub struct Server {
     token: Token,
     daemon_version: String,
     pipe_name: String,
+    request_deadline: std::time::Duration,
     slots: Arc<Semaphore>,
     auth_failures: Arc<AtomicU64>,
 }
@@ -80,6 +77,7 @@ impl Server {
             token,
             daemon_version: daemon_version.into(),
             pipe_name: PIPE_NAME.to_owned(),
+            request_deadline: REQUEST_DEADLINE,
             slots: Arc::new(Semaphore::new(MAX_CLIENTS)),
             auth_failures: Arc::new(AtomicU64::new(0)),
         }
@@ -89,6 +87,14 @@ impl Server {
     #[must_use]
     pub fn with_pipe_name(mut self, pipe_name: impl Into<String>) -> Self {
         self.pipe_name = pipe_name.into();
+        self
+    }
+
+    /// Override the per-request deadline (tests only; production is 5 s per
+    /// contract §4). Lets the timeout path be exercised without slow tests.
+    #[must_use]
+    pub fn with_request_deadline(mut self, deadline: std::time::Duration) -> Self {
+        self.request_deadline = deadline;
         self
     }
 
@@ -108,21 +114,14 @@ impl Server {
         let mut first = true;
         loop {
             let pipe_name: &str = &self.pipe_name;
-            let instance = ServerOptions::new()
+            let mut builder = ServerOptions::new();
+            builder
                 .first_pipe_instance(first)
-                .reject_remote_clients(true)
-                // Request WRITE_DAC so the owner-only DACL can be applied to
-                // the fresh handle immediately after creation.
-                .write_dac(true)
-                .create(pipe_name)?;
+                .reject_remote_clients(true);
+            // The owner-only DACL is attached by creation (sddl.rs), so the
+            // instance is never reachable under the default DACL.
+            let instance = crate::sddl::create_server_instance(&builder, pipe_name)?;
             first = false;
-            // Harden before any client can use the instance.
-            let hardened = apply_owner_only_dacl(HANDLE(instance.as_raw_handle().cast()))
-                .map_err(|_| TransportError::Hardening);
-            if let Err(error) = hardened {
-                let _ = instance.disconnect();
-                return Err(error);
-            }
             tokio::select! {
                 biased;
                 _ = &mut shutdown => {
@@ -138,26 +137,40 @@ impl Server {
     }
 
     fn spawn_connection(&self, stream: NamedPipeServer) {
-        // At capacity: close immediately instead of queueing (bounded).
+        // At capacity: answer with a typed error instead of queueing
+        // (bounded), so the client sees `Internal` rather than an EOF.
+        // The error frame fits the pipe buffer, so this cannot block.
         let Ok(permit) = self.slots.clone().try_acquire_owned() else {
+            tokio::spawn(async move {
+                let mut stream = stream;
+                send_error(&mut stream, ErrorCode::Internal).await;
+            });
             return;
         };
         let handler = self.handler.clone();
         let token = self.token.clone();
         let version = self.daemon_version.clone();
+        let deadline = self.request_deadline;
         let failures = self.auth_failures.clone();
         tokio::spawn(async move {
             let _permit = permit;
-            serve_connection(stream, handler, &token, &version, &failures).await;
+            serve_connection(stream, handler, &token, &version, deadline, &failures).await;
         });
     }
 }
 
+/// Saturating increment with a compare-exchange loop: concurrent handshake
+/// failures are each counted exactly once, and the counter pins at
+/// `u64::MAX` instead of wrapping.
 fn fail(counter: &AtomicU64) {
-    counter.fetch_max(
-        counter.load(Ordering::Relaxed).saturating_add(1),
-        Ordering::Relaxed,
-    );
+    let mut current = counter.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_add(1);
+        match counter.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(actual) => current = actual,
+        }
+    }
 }
 
 /// Read one frame and parse it as a [`Request`] with a precise error code.
@@ -186,6 +199,7 @@ async fn serve_connection(
     handler: Arc<dyn Handler>,
     token: &Token,
     daemon_version: &str,
+    request_deadline: std::time::Duration,
     failures: &AtomicU64,
 ) {
     // The first request must be a valid hello.
@@ -247,7 +261,7 @@ async fn serve_connection(
             send_error(&mut stream, ErrorCode::InvalidRequest).await;
             return;
         }
-        let response = dispatch(handler.clone(), request).await;
+        let response = dispatch(handler.clone(), request, request_deadline).await;
         let Ok(payload) = serde_json::to_vec(&response) else {
             send_error(&mut stream, ErrorCode::Internal).await;
             return;
@@ -258,14 +272,22 @@ async fn serve_connection(
     }
 }
 
-/// Run the handler under the 5 s deadline on a blocking thread.
+/// Run the handler under the per-request deadline on a blocking thread.
 /// `ai.complete` always answers [`ErrorCode::Unsupported`] in 0.5.
-async fn dispatch(handler: Arc<dyn Handler>, request: Request) -> Response {
+///
+/// On deadline expiry the client gets [`ErrorCode::Timeout`]; the orphaned
+/// blocking thread runs to completion on its own and never touches the
+/// connection again.
+async fn dispatch(
+    handler: Arc<dyn Handler>,
+    request: Request,
+    deadline: std::time::Duration,
+) -> Response {
     if matches!(request, Request::AiComplete(_)) {
         return Response::error(ErrorCode::Unsupported);
     }
     let worker = tokio::task::spawn_blocking(move || handler.handle(request));
-    match tokio::time::timeout(REQUEST_DEADLINE, worker).await {
+    match tokio::time::timeout(deadline, worker).await {
         Ok(Ok(response)) => response,
         Ok(Err(_)) => Response::error(ErrorCode::Internal),
         Err(_) => Response::error(ErrorCode::Timeout),
@@ -509,17 +531,26 @@ mod tests {
     where
         F: AsyncFnOnce(Token, String, Arc<Server>),
     {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        with_custom_server(StubHandler, REQUEST_DEADLINE, test).await;
+    }
+
+    async fn with_custom_server<H, F>(handler: H, deadline: std::time::Duration, test: F)
+    where
+        H: Handler,
+        F: AsyncFnOnce(Token, String, Arc<Server>),
+    {
+        use std::sync::atomic::{AtomicU64 as Counter, Ordering as Memory};
+        static COUNTER: Counter = Counter::new(0);
         let pipe_name = format!(
             r"\\.\pipe\okkhor-ipc-ut-{}-{}",
             std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed)
+            COUNTER.fetch_add(1, Memory::Relaxed)
         );
         let token = Token::generate().expect("entropy");
         let server = Arc::new(
-            Server::new(Arc::new(StubHandler), token.clone(), "test")
-                .with_pipe_name(pipe_name.clone()),
+            Server::new(Arc::new(handler), token.clone(), "test")
+                .with_pipe_name(pipe_name.clone())
+                .with_request_deadline(deadline),
         );
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn({
@@ -531,6 +562,24 @@ mod tests {
         test(token, pipe_name, server).await;
         let _ = shutdown_tx.send(());
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), task).await;
+    }
+
+    /// Handler that sleeps before answering, to exercise the deadline path.
+    struct SlowHandler {
+        delay: std::time::Duration,
+        slow_once: std::sync::atomic::AtomicBool,
+    }
+
+    impl Handler for SlowHandler {
+        fn handle(&self, request: Request) -> Response {
+            if self
+                .slow_once
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+            {
+                std::thread::sleep(self.delay);
+            }
+            StubHandler.handle(request)
+        }
     }
 
     #[tokio::test]
@@ -645,6 +694,82 @@ mod tests {
                 response.error_body().map(|body| body.code),
                 Some(ErrorCode::FrameTooLarge)
             );
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn slow_handler_times_out_and_connection_survives() {
+        with_custom_server(
+            SlowHandler {
+                delay: std::time::Duration::from_millis(500),
+                slow_once: std::sync::atomic::AtomicBool::new(true),
+            },
+            std::time::Duration::from_millis(50),
+            async |token: Token, pipe: String, _server: Arc<Server>| {
+                let (mut client, _) = Client::connect_to_with_token(&pipe, &token.hex())
+                    .await
+                    .expect("handshake");
+                // First request exceeds the 50 ms test deadline.
+                let error = client.status().await.expect_err("times out");
+                assert!(
+                    matches!(
+                        &error,
+                        ClientError::Server(body) if body.code == ErrorCode::Timeout
+                    ),
+                    "expected typed Timeout, got {error:?}"
+                );
+                // The connection stays usable: the next request runs on a
+                // fresh blocking thread and answers immediately.
+                let status = client.status().await.expect("recovers");
+                assert_eq!(status.language, "bn");
+            },
+        )
+        .await;
+    }
+
+    #[test]
+    fn auth_failure_counter_exact_under_concurrency() {
+        let counter = Arc::new(AtomicU64::new(0));
+        std::thread::scope(|scope| {
+            for _ in 0..16 {
+                scope.spawn(|| {
+                    for _ in 0..1000 {
+                        fail(&counter);
+                    }
+                });
+            }
+        });
+        assert_eq!(counter.load(Ordering::SeqCst), 16_000);
+        // Saturation pins at u64::MAX instead of wrapping.
+        let saturated = AtomicU64::new(u64::MAX - 1);
+        fail(&saturated);
+        fail(&saturated);
+        fail(&saturated);
+        assert_eq!(saturated.load(Ordering::SeqCst), u64::MAX);
+    }
+
+    #[tokio::test]
+    async fn over_capacity_answers_internal() {
+        with_server(async |token: Token, pipe: String, _server: Arc<Server>| {
+            let mut holders = Vec::new();
+            for _ in 0..MAX_CLIENTS {
+                let (client, _) = Client::connect_to_with_token(&pipe, &token.hex())
+                    .await
+                    .expect("holder connects");
+                holders.push(client);
+            }
+            // One client past the cap: accepted, answered Internal, closed.
+            let mut extra = Client::connect_to(&pipe).await.expect("connects");
+            let error = extra.hello(&token.hex()).await.expect_err("busy");
+            assert!(
+                matches!(
+                    &error,
+                    ClientError::Server(body) if body.code == ErrorCode::Internal
+                ),
+                "expected typed Internal, got {error:?}"
+            );
+            drop(holders);
         })
         .await;
     }

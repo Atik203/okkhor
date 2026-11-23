@@ -2,23 +2,34 @@
 //!
 //! This is the single `unsafe` module in `okkhor-ipc`. Everything else in the
 //! crate is `#![forbid(unsafe_code)]`. The `unsafe` here is unavoidable:
-//! applying the ADR 0012 owner-only DACL
-//! (`D:(A;;GA;;;SY)(A;;GA;;;OW)`) requires the Win32 security-descriptor APIs,
-//! which are `unsafe fn` in the `windows` crate.
+//! passing an owner-only DACL to the Win32 security-descriptor and pipe APIs
+//! requires `unsafe fn` in the `windows` crate and an `unsafe fn` in tokio.
 //!
-//! Tokio's `ServerOptions` cannot carry a security descriptor, so each pipe
-//! instance (and the token file) is created first and tightened immediately
-//! after, before the instance is connected. The window is microseconds on the
-//! creating thread: no client can complete a connection before
-//! `ConnectNamedPipe` is called, which happens after hardening.
+//! The pipe DACL is present **at creation**: [`create_server_instance`]
+//! builds a `SECURITY_ATTRIBUTES` from
+//! `ConvertStringSecurityDescriptorToSecurityDescriptorW` and hands it to
+//! `CreateNamedPipeW` through tokio's
+//! `ServerOptions::create_with_security_attributes_raw`. There is no window in
+//! which another local user can open the instance under a weaker DACL —
+//! post-creation `SetSecurityInfo` hardening cannot close that window,
+//! because a client that opens the instance before the DACL is tightened
+//! keeps its granted access afterwards. (An earlier revision did
+//! create-then-harden; the false "harden before connect()" comment it carried
+//! is removed by this change.)
+//!
+//! The token file uses [`apply_owner_only_dacl_to_path`]
+//! (`SetNamedSecurityInfoW`), which opens the object itself with the access
+//! it needs.
 
-use windows::Win32::Foundation::{ERROR_SUCCESS, HANDLE, HLOCAL, LocalFree, WIN32_ERROR};
+use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+use windows::Win32::Foundation::{ERROR_SUCCESS, HLOCAL, LocalFree, WIN32_ERROR};
 use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION, SE_FILE_OBJECT,
-    SE_KERNEL_OBJECT, SE_OBJECT_TYPE, SetNamedSecurityInfoW, SetSecurityInfo,
+    SetNamedSecurityInfoW,
 };
 use windows::Win32::Security::{
     ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, PSECURITY_DESCRIPTOR,
+    SECURITY_ATTRIBUTES,
 };
 use windows::core::BOOL;
 
@@ -92,34 +103,51 @@ impl Drop for OwnerDescriptor {
     }
 }
 
-/// Apply the owner-only DACL to an open kernel handle (the pipe instance).
+/// A `SECURITY_ATTRIBUTES` bundle that owns its descriptor.
 ///
-/// The handle must carry `WRITE_DAC` (tokio: `ServerOptions::write_dac`).
-pub fn apply_owner_only_dacl(handle: HANDLE) -> Result<(), SddlError> {
-    set_owner_only_dacl(handle, SE_KERNEL_OBJECT)
+/// `SECURITY_ATTRIBUTES.lpSecurityDescriptor` borrows the descriptor, so both
+/// live in one struct: the raw pointer handed to `CreateNamedPipeW` stays
+/// valid while `self` is alive.
+pub struct OwnerSecurityAttributes {
+    _descriptor: OwnerDescriptor,
+    attributes: SECURITY_ATTRIBUTES,
 }
 
-fn set_owner_only_dacl(handle: HANDLE, object_type: SE_OBJECT_TYPE) -> Result<(), SddlError> {
-    let descriptor = OwnerDescriptor::from_sddl(OWNER_ONLY_SDDL)?;
-    let dacl = descriptor.dacl()?;
-    // SAFETY: `handle` is a live open handle owned by the caller, and `dacl`
-    // points inside `descriptor` (alive for this call). Only the DACL is
-    // replaced; owner, group, and SACL are untouched (`None`).
-    let status: WIN32_ERROR = unsafe {
-        SetSecurityInfo(
-            handle,
-            object_type,
-            DACL_SECURITY_INFORMATION,
-            None,
-            None,
-            Some(dacl),
-            None,
-        )
-    };
-    if status != ERROR_SUCCESS {
-        return Err(SddlError::SetSecurity(status.0));
+impl OwnerSecurityAttributes {
+    fn new() -> Result<Self, SddlError> {
+        let descriptor = OwnerDescriptor::from_sddl(OWNER_ONLY_SDDL)?;
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor.0.0,
+            bInheritHandle: BOOL(0),
+        };
+        Ok(Self {
+            _descriptor: descriptor,
+            attributes,
+        })
     }
-    Ok(())
+
+    fn as_raw(&mut self) -> *mut std::ffi::c_void {
+        &mut self.attributes as *mut SECURITY_ATTRIBUTES as *mut std::ffi::c_void
+    }
+}
+
+/// Create one pipe instance with the owner-only DACL present at creation.
+///
+/// All other instance settings (`first_pipe_instance`, duplex, byte mode,
+/// buffer sizes, remote-client rejection) come from `options` unchanged —
+/// only the creation call differs from `ServerOptions::create`.
+pub fn create_server_instance(
+    options: &ServerOptions,
+    pipe_name: &str,
+) -> std::io::Result<NamedPipeServer> {
+    let mut security = OwnerSecurityAttributes::new().map_err(std::io::Error::other)?;
+    // SAFETY: `security` owns a valid `SECURITY_ATTRIBUTES` whose descriptor
+    // pointer stays alive for this call; tokio documents that `attrs` must be
+    // null or point at a valid `SECURITY_ATTRIBUTES` for the duration of the
+    // call, which holds here. The returned handle is a fresh pipe instance
+    // owned by the `NamedPipeServer`.
+    unsafe { options.create_with_security_attributes_raw(pipe_name, security.as_raw()) }
 }
 
 /// Apply the owner-only DACL to a file by path.

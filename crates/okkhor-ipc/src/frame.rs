@@ -26,10 +26,16 @@ pub enum FrameError {
 }
 
 /// Write one frame: `u32` LE length followed by the payload.
+///
+/// Empty payloads are rejected for symmetry with [`read_frame`], which
+/// rejects length 0.
 pub async fn write_frame<W>(writer: &mut W, payload: &[u8]) -> Result<(), FrameError>
 where
     W: AsyncWrite + Unpin,
 {
+    if payload.is_empty() {
+        return Err(FrameError::Empty);
+    }
     if payload.len() > MAX_FRAME_BYTES {
         let len = payload
             .len()
@@ -94,6 +100,15 @@ mod tests {
         write_frame(&mut left, b"{}").await.expect("writes");
         let got = read_frame(&mut right, QUICK).await.expect("reads");
         assert_eq!(got, b"{}");
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_write() {
+        let (mut left, _right) = tokio::io::duplex(64);
+        assert!(matches!(
+            write_frame(&mut left, b"").await,
+            Err(FrameError::Empty)
+        ));
     }
 
     #[tokio::test]

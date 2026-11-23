@@ -71,7 +71,7 @@ pub struct LayoutInfo {
 /// `words.list` params.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct WordsListQuery {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
     pub offset: u64,
@@ -257,6 +257,31 @@ impl Response {
     }
 }
 
+/// Validate a `text.insert` payload (contract §4: capped at 512 UTF-16 code
+/// units).
+///
+/// Over-cap text is **rejected** with [`ErrorCode::TextTooLong`], never
+/// truncated: silent truncation would corrupt the user's explicit insertion.
+/// The daemon handler (Task 3) must call this rather than reimplementing the
+/// bound — the unit is UTF-16 code units, not chars or bytes.
+pub fn validate_insert_text(text: &str) -> Result<(), ErrorCode> {
+    if text.encode_utf16().count() > MAX_INSERT_UTF16 {
+        return Err(ErrorCode::TextTooLong);
+    }
+    Ok(())
+}
+
+/// Normalize a `words.list` limit (contract §4: `limit` ≤ 200).
+///
+/// Over-limit values are **clamped** to [`MAX_WORDS_LIST_LIMIT`]: pagination
+/// is tolerant input, and rejecting would break clients that ask for more
+/// than the page cap. The daemon handler (Task 3) must call this rather than
+/// reimplementing the bound.
+#[must_use]
+pub fn normalize_words_list_limit(limit: u64) -> u64 {
+    limit.min(MAX_WORDS_LIST_LIMIT)
+}
+
 impl Request {
     /// Parse one frame body, distinguishing unknown methods from malformed
     /// requests without relying on serde's error strings.
@@ -328,7 +353,7 @@ mod tests {
                     offset: 0,
                     limit: 50,
                 }),
-                r#"{"words.list":{"offset":0,"limit":50}}"#,
+                r#"{"words.list":{"query":null,"offset":0,"limit":50}}"#,
             ),
             (
                 Request::WordsAdd(WordAdd {
@@ -447,6 +472,127 @@ mod tests {
             "autostart",
         ] {
             assert!(value.get(key).is_some(), "status has {key}");
+        }
+    }
+
+    #[test]
+    fn insert_text_cap_is_utf16_reject_not_truncate() {
+        // ASCII: 512 ok, 513 rejected.
+        assert_eq!(validate_insert_text(&"x".repeat(512)), Ok(()));
+        assert_eq!(
+            validate_insert_text(&"x".repeat(513)),
+            Err(ErrorCode::TextTooLong)
+        );
+        // Astral characters cost 2 UTF-16 units each: 256 ok, 257 rejected,
+        // even though the char count is far below 512.
+        assert_eq!(validate_insert_text(&"\u{1F600}".repeat(256)), Ok(()));
+        assert_eq!(
+            validate_insert_text(&"\u{1F600}".repeat(257)),
+            Err(ErrorCode::TextTooLong)
+        );
+        // BMP text counts one unit per char.
+        assert_eq!(validate_insert_text(&"অ".repeat(512)), Ok(()));
+        assert_eq!(validate_insert_text(""), Ok(()));
+    }
+
+    #[test]
+    fn words_list_limit_clamps() {
+        assert_eq!(normalize_words_list_limit(0), 0);
+        assert_eq!(normalize_words_list_limit(50), 50);
+        assert_eq!(normalize_words_list_limit(200), 200);
+        assert_eq!(normalize_words_list_limit(201), MAX_WORDS_LIST_LIMIT);
+        assert_eq!(normalize_words_list_limit(u64::MAX), MAX_WORDS_LIST_LIMIT);
+    }
+
+    #[test]
+    fn golden_fixtures_per_response_kind() {
+        // One golden JSON shape per response variant (M1): Task 4 codes to
+        // these exact keys; the contract pins only `hello_ok` and `error`.
+        let status = || Status {
+            daemon_version: "0.5.0".to_owned(),
+            paused: false,
+            language: "bn".to_owned(),
+            layout: "avro".to_owned(),
+            popup_visible: false,
+            words_total: 1,
+            learning_enabled: true,
+            autostart: false,
+        };
+        let word = || Word {
+            id: 7,
+            roman: "amar".to_owned(),
+            output: "আমার".to_owned(),
+            language: WordLanguage::Bn,
+            source: crate::words::WordSource::User,
+            added_at_ms: 1,
+        };
+        let cases: Vec<(Response, &str)> = vec![
+            (
+                Response::HelloOk(ServerHello {
+                    protocol: 1,
+                    daemon_version: "0.5.0".to_owned(),
+                    pid: 1234,
+                }),
+                r#"{"hello_ok":{"protocol":1,"daemon_version":"0.5.0","pid":1234}}"#,
+            ),
+            (
+                Response::Status(status()),
+                r#"{"status":{"daemon_version":"0.5.0","paused":false,"language":"bn","layout":"avro","popup_visible":false,"words_total":1,"learning_enabled":true,"autostart":false}}"#,
+            ),
+            (
+                Response::Layouts(vec![LayoutInfo {
+                    code: "avro".to_owned(),
+                    name: "Avro".to_owned(),
+                }]),
+                r#"{"layouts":[{"code":"avro","name":"Avro"}]}"#,
+            ),
+            (
+                Response::Words(WordsPage {
+                    total: 1,
+                    words: vec![word()],
+                }),
+                r#"{"words":{"total":1,"words":[{"id":7,"roman":"amar","output":"আমার","language":"bn","source":"user","added_at_ms":1}]}}"#,
+            ),
+            (
+                Response::Word(word()),
+                r#"{"word":{"id":7,"roman":"amar","output":"আমার","language":"bn","source":"user","added_at_ms":1}}"#,
+            ),
+            (
+                Response::Removed(WordRemoveResult { removed: true }),
+                r#"{"removed":{"removed":true}}"#,
+            ),
+            (
+                Response::Import(WordsImported {
+                    imported: 2,
+                    skipped: 1,
+                }),
+                r#"{"import":{"imported":2,"skipped":1}}"#,
+            ),
+            (
+                Response::Export(WordsExported {
+                    format: ImportFormat::Csv,
+                    data: "roman,output,language".to_owned(),
+                }),
+                r#"{"export":{"format":"csv","data":"roman,output,language"}}"#,
+            ),
+            (
+                Response::Inserted(TextInserted { inserted: true }),
+                r#"{"inserted":{"inserted":true}}"#,
+            ),
+            (
+                Response::Error(ErrorBody::new(ErrorCode::Unsupported)),
+                r#"{"error":{"code":"Unsupported","message":"not available in this milestone"}}"#,
+            ),
+        ];
+        // 10 variants: every non-settings response plus the error shape.
+        // `settings` reuses the `Settings::default` shape pinned in
+        // settings.rs `defaults_match_contract`.
+        assert_eq!(cases.len(), 10);
+        for (response, expected) in &cases {
+            let json = serde_json::to_string(response).expect("serializes");
+            assert_eq!(&json, expected);
+            let back: Response = serde_json::from_str(&json).expect("parses");
+            assert_eq!(&back, response);
         }
     }
 }

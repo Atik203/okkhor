@@ -204,7 +204,12 @@ fn parse_csv_records(data: &str) -> Result<Vec<CsvRecord>, WordsError> {
     macro_rules! end_record {
         () => {
             end_field!();
-            if record_has_content {
+            // Blank lines (empty or whitespace-only) are skipped, not pushed:
+            // a spaces-only line must not fail the whole import.
+            if record.iter().all(|field| field.trim().is_empty()) {
+                record.clear();
+                record_has_content = false;
+            } else if record_has_content {
                 records.push(std::mem::take(&mut record));
                 record_has_content = false;
             } else {
@@ -256,7 +261,7 @@ fn parse_csv_records(data: &str) -> Result<Vec<CsvRecord>, WordsError> {
     }
     if has_data {
         end_field!();
-        if record_has_content {
+        if record_has_content && !record.iter().all(|field| field.trim().is_empty()) {
             records.push(std::mem::take(&mut record));
         }
     }
@@ -345,6 +350,11 @@ pub fn parse_words_csv(data: &str) -> Result<ParsedImport, WordsError> {
 }
 
 /// Import-row JSON: the envelope shape without `id`/`added_at_ms`.
+///
+/// Unknown fields (notably `id` and `added_at_ms` from a `words.export`
+/// payload) are deliberately ignored, not rejected: re-importing an export
+/// assigns fresh daemon-side ids instead of failing. Callers must not expect
+/// imported rows to keep their old ids.
 #[derive(Debug, Clone, Deserialize)]
 struct ImportEntry {
     roman: String,
@@ -561,6 +571,16 @@ mod tests {
             .expect("parses");
         assert_eq!(parsed.words.len(), 1);
         assert_eq!(parsed.skipped, 1);
+    }
+
+    #[test]
+    fn whitespace_only_lines_are_blank() {
+        let parsed =
+            parse_words_csv("roman,output,language\r\n   \r\n\t \r\nok,ঠিক,bn\r\n , , \r\n")
+                .expect("whitespace lines skipped, not fatal");
+        assert_eq!(parsed.words.len(), 1);
+        assert_eq!(parsed.words[0].roman, "ok");
+        assert_eq!(parsed.skipped, 0);
     }
 
     #[test]

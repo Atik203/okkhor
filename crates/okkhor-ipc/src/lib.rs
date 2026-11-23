@@ -36,7 +36,7 @@ pub use protocol::{
     MAX_INSERT_UTF16, MAX_WORDS_LIST_LIMIT, NoArgs, PIPE_NAME, PROTOCOL_VERSION, READ_TIMEOUT,
     REQUEST_DEADLINE, Request, Response, ServerHello, Status, TextInsert, TextInserted, WordAdd,
     WordRemove, WordRemoveResult, WordsExport, WordsExported, WordsImport, WordsImported,
-    WordsListQuery, WordsPage,
+    WordsListQuery, WordsPage, normalize_words_list_limit, validate_insert_text,
 };
 pub use settings::{Accent, Language, Settings, SettingsError, SettingsPatch, Theme, parse_hotkey};
 #[cfg(windows)]

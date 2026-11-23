@@ -269,8 +269,10 @@ fn normalize_font_family(raw: &str) -> Result<Option<String>, SettingsError> {
 
 impl Settings {
     /// Validate the merged value. Ranged fields are clamped by
-    /// [`Settings::clamped`], not here; `NaN` and unknown enumerated values
-    /// are rejected.
+    /// [`Settings::clamped`], not here; non-finite font scales and unknown
+    /// enumerated values are rejected. (Both `NaN` and infinities fail:
+    /// `clamped` leaves `NaN` untouched so `validate` still rejects it, and
+    /// clamps infinities so `validate(clamped)` accepts them.)
     pub fn validate(&self) -> Result<(), SettingsError> {
         if self.schema != SETTINGS_SCHEMA {
             return Err(SettingsError::UnsupportedSchema);
@@ -278,7 +280,7 @@ impl Settings {
         if !is_known_layout(&self.layout) {
             return Err(SettingsError::InvalidLayout);
         }
-        if self.font_scale.is_nan() {
+        if !self.font_scale.is_finite() {
             return Err(SettingsError::InvalidFontScale);
         }
         if let Some(family) = &self.font_family {
@@ -497,12 +499,22 @@ mod tests {
     }
 
     #[test]
-    fn rejects_nan_font_scale() {
-        let settings = Settings {
-            font_scale: f32::NAN,
-            ..Settings::default()
-        };
-        assert_eq!(settings.validate(), Err(SettingsError::InvalidFontScale));
+    fn rejects_non_finite_font_scale() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let settings = Settings {
+                font_scale: bad,
+                ..Settings::default()
+            };
+            assert_eq!(settings.validate(), Err(SettingsError::InvalidFontScale));
+            // ...but clamping first (the `apply` path) rescues infinities
+            // while NaN still fails.
+            let clamped = settings.clamped();
+            if bad.is_nan() {
+                assert_eq!(clamped.validate(), Err(SettingsError::InvalidFontScale));
+            } else {
+                clamped.validate().expect("clamped infinity valid");
+            }
+        }
     }
 
     #[test]
