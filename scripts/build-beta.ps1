@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Build the Okkhor 0.5.x portable beta (daemon + Tauri UI + fonts).
+  Build the Okkhor 0.6.x portable beta (daemon + Tauri UI + fonts).
 
 .DESCRIPTION
   Builds okkhor-daemon and okkhor-ui in release, verifies the daemon version
@@ -8,11 +8,11 @@
   SHA256SUMS.txt. Fonts are copied from assets/fonts/ (stage them first with
   scripts/fetch-fonts.ps1); a missing font warns, a missing binary fails.
 
-  Run from anywhere:  .\scripts\build-beta.ps1 -Version 0.5.1
+  Run from anywhere:  .\scripts\build-beta.ps1 -Version 0.6.0
 #>
 [CmdletBinding()]
 param(
-  [string]$Version = '0.5.1',
+  [string]$Version = '0.6.0',
   [switch]$SkipFonts,
   [switch]$SkipUi
 )

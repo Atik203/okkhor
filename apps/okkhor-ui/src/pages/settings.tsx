@@ -421,7 +421,7 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
             />
           </Field>
           <Field>
-            <Label htmlFor="popup_max_items">Max items (1 – 10)</Label>
+            <Label htmlFor="popup_max_items">Suggestions shown (1 - 10)</Label>
             <Input
               id="popup_max_items"
               type="number"
@@ -431,7 +431,26 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
               disabled={readOnly}
               {...register("popup_max_items", { valueAsNumber: true })}
             />
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              8 is the default; 10 shows every digit-addressable row.
+            </p>
             <FieldError message={errors.popup_max_items?.message} />
+          </Field>
+          <Field className="sm:col-span-2">
+            <Controller
+              name="english_suggestions"
+              control={control}
+              render={({ field }) => (
+                <ToggleRow
+                  name="english_suggestions"
+                  label="English suggestions"
+                  description="Show prefix completions in English mode. Tab accepts the highlighted word; typing is never replaced."
+                  checked={field.value}
+                  onChange={field.onChange}
+                  disabled={readOnly}
+                />
+              )}
+            />
           </Field>
           <Field>
             <Controller
@@ -603,43 +622,6 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
               )}
             />
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Future features (stored only)</CardTitle>
-          <CardDescription>
-            Persisted but inert in 0.5 — no AI or speech behavior is wired.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="divide-y divide-neutral-100 dark:divide-neutral-800">
-          <Controller
-            name="ai_enabled"
-            control={control}
-            render={({ field }) => (
-              <ToggleRow
-                name="ai_enabled"
-                label="AI assistance (coming later)"
-                checked={field.value}
-                onChange={field.onChange}
-                disabled={readOnly}
-              />
-            )}
-          />
-          <Controller
-            name="speech_enabled"
-            control={control}
-            render={({ field }) => (
-              <ToggleRow
-                name="speech_enabled"
-                label="Speech input (coming later)"
-                checked={field.value}
-                onChange={field.onChange}
-                disabled={readOnly}
-              />
-            )}
-          />
         </CardContent>
       </Card>
 

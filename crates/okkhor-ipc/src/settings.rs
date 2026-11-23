@@ -159,6 +159,9 @@ pub struct Settings {
     pub font_bijoy: FontBijoy,
     pub popup_enabled: bool,
     pub popup_max_items: u8,
+    /// Offer English prefix completions (never auto-replace; Tab/click only).
+    #[serde(default = "default_true")]
+    pub english_suggestions: bool,
     #[serde(default = "default_toggle_hotkey")]
     pub toggle_hotkey: String,
     #[serde(default = "default_pause_hotkey")]
@@ -224,7 +227,8 @@ impl Default for Settings {
             font_unicode: FontUnicode::Kalpurush,
             font_bijoy: FontBijoy::SutonnyMj,
             popup_enabled: true,
-            popup_max_items: 5,
+            popup_max_items: 8,
+            english_suggestions: true,
             toggle_hotkey: "F9".to_owned(),
             pause_hotkey: "Ctrl+Alt+Shift+P".to_owned(),
             show_toggle_toast: true,
@@ -532,6 +536,9 @@ impl Settings {
         if let Some(popup_max_items) = patch.popup_max_items {
             merged.popup_max_items = popup_max_items;
         }
+        if let Some(english_suggestions) = patch.english_suggestions {
+            merged.english_suggestions = english_suggestions;
+        }
         if let Some(input_mode) = patch.input_mode {
             merged.input_mode = input_mode;
         }
@@ -620,6 +627,8 @@ pub struct SettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup_max_items: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub english_suggestions: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toggle_hotkey: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pause_hotkey: Option<String>,
@@ -680,7 +689,8 @@ mod tests {
             "font_unicode": "kalpurush",
             "font_bijoy": "sutonnymj",
             "popup_enabled": true,
-            "popup_max_items": 5,
+            "popup_max_items": 8,
+            "english_suggestions": true,
             "toggle_hotkey": "F9",
             "pause_hotkey": "Ctrl+Alt+Shift+P",
             "show_toggle_toast": true,

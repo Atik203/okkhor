@@ -47,8 +47,8 @@ use crate::caret::{CaretAnchor, PopupPlacement, place_popup};
 
 /// Maximum suggestion rows painted (and clickable) in one popup.
 ///
-/// The engine currently yields at most 5 candidates; the extra headroom keeps
-/// the layout honest if the cap grows. Never more than 10 rows.
+/// The engine yields up to ten candidates (eight by default); the layout
+/// keeps headroom and never paints more than ten rows.
 pub const MAX_ITEMS: usize = 10;
 
 /// Row height at 96 DPI.
@@ -902,7 +902,25 @@ fn create_font(face: &str, dpi: u32, bold: bool) -> HFONT {
 }
 
 fn current_theme() -> PopupTheme {
-    theme_from_apps_use_light_theme(read_apps_use_light_theme())
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    static CACHE: OnceLock<Mutex<(Instant, PopupTheme)>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| {
+        Mutex::new((
+            Instant::now()
+                .checked_sub(Duration::from_secs(60))
+                .unwrap_or_else(Instant::now),
+            PopupTheme::Light,
+        ))
+    });
+    let mut guard = cache.lock().unwrap_or_else(|error| error.into_inner());
+    if guard.0.elapsed() < Duration::from_secs(1) {
+        return guard.1;
+    }
+    let theme = theme_from_apps_use_light_theme(read_apps_use_light_theme());
+    *guard = (Instant::now(), theme);
+    theme
 }
 
 /// Read `HKCU\...\Personalize\AppsUseLightTheme` (`0` = dark). Read-only;

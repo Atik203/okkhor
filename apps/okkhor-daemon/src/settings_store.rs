@@ -117,11 +117,22 @@ impl SettingsStore {
             Err(error) => return Err(error.into()),
         };
         // Unknown fields are ignored by `Settings` deserialization.
-        let parsed: Settings = serde_json::from_slice(&bytes).map_err(|_| {
+        let mut parsed: Settings = serde_json::from_slice(&bytes).map_err(|_| {
             // Drop the serde error: its position info is useless here, and the
             // message must never echo file content.
             SettingsStoreError::Corrupt
         })?;
+        // One-time 0.6 upgrade: a 0.5.x file has no `english_suggestions`
+        // key. If it still has the old five-row default, move it to the new
+        // eight-row default. A deliberate five is preserved once the file has
+        // the 0.6 key.
+        let legacy = std::str::from_utf8(&bytes)
+            .ok()
+            .is_some_and(|text| !text.contains("\"english_suggestions\""));
+        let migrated = legacy && parsed.popup_max_items == 5;
+        if migrated {
+            parsed.popup_max_items = 8;
+        }
         let clamped = parsed.clamped();
         clamped.validate()?;
         let store = Self {
@@ -131,7 +142,7 @@ impl SettingsStore {
         // Self-heal drift (e.g. an out-of-range hand edit) only when the
         // normalized value actually differs; unknown fields are otherwise
         // kept on disk until the next real write drops them.
-        if clamped != parsed {
+        if migrated || clamped != parsed {
             store.save()?;
         }
         Ok(store)
@@ -244,6 +255,28 @@ mod tests {
         // A second load reads the persisted file back identically.
         let again = SettingsStore::load(&path).expect("reloads");
         assert_eq!(again.settings(), &Settings::default());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_five_row_default_migrates_to_eight() {
+        let dir = temp_dir("migrate");
+        let path = dir.join("settings.json");
+        let mut legacy = serde_json::to_value(Settings::default()).expect("value");
+        legacy
+            .as_object_mut()
+            .expect("object")
+            .remove("english_suggestions");
+        legacy["popup_max_items"] = serde_json::json!(5);
+        std::fs::write(&path, serde_json::to_vec_pretty(&legacy).expect("json")).expect("write");
+
+        let store = SettingsStore::load(&path).expect("loads legacy");
+        assert_eq!(store.settings().popup_max_items, 8);
+        assert!(store.settings().english_suggestions);
+
+        let raw = std::fs::read_to_string(&path).expect("read back");
+        assert!(raw.contains("\"english_suggestions\""));
+        assert!(raw.contains("\"popup_max_items\": 8"));
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -67,7 +67,7 @@ Or:
 .\scripts\check.ps1
 ```
 
-## What works now (0.5 input pipeline)
+## What works now (0.6 input pipeline)
 
 The daemon (`okkhor daemon`) now types Bangla end to end on Windows:
 

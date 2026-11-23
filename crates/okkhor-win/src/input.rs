@@ -35,6 +35,31 @@ pub const fn should_swallow_danda(
         && vk == VK_OEM_PERIOD
 }
 
+/// Virtual key of Tab.
+pub const VK_TAB_KEY: u16 = 0x09;
+
+/// Whether the hook must swallow Tab for an English completion.
+///
+/// Only when capture is on, the active mode is English, the completion popup
+/// is visible, no Ctrl/Alt/Win chord is held, and the event is real. The daemon
+/// re-emits Tab if the accept path fails, so a swallowed Tab is never lost
+/// silently.
+pub const fn should_swallow_tab(
+    capture_enabled: bool,
+    english_mode: bool,
+    popup_visible: bool,
+    chord_pressed: bool,
+    injected: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && english_mode
+        && popup_visible
+        && !chord_pressed
+        && !injected
+        && vk == VK_TAB_KEY
+}
+
 /// Whether a digit key is a candidate selector or a Bengali numeral.
 ///
 /// Row `0`-`9` and numpad `0`-`9`. While composing these are commit keys
@@ -155,8 +180,9 @@ pub trait KeyboardHook {
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyEvent, KeyPhase, LLKHF_INJECTED, VK_OEM_PERIOD, is_composition_key, is_injected_event,
-        should_enqueue, should_swallow, should_swallow_danda, should_swallow_numeral,
+        KeyEvent, KeyPhase, LLKHF_INJECTED, VK_OEM_PERIOD, VK_TAB_KEY, is_composition_key,
+        is_injected_event, should_enqueue, should_swallow, should_swallow_danda,
+        should_swallow_numeral, should_swallow_tab,
     };
 
     #[test]
@@ -364,5 +390,33 @@ mod tests {
         assert!(!should_swallow_numeral(
             true, true, true, false, false, false, 0x41
         ));
+    }
+
+    #[test]
+    fn tab_is_swallowed_only_for_a_visible_english_popup() {
+        assert!(should_swallow_tab(
+            true, true, true, false, false, VK_TAB_KEY
+        ));
+        // Bangla mode: Tab cancels composition, not an English accept.
+        assert!(!should_swallow_tab(
+            true, false, true, false, false, VK_TAB_KEY
+        ));
+        // Hidden popup: Tab must move focus normally.
+        assert!(!should_swallow_tab(
+            true, true, false, false, false, VK_TAB_KEY
+        ));
+        // Chords and injected events pass.
+        assert!(!should_swallow_tab(
+            true, true, true, true, false, VK_TAB_KEY
+        ));
+        assert!(!should_swallow_tab(
+            true, true, true, false, true, VK_TAB_KEY
+        ));
+        // Paused capture passes.
+        assert!(!should_swallow_tab(
+            false, true, true, false, false, VK_TAB_KEY
+        ));
+        // Other keys pass.
+        assert!(!should_swallow_tab(true, true, true, false, false, 0x41));
     }
 }

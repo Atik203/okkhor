@@ -16,11 +16,11 @@ use okkhor_storage::JsonFileRepository;
 #[cfg(windows)]
 mod logging;
 
+mod english;
 mod input_session;
 mod ipc;
 mod paths;
 mod settings_store;
-mod starter;
 mod words_store;
 
 fn main() {
@@ -641,14 +641,17 @@ fn parse_autostart_action(_argument: Option<&str>) -> Option<()> {
 fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, mpsc};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
+    use crate::english::{EnglishCommit, EnglishSession};
     use okkhor_core::Language;
-    use okkhor_learn::{LearningEvent, Smriti};
+    use okkhor_learn::{LearningEvent, LearningSnapshot, Smriti, SmritiConfig};
+    use okkhor_storage::{EncryptedJsonRepository, StorageError};
     use okkhor_win::{
         InjectError, KeyPhase, KeyboardHook, ModeHotkey, PauseHotkey, SingleInstance,
         SingleInstanceError, SuggestionPopup, TrayEvent, TrayIcon, TrayMode, WindowsKeyboardHook,
-        caret_anchor, ctrl_or_alt_pressed, foreground_window_id, inject_commit, place_popup,
+        caret_anchor, ctrl_or_alt_pressed, focused_element_is_password, foreground_window_id,
+        inject_commit, place_popup, send_tab,
     };
 
     use crate::input_session::{
@@ -740,6 +743,60 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    /// Show or hide the English completion popup at the caret.
+    fn refresh_english_popup(
+        popup: &mut Option<SuggestionPopup>,
+        english: &EnglishSession,
+        state: Option<&ProdState>,
+    ) {
+        let Some(window) = popup.as_mut() else {
+            return;
+        };
+        if !english.is_visible() {
+            window.hide();
+            if let Some(state) = state {
+                state.set_popup_visible(false);
+            }
+            return;
+        }
+        match caret_anchor() {
+            Some(anchor) => {
+                if window
+                    .show_candidates(english.suggestions(), english.selected(), &anchor)
+                    .is_err()
+                {
+                    window.hide();
+                    if let Some(state) = state {
+                        state.set_popup_visible(false);
+                    }
+                } else if let Some(state) = state {
+                    state.set_popup_visible(true);
+                }
+            }
+            None => {
+                window.hide();
+                if let Some(state) = state {
+                    state.set_popup_visible(false);
+                }
+            }
+        }
+    }
+
+    /// Erase the English token and inject the completion under the shared
+    /// injection lock. Returns false when the caller should re-emit Tab.
+    fn apply_english_commit(
+        commit: EnglishCommit,
+        logger: &logging::Logger,
+        injection: &std::sync::Mutex<()>,
+    ) -> bool {
+        let _injection = injection.lock().unwrap_or_else(|error| error.into_inner());
+        if let Err(error) = inject_commit(commit.erase_chars, &commit.text, false) {
+            logger.error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
+            return false;
+        }
+        true
+    }
+
     impl CompositionCtx<'_> {
         /// Whether the popup may show. Without IPC state the popup behaves as
         /// before (enabled); with state it follows the persisted setting live.
@@ -782,6 +839,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         commit: Commit,
         roman: String,
         newline: bool,
+        previous_word: Option<String>,
     ) -> bool {
         if foreground_window_id() != *ctx.compose_window {
             ctx.session.reset();
@@ -840,7 +898,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             roman_input: roman,
             output: unicode_text,
             language: Language::Bangla,
-            previous_word: None,
+            previous_word,
             timestamp_ms: now_ms(),
         };
         if ctx.learn_tx.try_send(event).is_err() {
@@ -910,8 +968,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 return;
             }
             let roman = ctx.session.buffer().to_owned();
+            let previous_word = ctx.session.previous_word().map(str::to_owned);
             if let Some(commit) = ctx.session.select_digit(index) {
-                do_commit(ctx, commit, roman, false);
+                do_commit(ctx, commit, roman, false, previous_word);
             } else {
                 // Out-of-range selection: the hook swallowed the digit, so
                 // re-emit it as text after ending the composition.
@@ -948,9 +1007,10 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
                 let roman = ctx.session.buffer().to_owned();
                 let newline = vk == VK_RETURN;
+                let previous_word = ctx.session.previous_word().map(str::to_owned);
                 match ctx.session.commit(vk == VK_SPACE) {
                     Some(commit) => {
-                        do_commit(ctx, commit, roman, newline);
+                        do_commit(ctx, commit, roman, newline, previous_word);
                     }
                     // No candidates: the roman text stays as typed. The key
                     // was swallowed by the hook, so re-emit it explicitly.
@@ -992,9 +1052,10 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 // ends with the Bengali danda (।). Commit any live composition
                 // first, then emit the danda on its own.
                 let roman = ctx.session.buffer().to_owned();
+                let previous_word = ctx.session.previous_word().map(str::to_owned);
                 let ready = if ctx.session.is_composing() {
                     match ctx.session.commit(false) {
-                        Some(commit) => do_commit(ctx, commit, roman, false),
+                        Some(commit) => do_commit(ctx, commit, roman, false, previous_word),
                         None => {
                             ctx.session.reset();
                             hide_popup(ctx.popup, ctx.state);
@@ -1207,24 +1268,75 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     };
 
-    // Learning runs on a background thread: `Smriti::observe` performs no I/O,
-    // the channel is bounded (1024), and `try_send` never blocks, so a
-    // stalled learn thread drops (and counts) events instead of stalling the
-    // key path. If the thread cannot start, typing continues without learning.
+    // Learning: load the encrypted snapshot once, share it with the engine
+    // (read locks for ranking) and the background thread (writes + debounced
+    // saves). A corrupt/missing file starts empty; typing never depends on it.
+    let learning_path = crate::paths::learning_path().ok();
+    let smriti = match &learning_path {
+        Some(path) => {
+            let repository = EncryptedJsonRepository::<
+                LearningSnapshot,
+                crate::words_store::DpapiProtector,
+            >::new(
+                path.clone(), crate::words_store::DpapiProtector::learning()
+            );
+            match repository.load() {
+                Ok(snapshot) => match Smriti::from_snapshot(snapshot, SmritiConfig::default()) {
+                    Ok(smriti) => Arc::new(smriti),
+                    Err(_) => {
+                        logger.error(logging::Scope::Daemon, "learning_snapshot", None);
+                        Arc::new(Smriti::new())
+                    }
+                },
+                Err(StorageError::NotFound) => Arc::new(Smriti::new()),
+                Err(_) => {
+                    logger.error(logging::Scope::Daemon, "learning_load", None);
+                    Arc::new(Smriti::new())
+                }
+            }
+        }
+        None => Arc::new(Smriti::new()),
+    };
     const LEARN_QUEUE_CAP: usize = 1024;
     let (learn_tx, learn_rx) = mpsc::sync_channel::<LearningEvent>(LEARN_QUEUE_CAP);
     let learn_dropped = Arc::new(AtomicU64::new(0));
-    if std::thread::Builder::new()
-        .name("okkhor-learn".to_owned())
-        .spawn(move || {
-            let smriti = Smriti::new();
-            for event in learn_rx {
-                smriti.observe(event);
-            }
-        })
-        .is_err()
+    let learning_save_failures = Arc::new(AtomicU64::new(0));
     {
-        logger.error(logging::Scope::Daemon, "learn_thread", None);
+        let smriti = Arc::clone(&smriti);
+        let learning_save_failures = Arc::clone(&learning_save_failures);
+        let repository = learning_path.clone().map(|path| {
+            EncryptedJsonRepository::<LearningSnapshot, crate::words_store::DpapiProtector>::new(
+                path,
+                crate::words_store::DpapiProtector::learning(),
+            )
+        });
+        let spawned = std::thread::Builder::new()
+            .name("okkhor-learn".to_owned())
+            .spawn(move || {
+                let mut dirty = 0u32;
+                let mut last_save = Instant::now();
+                for event in learn_rx {
+                    smriti.observe(event);
+                    dirty += 1;
+                    if dirty >= 64 || last_save.elapsed() >= Duration::from_secs(30) {
+                        if let Some(repository) = &repository {
+                            if repository.save(&smriti.snapshot()).is_err() {
+                                learning_save_failures.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                        dirty = 0;
+                        last_save = Instant::now();
+                    }
+                }
+                if let Some(repository) = &repository {
+                    if repository.save(&smriti.snapshot()).is_err() {
+                        learning_save_failures.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            });
+        if spawned.is_err() {
+            logger.error(logging::Scope::Daemon, "learn_thread", None);
+        }
     }
 
     let mut popup = match SuggestionPopup::new() {
@@ -1235,28 +1347,27 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let engine = default_engine();
-    // Parse the curated suggestion list once, off the typing path.
-    starter::warm();
-    if engine.is_fallback() {
-        // Embedded-table load failure: allowlisted startup record only
-        // (scope + kind, never text). Typing continues with no candidates.
-        let kind = engine
-            .fallback_kind()
-            .unwrap_or("transliterate_embedded_table");
-        logger.error(logging::Scope::Transliterate, kind, None);
+    let engine = default_engine(Arc::clone(&smriti));
+    if let Some(kind) = engine.fallback_kind() {
+        // Load failure or a disabled dictionary: allowlisted startup record
+        // only (scope + kind, never text). Typing continues on what loaded.
+        logger.error(logging::Scope::Engine, kind, None);
     }
     let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
+    let mut english = EnglishSession::new();
     let mut compose_window = foreground_window_id();
     let mut encoding = options.encoding;
     let mut mode = options.mode;
     let mut learning_enabled = true;
+    let mut last_words_revision = 0;
     if let Some(state) = ipc_state.as_deref() {
         // Persisted last mode wins over the CLI flags (the flags seed a fresh
-        // home only — see `setup_ipc_state`).
+        // home only - see `setup_ipc_state`).
         mode = daemon_input_mode(state.mode());
         encoding = daemon_output_encoding(state.encoding());
         learning_enabled = state.learning();
+        session.set_user_words(state.user_words());
+        last_words_revision = state.words_revision();
     }
     let mut toast_until_ms: u64 = 0;
     let mut last_apply_seq: u64 = 0;
@@ -1316,6 +1427,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         state: Option<&Arc<ProdState>>,
     ) {
         *mode = mode.toggle();
+        let _ = okkhor_win::signal_state_changed();
         session.reset();
         let live = state.map(|state| &**state);
         hide_popup(popup, live);
@@ -1446,6 +1558,11 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // (try_lock — a contended settings write retries next poll).
         if let Some(state) = ipc_state.as_deref() {
             session.set_max_candidates(state.popup_max_items());
+            let words_revision = state.words_revision();
+            if words_revision != last_words_revision {
+                session.set_user_words(state.user_words());
+                last_words_revision = words_revision;
+            }
             let want_enabled = !state.paused();
             if hook.capture_enabled() != want_enabled {
                 hook.set_capture_enabled(want_enabled);
@@ -1458,6 +1575,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 // IPC-driven mode change: the visible effects of a local
                 // toggle, minus the toast (no caret access from this path).
                 mode = live_mode;
+                let _ = okkhor_win::signal_state_changed();
                 session.reset();
                 hide_popup(&mut popup, Some(state));
                 tray.set_mode(tray_mode_of(mode));
@@ -1511,6 +1629,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             toast_until_ms = 0;
             // Nothing may be swallowed while capture is off.
+            hook.set_english_popup(false);
             hook.set_composition_state(false, false, false);
             // Drain injected and real events alike while paused.
             while hook.try_next().is_some() {}
@@ -1519,18 +1638,87 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
 
         if !mode.allows_composition() {
-            // English mode: no composition, no candidates, no popup. The hook
-            // keeps passing everything through; the buffer is already clear
-            // from the toggle, and any stray state is dropped here before the
-            // drain so a mode switch can never leak a partial buffer.
+            // English mode: no Bangla composition. Track the Latin token and
+            // offer prefix completions; Space/Enter/punctuation pass through
+            // untouched. Only Tab (while visible) or a popup click accepts.
             if session.is_composing() {
                 session.reset();
             }
-            if toast_until_ms == 0 {
+            let enabled = ipc_state
+                .as_deref()
+                .is_none_or(|state| state.english_suggestions());
+            let limit = ipc_state
+                .as_deref()
+                .map_or(8usize, |state| state.popup_max_items());
+            if !enabled {
+                english.reset();
+            }
+
+            let mut clicked: Vec<usize> = Vec::new();
+            if let Some(window) = popup.as_mut() {
+                while let Some(index) = window.try_next_click() {
+                    clicked.push(index);
+                    if clicked.len() >= 8 {
+                        break;
+                    }
+                }
+            }
+            for index in clicked {
+                if english.is_visible() {
+                    if let Some(commit) = english.accept_index(index) {
+                        if !apply_english_commit(commit, logger, &injection_lock) {
+                            let _ = send_tab();
+                        }
+                    }
+                }
+            }
+
+            while let Some(event) = hook.try_next() {
+                if event.phase != KeyPhase::Down {
+                    continue;
+                }
+                if !enabled {
+                    continue;
+                }
+                match event.virtual_key {
+                    VK_TAB if english.is_visible() => {
+                        if let Some(commit) = english.accept() {
+                            if !apply_english_commit(commit, logger, &injection_lock) {
+                                let _ = send_tab();
+                            }
+                        } else {
+                            let _ = send_tab();
+                        }
+                    }
+                    VK_ESCAPE => english.dismiss(),
+                    VK_BACK => english.backspace(limit, |prefix, limit| {
+                        session.english_suggestions(prefix, limit)
+                    }),
+                    other => {
+                        if let Some(letter) = vk_to_letter(other) {
+                            let foreground = foreground_window_id();
+                            if !english.token().is_empty() && english.window() != foreground {
+                                english.reset();
+                            }
+                            english.push_letter(letter, limit, foreground, |prefix, limit| {
+                                session.english_suggestions(prefix, limit)
+                            });
+                        } else {
+                            english.reset();
+                        }
+                    }
+                }
+            }
+
+            if english.is_visible() && focused_element_is_password() {
+                english.dismiss();
+            }
+            refresh_english_popup(&mut popup, &english, ipc_state.as_deref());
+            hook.set_english_popup(english.is_visible());
+            hook.set_composition_state(false, false, false);
+            if !english.is_visible() && toast_until_ms == 0 {
                 hide_popup(&mut popup, ipc_state.as_deref());
             }
-            hook.set_composition_state(false, false, false);
-            while hook.try_next().is_some() {}
             std::thread::sleep(Duration::from_millis(5));
             continue;
         }
@@ -1538,6 +1726,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // Publish the state the hook uses to swallow commit keys. Done before
         // the drain so a key arriving during this poll sees the last buffer,
         // and again after it so the next poll sees the new one.
+        hook.set_english_popup(false);
         let bangla_unicode =
             mode.allows_composition() && encoding == crate::OutputEncoding::Unicode;
         hook.set_composition_state(
@@ -1563,6 +1752,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         for index in clicked {
             if session.is_composing() {
                 let roman = session.buffer().to_owned();
+                let previous_word = session.previous_word().map(str::to_owned);
                 let mut ctx = CompositionCtx {
                     session: &mut session,
                     popup: &mut popup,
@@ -1576,7 +1766,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     injection: &injection_lock,
                 };
                 if let Some(commit) = ctx.session.select_digit(index) {
-                    do_commit(&mut ctx, commit, roman, false);
+                    do_commit(&mut ctx, commit, roman, false, previous_word);
                 }
             }
         }
@@ -1588,6 +1778,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             if event.phase != KeyPhase::Down {
                 continue;
             }
+            session.set_now_ms(now_ms());
             let mut ctx = CompositionCtx {
                 session: &mut session,
                 popup: &mut popup,
@@ -1637,6 +1828,7 @@ fn toggle_capture(
     state: Option<&std::sync::Arc<ProdState>>,
 ) {
     let enabled = hook.toggle_capture();
+    let _ = okkhor_win::signal_state_changed();
     tray.set_paused(!enabled);
     if let Some(state) = state {
         state.set_paused(!enabled);
@@ -2357,7 +2549,9 @@ mod tests {
     fn mode_transitions_compose_in_bangla_pass_through_in_english() {
         use crate::input_session::{InputSession, default_engine};
 
-        let mut session: InputSession<_> = InputSession::new(default_engine());
+        let mut session: InputSession<_> = InputSession::new(default_engine(std::sync::Arc::new(
+            okkhor_learn::Smriti::new(),
+        )));
         let mut mode = InputMode::Bangla;
         // Bangla: letters build the buffer and yield the table candidate.
         for byte in *b"bhal" {

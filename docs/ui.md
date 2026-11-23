@@ -7,7 +7,22 @@ this app only observes and configures it through IPC.
 Binding contracts: `docs/design/0.5-ui-contracts.md` (§2 settings, §4
 protocol, §5 UI behavior), ADR 0012 (UI process, IPC, settings ownership),
 ADR 0013 (encodings/fonts), ADR 0014 (input modes, hotkeys, zero-config
-fonts).
+fonts), ADR 0016 (suggestion index, English completions, instant state).
+
+## 0.6 additions
+
+- Settings is split into General, Typing, Suggestions, Appearance,
+  Words & Learning, and About. The layout is two columns at >=1024 px and a
+  single column below; every section is checked at 960, 1280, and 1600 px in
+  light and dark.
+- Suggestions: popup toggle, rows 5/8/10 (max 10), English completions toggle,
+  and a "Tab accepts the highlighted word" hint.
+- The inert AI/speech toggles are removed from the main page; the stored
+  fields remain for forward compatibility.
+- The quick bar listens for `okkhor:state-changed` and refetches its snapshot;
+  the 5 s poll is a fallback only.
+- Save stays explicit with a sticky footer; toggles and selects are still
+  applied by Save so a half-edited page never reaches the daemon.
 
 ## Architecture
 

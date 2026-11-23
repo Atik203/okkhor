@@ -29,6 +29,8 @@ mod quickbar_show;
 #[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]
+mod state_event;
+#[cfg(windows)]
 mod tray;
 #[cfg(windows)]
 mod win32;
@@ -58,7 +60,7 @@ pub use autostart::{
 #[cfg(windows)]
 pub use caret::{
     CaretAnchor, DpiError, PopupPlacement, caret_anchor, enable_per_monitor_dpi_awareness,
-    place_popup,
+    focused_element_is_password, place_popup,
 };
 #[cfg(windows)]
 pub use hotkey::{GlobalHotkey, HotkeyError, HotkeySpec, ModeBinding, ModeHotkey, PauseHotkey};
@@ -72,10 +74,15 @@ pub use quickbar_show::{
 pub use single_instance::{SingleInstance, SingleInstanceError};
 pub use sound::play_toggle_click;
 #[cfg(windows)]
+pub use state_event::{
+    STATE_CHANGED_EVENT, StateChangeError, signal_state_changed, spawn_state_change_listener,
+};
+#[cfg(windows)]
 pub use tray::{TrayError, TrayEvent, TrayIcon, TrayMode};
 #[cfg(windows)]
 pub use win32::{
     HookError, MAX_SEND_BACKSPACES, WindowsInjector, WindowsKeyboardHook, capture_enabled,
     ctrl_or_alt_pressed, foreground_window_id, inject_commit, send_backspaces, send_enter,
-    set_capture_enabled, set_composition_state, toggle_capture, utf16_units,
+    send_tab, set_capture_enabled, set_composition_state, set_english_popup, toggle_capture,
+    utf16_units,
 };

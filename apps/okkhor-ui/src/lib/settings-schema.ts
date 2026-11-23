@@ -100,6 +100,7 @@ export const settingsSchema = z.object({
     .int()
     .min(1, "At least 1 popup item.")
     .max(10, "At most 10 popup items."),
+  english_suggestions: z.boolean(),
   toggle_hotkey: z
     .string()
     .min(1, "Toggle hotkey is required.")
@@ -149,6 +150,7 @@ export function toForm(settings: Settings): SettingsForm {
     font_bijoy: settings.font_bijoy,
     popup_enabled: settings.popup_enabled,
     popup_max_items: settings.popup_max_items,
+    english_suggestions: settings.english_suggestions,
     toggle_hotkey: settings.toggle_hotkey,
     pause_hotkey: settings.pause_hotkey,
     show_toggle_toast: settings.show_toggle_toast,
