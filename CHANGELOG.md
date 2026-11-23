@@ -5,6 +5,19 @@ Versioning once it reaches 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- 0.5 encrypted store (Task 2): `okkhor-win::dpapi` (current-user
+  `CryptProtectData`/`CryptUnprotectData`, `CRYPTPROTECT_UI_FORBIDDEN`, typed
+  errors, 64 MiB cap), `okkhor-storage::EncryptedJsonRepository` over a
+  `Protector` trait (`OKE1` envelope, atomic replace, 8 MiB cap,
+  `NotFound`/`Corrupt`/`Unsupported`, deterministic fake protector), and
+  daemon `paths` (`settings.json`, `data/words.bin`, `runtime/ipc.token` with
+  `OKKHOR_DATA_HOME` test override), `settings_store` (defaults, clamping,
+  `update(patch)`), and `words_store` (ids, 20,000 cap, duplicates, search,
+  CSV/JSON import/export with 5,000-row import cap) modules. The daemon loop
+  and IPC handlers are Task 3 and are not wired yet.
+
 ### Fixed
 
 - Associate the global low-level keyboard hook with the process module handle

@@ -176,12 +176,14 @@ name = "okkhor-daemon"
 version = "0.5.0-alpha.1"
 dependencies = [
  "okkhor-core",
+ "okkhor-ipc",
  "okkhor-lang",
  "okkhor-learn",
  "okkhor-storage",
  "okkhor-transliterate",
  "okkhor-win",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]

@@ -56,6 +56,29 @@ Never update the running daemon in place.
 - Refuse to write a newer schema than the app understands.
 - Record the migration result in a user-visible report.
 
+## Data locations (0.5)
+
+All daemon state lives under `%LOCALAPPDATA%\Okkhor` (`OKKHOR_DATA_HOME`
+overrides it for tests, dev, and portable use only):
+
+| File | Content | Protection |
+| --- | --- | --- |
+| `settings.json` | Settings document, schema v1 | Plaintext JSON; the daemon is the only writer |
+| `data\words.bin` | User/imported words, schema v1 | DPAPI current-user envelope (`OKE1` + version + ciphertext) |
+| `runtime\ipc.token` | 32-byte session token for the settings UI | Owner-only ACL, rotated every daemon start, removed on clean shutdown |
+| `logs\okkhor.log` | Redacted JSON-lines log | Event codes and numeric fields only; never user text |
+
+Migration notes:
+
+- `settings.json` moves freely between installs; unknown fields are ignored
+  on read and dropped on write.
+- `data\words.bin` is bound to the Windows user profile that sealed it
+  (DPAPI current-user scope). Copying it to another machine or user does not
+  decrypt — it fails closed. Migrate words with `words.export` (CSV/JSON)
+  and `words.import` instead of copying the file.
+- Never ask a user to send `words.bin`, the learning database, or typed text
+  for diagnostics.
+
 ## Release checklist
 
 - [ ] version bumped in `Cargo.toml` and changelog;

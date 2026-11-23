@@ -17,6 +17,14 @@ use okkhor_storage::JsonFileRepository;
 mod logging;
 
 mod input_session;
+// Task 2 stores. Task 3 wires them into the daemon loop and IPC handlers;
+// until then they are exercised by their unit tests.
+#[allow(dead_code)]
+mod paths;
+#[allow(dead_code)]
+mod settings_store;
+#[allow(dead_code)]
+mod words_store;
 
 fn main() {
     #[cfg(windows)]
