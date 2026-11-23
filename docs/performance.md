@@ -161,6 +161,73 @@ and correctness not re-measured because the harness could not focus its private
 EDIT window in this session. A quiet, interactive reference-machine run with an
 MSVC release build is still required for release claims.
 
+## Candidate engine bench — 0.4 `--candidates`, shared desktop, 2026-11-23
+
+This block records the first `--candidates` measurement for the 0.4 candidate
+engine (`CandidateEngine::suggest` per golden-corpus case, parity via
+`check_parity`, rank latency via the shared nearest-rank helper). It does not
+replace the measured 0.2 baseline above and is **not a reference-machine
+result**: same shared Windows 11 desktop and GNU host toolchain as the 0.2
+re-verification block. Fixture byte-sort ordering is re-verified by the
+passing golden-corpus integration test (3/3 top-1 and top-5); the committed
+fixtures were not touched.
+
+### Observed environment
+
+| Item | Value |
+| --- | --- |
+| Commit | `7609838ce960bfb1def91bf80b72ca2f7434e640` (`feat/0.4-bench`) |
+| Date | 2026-11-23, 16:12–16:20 local |
+| OS | Microsoft Windows 11 Home Single Language, 10.0.26300, build 26300, x64 |
+| CPU | AMD Ryzen 7 5800H, 8 cores / 16 logical processors |
+| RAM | 34,204,610,560 bytes (~31.8 GiB) |
+| Storage | SK Hynix HFM512GDHTNI-87A0B and WD PC SN730 SDBPNTY-1T00-1101 (fixed NVMe) |
+| Display / power | Balanced plan `381b4222-f694-41f0-9685-ff5bb260df2e` |
+| Build profile | `--release`; rustc/cargo 1.100.0 (`0ef1bc386`, 2026-11-09), host `x86_64-pc-windows-gnu` |
+| Toolchain caveat | GNU host, not the MSVC production toolchain (`AGENTS.md`); no MSVC release claim is made |
+
+### Commands (all exit code 0)
+
+```powershell
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo run --release -p okkhor-bench -- --candidates --iterations 1 --json
+cargo run --release -p okkhor-bench -- --candidates --iterations 2000 --json
+cargo run --release -p okkhor-bench -- --candidates --iterations 2000 --json
+cargo run --release -p okkhor-bench -- --candidates --smoke --json
+cargo run --release -p okkhor-bench -- --candidates --iterations 5 --csv
+```
+
+### Parity (all runs)
+
+| Corpus | Cases | Top-1 hits | Top-5 hits | Top-1 rate | Top-5 rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `crates/okkhor-engine/tests/fixtures/synthetic/corpus.json` (schema 1) | 3 | 3 | 3 | 1.000 | 1.000 |
+
+### Rank latency (release, one `suggest` per timed sample)
+
+| Run | Iterations | Warmup | Timed subset | p50 | p95 | p99 | max | n | Suggestions | Throughput |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Single | 1 | 1 | 3/3 cases | 3.10 us | 3.10 us | 3.10 us | 3.10 us | 1 | 5 | 322,581/sec |
+| Full A | 2,000 | 200 | 3/3 cases | 2.00 us | 2.40 us | 4.60 us | 22.10 us | 2,000 | 8,002 | 475,443/sec |
+| Full B | 2,000 | 200 | 3/3 cases | 3.40 us | 4.60 us | 4.80 us | 14.30 us | 2,000 | 8,002 | 295,299/sec |
+| Smoke | 10 | 10 | 1/3 cases | 2.40 us | 2.70 us | 2.70 us | 2.70 us | 10 | 50 | 418,410/sec |
+
+Observed p99 (~4.6–4.8 us on the full runs) is three orders of magnitude inside
+the < 3 ms local-candidate-generation budget. The two full runs disagree on
+throughput (475k vs 295k iterations/sec) from shared-desktop scheduling noise;
+no reference-machine claim is made. Raw reports (git-ignored):
+`bench-out/candidates-1795428751494-18252.json` (single),
+`bench-out/candidates-1795428755801-8492.json` (full A),
+`bench-out/candidates-1795428772011-240.json` (full B),
+`bench-out/candidates-1795428763259-30760.json` (smoke),
+`bench-out/candidates-1795428763535-16172.csv` (csv check).
+
+No global hook was installed and no network was used. All text was synthetic
+from the committed golden corpus; no real user text and no legacy executable
+were used.
+
 ## Measurement protocol
 
 - Use a quiet Windows 11 reference machine on the balanced power plan.
