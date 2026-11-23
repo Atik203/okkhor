@@ -13,6 +13,17 @@ capture pause state, global pause hotkey, caret-aware non-activating popup
 scaffold, per-user autostart, redacted daemon logging, a minimal tray icon, and
 a non-hook benchmark harness for ranking and both injection paths.
 
+**0.3 and 0.4 are code-complete** (no version bump yet). They add the contract
+set (`docs/design/0.3-core-contracts.md`, ADR 0010/0011), the `okkhor-lang`,
+`okkhor-transliterate`, `okkhor-compat`, and `okkhor-engine` crates, the
+synthetic golden corpus, engine parity benchmarking, the 0.3/0.4 QA and
+performance records, and the G1–G4 gates.
+
+**0.5, 0.6, and 1.0 are planned**: `docs/superpowers/plans/0.5-ui.md`,
+`0.6-model-speech-ai.md`, and `1.0-release.md`. The 0.5 UI decision is ADR 0004
+amended by ADR 0012 (Tauri UI process, named-pipe IPC, daemon-owned settings,
+DPAPI-encrypted word store).
+
 Manual Windows QA execution remains in issue #8. The full suggestion-rendering
 UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
 
