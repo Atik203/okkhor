@@ -192,7 +192,7 @@ async fn ipc_roundtrip_over_pipe() {
             .iter()
             .map(|entry| entry.code.as_str())
             .collect::<Vec<_>>(),
-        vec!["avro"]
+        vec!["avro", "national", "probhat", "bijoy"]
     );
     assert!(layouts.iter().all(|entry| !entry.name.is_empty()));
 
@@ -459,7 +459,7 @@ fn handler_direct_status_settings_words_insert_capture() {
         ("bn", "avro")
     );
     assert_eq!(status.input_mode, InputMode::Bangla);
-    assert_eq!(ipc::layout_list().len(), 1);
+    assert_eq!(ipc::layout_list().len(), 4);
 
     // settings round-trip through requests.
     let response = state.handle_request(Request::SettingsUpdate(SettingsPatch {

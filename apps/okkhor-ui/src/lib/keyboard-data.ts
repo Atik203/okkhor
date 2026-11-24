@@ -206,12 +206,17 @@ export function pushRecent(recents: string[], key: string, max: number = MAX_REC
 
 /**
  * Fallback layout list when the daemon is unreachable.
- * Only the Avro table is wired to the transliteration engine. Other layout
- * codes are still accepted in saved settings for compatibility, but they are
- * not offered here because selecting them would not change typing behavior.
+ *
+ * Roman layouts share one phonetic engine; only the default Avro style is
+ * offered, while `phonetic` and `khipro` stay valid stored values with their
+ * own rule tables. National, Probhat and Bijoy are real fixed physical-key
+ * layouts with different output.
  */
 export const FALLBACK_LAYOUTS: { code: string; name: string }[] = [
   { code: "avro", name: "Avro (Phonetic)" },
+  { code: "national", name: "Bangla (National/Jatiya)" },
+  { code: "probhat", name: "Probhat" },
+  { code: "bijoy", name: "Bijoy" },
 ];
 
 export interface EmojiEntry {

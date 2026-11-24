@@ -729,20 +729,25 @@ impl<P: Protector> DaemonState<P> {
     }
 }
 
-/// Contract §4 `layouts.list`: the one input layout that is actually wired to
-/// the transliteration engine. The other codes in `KNOWN_LAYOUTS` remain valid
-/// stored values for backward compatibility, but none of them select a
-/// different engine: advertising them would promise behavior Okkhor does not
-/// have. "Bijoy" is a separate, working *output encoding*, not an input layout.
+/// Contract §4 `layouts.list`: only the default phonetic style and the three
+/// fixed physical-key layouts are advertised. `phonetic` and `khipro` are the
+/// same phonetic engine with different rule tables; they remain accepted
+/// stored values and keep working, but new users get one clear roman choice
+/// instead of three labels that look like different features.
 #[must_use]
 pub fn layout_list() -> Vec<LayoutInfo> {
-    [("avro", "Avro (Phonetic)")]
-        .into_iter()
-        .map(|(code, name)| LayoutInfo {
-            code: code.to_owned(),
-            name: name.to_owned(),
-        })
-        .collect()
+    [
+        ("avro", "Avro (Phonetic)"),
+        ("national", "Bangla (National/Jatiya)"),
+        ("probhat", "Probhat"),
+        ("bijoy", "Bijoy"),
+    ]
+    .into_iter()
+    .map(|(code, name)| LayoutInfo {
+        code: code.to_owned(),
+        name: name.to_owned(),
+    })
+    .collect()
 }
 
 #[cfg(windows)]
@@ -1238,7 +1243,7 @@ mod tests {
                 .iter()
                 .map(|entry| entry.code.as_str())
                 .collect::<Vec<_>>(),
-            vec!["avro"]
+            vec!["avro", "national", "probhat", "bijoy"]
         );
         assert!(layouts.iter().all(|entry| !entry.name.is_empty()));
 
