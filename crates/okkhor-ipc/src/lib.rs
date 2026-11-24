@@ -32,11 +32,13 @@ pub use auth::{Token, TokenFileError, default_runtime_dir, default_token_path};
 pub use error::ErrorCode;
 pub use frame::{FrameError, read_frame, write_frame};
 pub use protocol::{
-    CaptureSet, ErrorBody, Hello, ImportFormat, LayoutInfo, MAX_CLIENTS, MAX_FRAME_BYTES,
-    MAX_INSERT_UTF16, MAX_WORDS_LIST_LIMIT, NoArgs, PIPE_NAME, PROTOCOL_VERSION, READ_TIMEOUT,
-    REQUEST_DEADLINE, Request, Response, ServerHello, Status, TextInsert, TextInserted, WordAdd,
-    WordRemove, WordRemoveResult, WordsExport, WordsExported, WordsImport, WordsImported,
-    WordsListQuery, WordsPage, normalize_words_list_limit, validate_insert_text,
+    AiCancelParams, AiCompleteParams, AiJobStarted, AiJobState, AiPollParams, AiStatusInfo,
+    CaptureSet, ErrorBody, Hello, ImportFormat, LayoutInfo, MAX_AI_MODEL_BYTES,
+    MAX_AI_PROMPT_CHARS, MAX_AI_TIMEOUT_MS, MAX_AI_TOKENS, MAX_CLIENTS, MAX_FRAME_BYTES,
+    MAX_INSERT_UTF16, MAX_WORDS_LIST_LIMIT, MIN_AI_TIMEOUT_MS, NoArgs, PIPE_NAME, PROTOCOL_VERSION,
+    READ_TIMEOUT, REQUEST_DEADLINE, Request, Response, ServerHello, Status, TextInsert,
+    TextInserted, WordAdd, WordRemove, WordRemoveResult, WordsExport, WordsExported, WordsImport,
+    WordsImported, WordsListQuery, WordsPage, normalize_words_list_limit, validate_insert_text,
 };
 pub use settings::{
     Accent, FontBijoy, FontUnicode, InputMode, Language, OutputEncoding, QUICKBAR_COORD_MAX,

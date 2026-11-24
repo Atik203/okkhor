@@ -45,6 +45,18 @@ pub enum ErrorCode {
     ExportTooLarge,
     /// `ai.complete` in 0.5: accepted by the protocol, never executed.
     Unsupported,
+    /// The AI worker process is not running or its pipe is unreachable.
+    WorkerDown,
+    /// AI is off (not opted in, or the provider is disabled).
+    AiDisabled,
+    /// The single in-flight AI slot is taken.
+    AiBusy,
+    /// No provider API key is set.
+    AiKeyMissing,
+    /// The provider rejected the request or returned an unusable response.
+    AiProviderError,
+    /// The AI job exceeded its deadline.
+    AiTimeout,
     /// Catch-all for handler failures that must not leak detail.
     Internal,
 }
@@ -71,6 +83,12 @@ impl ErrorCode {
             Self::TextTooLong => "text exceeds the insert limit",
             Self::ExportTooLarge => "export exceeds the size limit",
             Self::Unsupported => "not available in this milestone",
+            Self::WorkerDown => "AI worker is not running",
+            Self::AiDisabled => "AI is disabled",
+            Self::AiBusy => "an AI request is already in flight",
+            Self::AiKeyMissing => "AI provider key is not set",
+            Self::AiProviderError => "AI provider request failed",
+            Self::AiTimeout => "AI request exceeded its deadline",
             Self::Internal => "internal error",
         }
     }
@@ -100,6 +118,12 @@ mod tests {
             ErrorCode::TextTooLong,
             ErrorCode::ExportTooLarge,
             ErrorCode::Unsupported,
+            ErrorCode::WorkerDown,
+            ErrorCode::AiDisabled,
+            ErrorCode::AiBusy,
+            ErrorCode::AiKeyMissing,
+            ErrorCode::AiProviderError,
+            ErrorCode::AiTimeout,
             ErrorCode::Internal,
         ] {
             let json = serde_json::to_string(&code).expect("code serializes");
@@ -134,6 +158,12 @@ mod tests {
             ErrorCode::TextTooLong,
             ErrorCode::ExportTooLarge,
             ErrorCode::Unsupported,
+            ErrorCode::WorkerDown,
+            ErrorCode::AiDisabled,
+            ErrorCode::AiBusy,
+            ErrorCode::AiKeyMissing,
+            ErrorCode::AiProviderError,
+            ErrorCode::AiTimeout,
             ErrorCode::Internal,
         ] {
             assert!(!code.message().is_empty(), "{code:?} has a message");

@@ -28,6 +28,16 @@ pub const REQUEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs
 pub const MAX_INSERT_UTF16: usize = 512;
 /// `words.list` page cap (contract §4).
 pub const MAX_WORDS_LIST_LIMIT: u64 = 200;
+/// `ai.complete` prompt and system cap in Unicode scalar values (ADR 0018 §5).
+pub const MAX_AI_PROMPT_CHARS: usize = 20_000;
+/// `ai.complete` model id cap in bytes (ADR 0018 §5).
+pub const MAX_AI_MODEL_BYTES: usize = 128;
+/// `ai.complete` `max_tokens` cap (ADR 0018 §5).
+pub const MAX_AI_TOKENS: u32 = 8_192;
+/// `ai.complete` `timeout_ms` floor (ADR 0018 §5).
+pub const MIN_AI_TIMEOUT_MS: u64 = 1_000;
+/// `ai.complete` `timeout_ms` cap (ADR 0018 §5).
+pub const MAX_AI_TIMEOUT_MS: u64 = 60_000;
 
 /// First request on every connection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +163,135 @@ pub struct CaptureSet {
     pub paused: bool,
 }
 
+/// `ai.complete` params (ADR 0018 §5). The daemon validates and enqueues the
+/// job, then answers [`AiJobStarted`] immediately; it never waits for the
+/// provider under the 5 s request deadline.
+///
+/// Bounds are checked by [`AiCompleteParams::validate`]: prompt/system ≤
+/// [`MAX_AI_PROMPT_CHARS`] Unicode scalar values, model ≤
+/// [`MAX_AI_MODEL_BYTES`] bytes, `max_tokens` 1..=[`MAX_AI_TOKENS`],
+/// temperature finite in `0.0..=2.0`, and `timeout_ms` in
+/// [`MIN_AI_TIMEOUT_MS`]..=[`MAX_AI_TIMEOUT_MS`].
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiCompleteParams {
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+}
+
+impl AiCompleteParams {
+    /// Check the ADR 0018 bounds. Failures are static [`ErrorCode`] values;
+    /// the prompt and system text are never echoed into an error or a log.
+    ///
+    /// Every bound violation answers [`ErrorCode::InvalidRequest`] (the
+    /// protocol has no separate AI-params code) so a client can report one
+    /// stable "request out of bounds" state.
+    pub fn validate(&self) -> Result<(), ErrorCode> {
+        if self.prompt.chars().count() > MAX_AI_PROMPT_CHARS {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        if let Some(system) = &self.system
+            && system.chars().count() > MAX_AI_PROMPT_CHARS
+        {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        if let Some(model) = &self.model
+            && model.len() > MAX_AI_MODEL_BYTES
+        {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        if let Some(max_tokens) = self.max_tokens
+            && !(1..=MAX_AI_TOKENS).contains(&max_tokens)
+        {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        if let Some(temperature) = self.temperature
+            && !(temperature.is_finite() && (0.0..=2.0).contains(&temperature))
+        {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        if let Some(timeout_ms) = self.timeout_ms
+            && !(MIN_AI_TIMEOUT_MS..=MAX_AI_TIMEOUT_MS).contains(&timeout_ms)
+        {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        Ok(())
+    }
+}
+
+/// Hand-written so prompt and system text never reach a log line, a panic
+/// message, or a crash report; only their lengths are shown.
+impl std::fmt::Debug for AiCompleteParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiCompleteParams")
+            .field("prompt_chars", &self.prompt.chars().count())
+            .field(
+                "system_chars",
+                &self.system.as_ref().map(|system| system.chars().count()),
+            )
+            .field("model", &self.model)
+            .field("max_tokens", &self.max_tokens)
+            .field("temperature", &self.temperature)
+            .field("timeout_ms", &self.timeout_ms)
+            .finish()
+    }
+}
+
+/// `ai.poll` params (ADR 0018 §5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiPollParams {
+    pub job_id: u64,
+}
+
+/// `ai.cancel` params (ADR 0018 §5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiCancelParams {
+    pub job_id: u64,
+}
+
+/// `ai.complete` result: the enqueued job id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiJobStarted {
+    pub job_id: u64,
+}
+
+/// `ai.poll` result (ADR 0018 §5). Carries the rewritten text only on `done`;
+/// `failed` carries a static code, never the provider's message or the prompt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum AiJobState {
+    Pending,
+    Done {
+        text: String,
+        model: String,
+        input_tokens: u32,
+        output_tokens: u32,
+        latency_ms: u64,
+    },
+    Failed {
+        code: String,
+    },
+    Cancelled,
+}
+
+/// `ai.status` result (ADR 0018 §4): policy and breaker state without text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiStatusInfo {
+    pub enabled: bool,
+    pub provider: String,
+    pub key_present: bool,
+    pub breaker_state: String,
+    pub active_jobs: u32,
+}
+
 /// Typed protocol error body. The message is static text from
 /// [`ErrorCode::message`]; it never includes user text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,8 +310,9 @@ impl ErrorBody {
     }
 }
 
-/// All 0.5 methods (contract §4). `ai.complete` parses but always answers
-/// [`ErrorCode::Unsupported`] in 0.5.
+/// Every request method (contract §4 plus the additive 0.7 AI methods from
+/// ADR 0018). `ai.complete` validates and enqueues only; the daemon handler
+/// answers [`AiJobStarted`] and the result is polled with `ai.poll`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Request {
     #[serde(rename = "hello")]
@@ -202,7 +342,13 @@ pub enum Request {
     #[serde(rename = "shutdown")]
     Shutdown(NoArgs),
     #[serde(rename = "ai.complete")]
-    AiComplete(serde_json::Value),
+    AiComplete(AiCompleteParams),
+    #[serde(rename = "ai.poll")]
+    AiPoll(AiPollParams),
+    #[serde(rename = "ai.cancel")]
+    AiCancel(AiCancelParams),
+    #[serde(rename = "ai.status")]
+    AiStatus(NoArgs),
 }
 
 /// Server replies, one per request frame.
@@ -232,6 +378,12 @@ pub enum Response {
     Ok(NoArgs),
     #[serde(rename = "error")]
     Error(ErrorBody),
+    #[serde(rename = "ai_job_started")]
+    AiJobStarted(AiJobStarted),
+    #[serde(rename = "ai_job")]
+    AiJob(AiJobState),
+    #[serde(rename = "ai_status")]
+    AiStatus(AiStatusInfo),
 }
 
 /// `words.remove` result.
@@ -324,12 +476,204 @@ fn is_known_method(method: &str) -> bool {
             | "capture.set"
             | "shutdown"
             | "ai.complete"
+            | "ai.poll"
+            | "ai.cancel"
+            | "ai.status"
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ai_params() -> AiCompleteParams {
+        AiCompleteParams {
+            prompt: "amar likhi".to_owned(),
+            system: None,
+            model: None,
+            max_tokens: None,
+            temperature: None,
+            timeout_ms: None,
+        }
+    }
+
+    #[test]
+    fn ai_complete_validate_prompt_and_system_caps() {
+        assert_eq!(
+            AiCompleteParams {
+                prompt: "x".repeat(MAX_AI_PROMPT_CHARS),
+                ..ai_params()
+            }
+            .validate(),
+            Ok(())
+        );
+        assert_eq!(
+            AiCompleteParams {
+                prompt: "x".repeat(MAX_AI_PROMPT_CHARS + 1),
+                ..ai_params()
+            }
+            .validate(),
+            Err(ErrorCode::InvalidRequest)
+        );
+        // The cap counts Unicode scalar values, not bytes or UTF-16 units:
+        // 20,000 Bengali scalars (60 kB of UTF-8) fit, 20,001 do not.
+        assert_eq!(
+            AiCompleteParams {
+                prompt: "অ".repeat(MAX_AI_PROMPT_CHARS),
+                ..ai_params()
+            }
+            .validate(),
+            Ok(())
+        );
+        assert_eq!(
+            AiCompleteParams {
+                prompt: "\u{1F600}".repeat(MAX_AI_PROMPT_CHARS),
+                ..ai_params()
+            }
+            .validate(),
+            Ok(())
+        );
+        assert_eq!(
+            AiCompleteParams {
+                prompt: "\u{1F600}".repeat(MAX_AI_PROMPT_CHARS + 1),
+                ..ai_params()
+            }
+            .validate(),
+            Err(ErrorCode::InvalidRequest)
+        );
+        // `system` shares the same cap.
+        assert_eq!(
+            AiCompleteParams {
+                system: Some("x".repeat(MAX_AI_PROMPT_CHARS)),
+                ..ai_params()
+            }
+            .validate(),
+            Ok(())
+        );
+        assert_eq!(
+            AiCompleteParams {
+                system: Some("x".repeat(MAX_AI_PROMPT_CHARS + 1)),
+                ..ai_params()
+            }
+            .validate(),
+            Err(ErrorCode::InvalidRequest)
+        );
+    }
+
+    #[test]
+    fn ai_complete_validate_model_cap_is_bytes() {
+        assert_eq!(
+            AiCompleteParams {
+                model: Some("m".repeat(MAX_AI_MODEL_BYTES)),
+                ..ai_params()
+            }
+            .validate(),
+            Ok(())
+        );
+        assert_eq!(
+            AiCompleteParams {
+                model: Some("m".repeat(MAX_AI_MODEL_BYTES + 1)),
+                ..ai_params()
+            }
+            .validate(),
+            Err(ErrorCode::InvalidRequest)
+        );
+        // 64 Bengali scalars are 192 UTF-8 bytes: over the byte cap even
+        // though the scalar count is under it.
+        assert_eq!(
+            AiCompleteParams {
+                model: Some("অ".repeat(64)),
+                ..ai_params()
+            }
+            .validate(),
+            Err(ErrorCode::InvalidRequest)
+        );
+    }
+
+    #[test]
+    fn ai_complete_validate_numeric_bounds() {
+        for max_tokens in [1, MAX_AI_TOKENS] {
+            assert_eq!(
+                AiCompleteParams {
+                    max_tokens: Some(max_tokens),
+                    ..ai_params()
+                }
+                .validate(),
+                Ok(())
+            );
+        }
+        for max_tokens in [0, MAX_AI_TOKENS + 1] {
+            assert_eq!(
+                AiCompleteParams {
+                    max_tokens: Some(max_tokens),
+                    ..ai_params()
+                }
+                .validate(),
+                Err(ErrorCode::InvalidRequest)
+            );
+        }
+        for temperature in [0.0, 1.5, 2.0] {
+            assert_eq!(
+                AiCompleteParams {
+                    temperature: Some(temperature),
+                    ..ai_params()
+                }
+                .validate(),
+                Ok(())
+            );
+        }
+        for temperature in [-0.1, 2.1, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(
+                AiCompleteParams {
+                    temperature: Some(temperature),
+                    ..ai_params()
+                }
+                .validate(),
+                Err(ErrorCode::InvalidRequest)
+            );
+        }
+        for timeout_ms in [MIN_AI_TIMEOUT_MS, MAX_AI_TIMEOUT_MS] {
+            assert_eq!(
+                AiCompleteParams {
+                    timeout_ms: Some(timeout_ms),
+                    ..ai_params()
+                }
+                .validate(),
+                Ok(())
+            );
+        }
+        for timeout_ms in [0, MIN_AI_TIMEOUT_MS - 1, MAX_AI_TIMEOUT_MS + 1] {
+            assert_eq!(
+                AiCompleteParams {
+                    timeout_ms: Some(timeout_ms),
+                    ..ai_params()
+                }
+                .validate(),
+                Err(ErrorCode::InvalidRequest)
+            );
+        }
+    }
+
+    #[test]
+    fn ai_params_never_render_prompt_text() {
+        let secret = "amar gupto proshno";
+        let params = AiCompleteParams {
+            prompt: format!("{secret}{}", "x".repeat(MAX_AI_PROMPT_CHARS)),
+            system: Some(secret.to_owned()),
+            ..ai_params()
+        };
+        let error = params.validate().expect_err("prompt over cap");
+        assert_eq!(error, ErrorCode::InvalidRequest);
+        let debug = format!("{params:?}");
+        for rendered in [debug.as_str(), error.message()] {
+            assert!(
+                !rendered.contains(secret),
+                "prompt text leaked into {rendered}"
+            );
+        }
+        // Debug shows the length, enough to diagnose a rejected frame.
+        assert!(debug.contains("prompt_chars"), "{debug}");
+    }
 
     #[test]
     fn golden_fixtures_per_request_kind() {
@@ -399,9 +743,18 @@ mod tests {
             ),
             (Request::Shutdown(NoArgs {}), r#"{"shutdown":{}}"#),
             (
-                Request::AiComplete(serde_json::json!({})),
-                r#"{"ai.complete":{}}"#,
+                Request::AiComplete(ai_params()),
+                r#"{"ai.complete":{"prompt":"amar likhi"}}"#,
             ),
+            (
+                Request::AiPoll(AiPollParams { job_id: 7 }),
+                r#"{"ai.poll":{"job_id":7}}"#,
+            ),
+            (
+                Request::AiCancel(AiCancelParams { job_id: 7 }),
+                r#"{"ai.cancel":{"job_id":7}}"#,
+            ),
+            (Request::AiStatus(NoArgs {}), r#"{"ai.status":{}}"#),
         ];
         for (request, expected) in &cases {
             let json = serde_json::to_string(request).expect("serializes");
@@ -409,8 +762,42 @@ mod tests {
             let back: Request = serde_json::from_str(&json).expect("parses");
             assert_eq!(&back, request);
         }
-        // Method count pins the contract table: 14 entries.
-        assert_eq!(cases.len(), 14);
+        // Method count pins the contract table: 17 entries (13 in 0.5 plus the
+        // four additive 0.7 AI methods).
+        assert_eq!(cases.len(), 17);
+    }
+
+    #[test]
+    fn ai_complete_full_shape_round_trips() {
+        let params = AiCompleteParams {
+            prompt: "notun kore likho".to_owned(),
+            system: Some("be brief".to_owned()),
+            model: Some("gpt-6-luna".to_owned()),
+            max_tokens: Some(256),
+            temperature: Some(0.7),
+            timeout_ms: Some(15_000),
+        };
+        let json = serde_json::to_string(&Request::AiComplete(params.clone())).expect("serializes");
+        assert_eq!(
+            json,
+            r#"{"ai.complete":{"prompt":"notun kore likho","system":"be brief","model":"gpt-6-luna","max_tokens":256,"temperature":0.7,"timeout_ms":15000}}"#
+        );
+        let back: Request = serde_json::from_str(&json).expect("parses");
+        assert_eq!(back, Request::AiComplete(params));
+        // Omitted optional fields parse as unset, so older clients stay valid.
+        let minimal: Request =
+            serde_json::from_str(r#"{"ai.complete":{"prompt":"x"}}"#).expect("parses");
+        assert_eq!(
+            minimal,
+            Request::AiComplete(AiCompleteParams {
+                prompt: "x".to_owned(),
+                system: None,
+                model: None,
+                max_tokens: None,
+                temperature: None,
+                timeout_ms: None,
+            })
+        );
     }
 
     #[test]
@@ -443,11 +830,32 @@ mod tests {
             Request::from_json(r#"{"settings.update":{"theme":"nope"}}"#),
             Err(ErrorCode::InvalidRequest)
         );
-        // ai.complete parses so the server can answer Unsupported.
+        // ai.complete parses; the daemon handler decides the answer.
         assert!(matches!(
             Request::from_json(r#"{"ai.complete":{"prompt":"x"}}"#),
             Ok(Request::AiComplete(_))
         ));
+        // A missing required prompt is malformed, not a job with empty text.
+        assert_eq!(
+            Request::from_json(r#"{"ai.complete":{}}"#),
+            Err(ErrorCode::InvalidRequest)
+        );
+        assert!(matches!(
+            Request::from_json(r#"{"ai.poll":{"job_id":7}}"#),
+            Ok(Request::AiPoll(AiPollParams { job_id: 7 }))
+        ));
+        assert!(matches!(
+            Request::from_json(r#"{"ai.cancel":{"job_id":7}}"#),
+            Ok(Request::AiCancel(AiCancelParams { job_id: 7 }))
+        ));
+        assert!(matches!(
+            Request::from_json(r#"{"ai.status":{}}"#),
+            Ok(Request::AiStatus(_))
+        ));
+        assert_eq!(
+            Request::from_json(r#"{"ai.nope":{}}"#),
+            Err(ErrorCode::UnknownMethod)
+        );
     }
 
     #[test]
@@ -601,11 +1009,52 @@ mod tests {
                 Response::Error(ErrorBody::new(ErrorCode::Unsupported)),
                 r#"{"error":{"code":"Unsupported","message":"not available in this milestone"}}"#,
             ),
+            (
+                Response::AiJobStarted(AiJobStarted { job_id: 7 }),
+                r#"{"ai_job_started":{"job_id":7}}"#,
+            ),
+            (Response::Ok(NoArgs {}), r#"{"ok":{}}"#),
+            (
+                Response::AiJob(AiJobState::Pending),
+                r#"{"ai_job":{"state":"pending"}}"#,
+            ),
+            (
+                Response::AiJob(AiJobState::Done {
+                    text: "নতুন করে লিখলাম".to_owned(),
+                    model: "gpt-6-luna".to_owned(),
+                    input_tokens: 12,
+                    output_tokens: 9,
+                    latency_ms: 640,
+                }),
+                r#"{"ai_job":{"state":"done","text":"নতুন করে লিখলাম","model":"gpt-6-luna","input_tokens":12,"output_tokens":9,"latency_ms":640}}"#,
+            ),
+            (
+                Response::AiJob(AiJobState::Failed {
+                    code: "AiProviderError".to_owned(),
+                }),
+                r#"{"ai_job":{"state":"failed","code":"AiProviderError"}}"#,
+            ),
+            (
+                Response::AiJob(AiJobState::Cancelled),
+                r#"{"ai_job":{"state":"cancelled"}}"#,
+            ),
+            (
+                Response::AiStatus(AiStatusInfo {
+                    enabled: true,
+                    provider: "mock".to_owned(),
+                    key_present: false,
+                    breaker_state: "closed".to_owned(),
+                    active_jobs: 0,
+                }),
+                r#"{"ai_status":{"enabled":true,"provider":"mock","key_present":false,"breaker_state":"closed","active_jobs":0}}"#,
+            ),
         ];
-        // 10 variants: every non-settings response plus the error shape.
+        // 17 variants: every non-settings response plus the error shape, the
+        // shared `ok` answer, and the four additive 0.7 AI answers (all four
+        // job states included).
         // `settings` reuses the `Settings::default` shape pinned in
         // settings.rs `defaults_match_contract`.
-        assert_eq!(cases.len(), 10);
+        assert_eq!(cases.len(), 17);
         for (response, expected) in &cases {
             let json = serde_json::to_string(response).expect("serializes");
             assert_eq!(&json, expected);

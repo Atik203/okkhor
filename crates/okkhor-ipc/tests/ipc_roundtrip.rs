@@ -193,6 +193,11 @@ impl Handler for MemoryHandler {
             Request::Hello(_) => Response::error(ErrorCode::InvalidRequest),
             Request::Shutdown(_) => Response::Ok(okkhor_ipc::protocol::NoArgs {}),
             Request::AiComplete(_) => Response::error(ErrorCode::Unsupported),
+            // 0.7 AI methods are unknown to this 0.5-era handler stand-in;
+            // the typed variants must still map to a typed error.
+            Request::AiPoll(_) | Request::AiCancel(_) | Request::AiStatus(_) => {
+                Response::error(ErrorCode::Unsupported)
+            }
         }
     }
 }
@@ -340,15 +345,23 @@ async fn ipc_round_trip_status_settings_words() {
         okkhor_ipc::ClientError::Server(body) if body.code == ErrorCode::TextTooLong
     ));
 
-    // ai.complete is typed Unsupported in 0.5.
-    let response = client
-        .ai_complete(serde_json::json!({"prompt": "x"}))
+    // ai.complete still answers typed Unsupported until the daemon handler
+    // lands (WS3 task 4); the transport no longer short-circuits the variant.
+    let rejected = client
+        .ai_complete(&okkhor_ipc::AiCompleteParams {
+            prompt: "x".to_owned(),
+            system: None,
+            model: None,
+            max_tokens: None,
+            temperature: None,
+            timeout_ms: None,
+        })
         .await
-        .expect("ai.complete answers");
-    assert_eq!(
-        response.error_body().map(|body| body.code),
-        Some(ErrorCode::Unsupported)
-    );
+        .expect_err("ai.complete answers Unsupported");
+    assert!(matches!(
+        rejected,
+        okkhor_ipc::ClientError::Server(body) if body.code == ErrorCode::Unsupported
+    ));
 
     // Clean shutdown: the run loop exits on shutdown.
     drop(client);
