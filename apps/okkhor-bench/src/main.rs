@@ -6,6 +6,7 @@
 mod candidates;
 mod corpus;
 mod injection;
+mod nextword;
 mod output;
 mod ranking;
 mod stats;
@@ -125,6 +126,18 @@ fn run() -> Result<(), BenchError> {
         }
     }
 
+    if options.nextword {
+        let iterations = options
+            .iterations
+            .unwrap_or(if options.smoke { 200 } else { 20_000 });
+        let warmup = options.warmup.unwrap_or_else(|| default_warmup(iterations));
+        let report = nextword::run(iterations, warmup).map_err(BenchError::Failed)?;
+        print_nextword(&report);
+        if options.smoke {
+            validate_nextword_smoke(&report)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -169,6 +182,58 @@ fn validate_suggestions_smoke(report: &suggestions::SuggestionReport) -> Result<
     Ok(())
 }
 
+fn print_nextword(report: &nextword::NextWordReport) {
+    println!(
+        "nextword: parse {:.3} ms",
+        report.parse_ns as f64 / 1_000_000.0
+    );
+    for language in [&report.bangla, &report.english] {
+        println!(
+            "nextword {}: previous={} followers={} hits={}/{}",
+            language.language,
+            language.previous,
+            language.followers,
+            language.hits,
+            language.samples
+        );
+        println!(
+            "nextword {} lookup: p50 {:.3} us, p95 {:.3} us, p99 {:.3} us, max {:.3} us, {} samples",
+            language.language,
+            language.latency.p50_ns as f64 / 1_000.0,
+            language.latency.p95_ns as f64 / 1_000.0,
+            language.latency.p99_ns as f64 / 1_000.0,
+            language.latency.max_ns as f64 / 1_000.0,
+            language.latency.count
+        );
+    }
+}
+
+fn validate_nextword_smoke(report: &nextword::NextWordReport) -> Result<(), BenchError> {
+    for language in [&report.bangla, &report.english] {
+        if language.samples == 0 || language.hits == 0 {
+            return Err(BenchError::Failed(format!(
+                "nextword smoke produced no hits for {}",
+                language.language
+            )));
+        }
+        if !language.latency.is_monotonic() {
+            return Err(BenchError::Failed(format!(
+                "nextword smoke found non-monotonic percentiles for {}",
+                language.language
+            )));
+        }
+        if language.latency.p99_ns > 2_000_000 {
+            return Err(BenchError::Failed(format!(
+                "nextword {} p99 {:.3} ms exceeds the 2 ms budget",
+                language.language,
+                language.latency.p99_ns as f64 / 1_000_000.0
+            )));
+        }
+    }
+    println!("nextword smoke: ok");
+    Ok(())
+}
+
 fn percent(part: usize, total: usize) -> f64 {
     if total == 0 {
         0.0
@@ -176,7 +241,6 @@ fn percent(part: usize, total: usize) -> f64 {
         part as f64 * 100.0 / total as f64
     }
 }
-
 fn nanos_ms(value: u64) -> f64 {
     value as f64 / 1_000_000.0
 }
@@ -385,6 +449,7 @@ struct Options {
     candidates: bool,
     suggestions: bool,
     injection: bool,
+    nextword: bool,
     smoke: bool,
     sendinput: bool,
     json: bool,
@@ -403,6 +468,7 @@ impl Default for Options {
             candidates: false,
             suggestions: false,
             injection: false,
+            nextword: false,
             smoke: false,
             sendinput: false,
             json: false,
@@ -426,6 +492,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
             "--candidates" => options.candidates = true,
             "--suggestions" => options.suggestions = true,
             "--injection" => options.injection = true,
+            "--nextword" => options.nextword = true,
             "--smoke" => options.smoke = true,
             "--sendinput" => options.sendinput = true,
             "--json" => options.json = true,
@@ -473,12 +540,18 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
             "--json and --csv are mutually exclusive".to_owned(),
         ));
     }
-    if !options.ranking && !options.candidates && !options.injection {
+    if !options.ranking
+        && !options.candidates
+        && !options.suggestions
+        && !options.injection
+        && !options.nextword
+    {
         if options.smoke {
             options.ranking = true;
         } else {
             return Err(BenchError::Usage(
-                "select --ranking, --candidates, --suggestions, --injection, or --smoke".to_owned(),
+                "select --ranking, --candidates, --suggestions, --injection, --nextword, or --smoke"
+                    .to_owned(),
             ));
         }
     }
@@ -536,7 +609,8 @@ fn print_help() {
          \x20   okkhor-bench --ranking [--iterations N] [--warmup N] [--seed N] [--json|--csv] [--smoke]\n\
          \x20   okkhor-bench --candidates [--iterations N] [--warmup N] [--json|--csv] [--smoke]\n\
          \x20   okkhor-bench --suggestions [--iterations N] [--warmup N] [--smoke]\n\
-         \x20   okkhor-bench --injection [--iterations N] [--sendinput] [--json|--csv]\n\n\
+         \x20   okkhor-bench --injection [--iterations N] [--sendinput] [--json|--csv]\n\
+         \x20   okkhor-bench --nextword [--iterations N] [--warmup N] [--smoke]\n\n\
          MODES:\n\
          \x20   --ranking      Run N Smriti::rank calls over synthetic English/Bangla cases.\n\
          \x20   --candidates   Run N CandidateEngine::suggest calls over the committed\n\
@@ -544,11 +618,13 @@ fn print_help() {
          \x20   --suggestions  Run the live 0.6 engine over everyday words; report top-1/top-5\n\
          \x20                  and suggestion latency.\n\
          \x20   --injection    Inject synthetic text into a private Win32 EDIT window and read it back.\n\
+         \x20   --nextword     Parse the embedded next-word priors and time the real ghost merge\n\
+         \x20                  (Smriti + prior) over sampled words; gates p99 at 2 ms.\n\
          \x20   --smoke        Short CI-friendly run; validates the percentile report\n\
          \x20                  (ranking default; one-case subset with `--candidates`).\n\n\
          OPTIONS:\n\
          \x20   --sendinput    Force the pure Unicode SendInput path instead of the native WM_CHAR fast path.\n\
-         \x20   --iterations N  Measured iterations (default: 5000 ranking, 2000 candidates, 20 injection; 100/10/5 with --smoke).\n\
+         \x20   --iterations N  Measured iterations (default: 5000 ranking, 2000 candidates, 20 injection, 20000 nextword; 100/10/5/200 with --smoke).\n\
          \x20   --warmup N      Untimed ranking/candidates iterations (default: 10% of measured, clamped to 10..=500).\n\
          \x20   --seed N        Synthetic corpus seed (default: {}).\n\
          \x20   --json | --csv  Write a report under bench-out/ (git-ignored).\n\n\

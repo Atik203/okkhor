@@ -11,6 +11,7 @@
 use std::sync::OnceLock;
 
 use okkhor_core::Language;
+use okkhor_learn::Smriti;
 
 const BANGLA: &[u8] = include_bytes!("../assets/nextword/bangla-bigram-v1.bin");
 const ENGLISH: &[u8] = include_bytes!("../assets/nextword/english-bigram-v1.bin");
@@ -139,6 +140,17 @@ impl NextWordPrior {
         self.follow_count
     }
 
+    /// Previous word at `index`, in table order.
+    ///
+    /// Tooling and benchmarks use this to sample real keys without copying the
+    /// table. Returns `None` for an out-of-range index.
+    pub fn previous_at(&self, index: usize) -> Option<&'static str> {
+        if index >= self.entries {
+            return None;
+        }
+        self.previous(index).ok()
+    }
+
     /// Followers of `previous`, most frequent first, capped at `limit`.
     ///
     /// Returns an empty vector when the pair was never seen. The returned
@@ -233,6 +245,38 @@ pub fn global(language: Language) -> Option<&'static NextWordPrior> {
         NextWordPrior::parse(blob).ok()
     })
     .as_ref()
+}
+
+/// Next-word candidates for `previous`: personal pairs first, then the global
+/// prior, de-duplicated and capped at `limit`.
+///
+/// This is the single merge used by the ghost hint and the benchmark. It runs
+/// after a commit on the daemon worker, never in the hook.
+pub fn merge_next_words(
+    smriti: &Smriti,
+    language: Language,
+    previous: &str,
+    limit: usize,
+) -> Vec<String> {
+    let mut words: Vec<String> = smriti
+        .next_words(language, previous, limit)
+        .into_iter()
+        .map(|(word, _)| word)
+        .collect();
+    if words.len() < limit {
+        if let Some(prior) = global(language) {
+            for follower in prior.followers(previous, limit) {
+                if words.iter().any(|existing| existing == follower) {
+                    continue;
+                }
+                words.push(follower.to_owned());
+                if words.len() >= limit {
+                    break;
+                }
+            }
+        }
+    }
+    words
 }
 
 fn u16_at(raw: &[u8], offset: usize) -> Option<u16> {

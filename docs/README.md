@@ -24,6 +24,7 @@
 | [0.9.2 release notes](releases/0.9.2.md) | Bangla Tab swallow, stuck-key fix, English live preview |
 | [0.9.3 release notes](releases/0.9.3.md) | explicit user mappings rank first |
 | [0.9 QA checklist](qa/0.9-checklist.md) | per-layout, daily-use and inline-preedit real-key rows |
+| [0.10 QA checklist](qa/0.10-checklist.md) | preedit, ghost hint, prior, English, packaging rows |
 | [0.10 plan](superpowers/plans/2026-11-24-0.10-kontho-feel-and-learning.md) | Kontho-feel typing, learning, datasets and model phases |
 | [Kontho inline-preedit analysis](superpowers/analysis/0.10-kontho-inline-preedit.md) | observed LCP state machine and reference bugs |
 | [Kontho suggestions/data analysis](superpowers/analysis/0.10-suggestions-and-data.md) | WTR1 format, scoring, index gaps and metrics |
