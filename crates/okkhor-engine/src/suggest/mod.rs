@@ -340,13 +340,24 @@ impl SuggestionEngine {
 
     fn stage_roman(&self, index: &SuggestionIndex, roman: &str, staged: &mut Vec<Candidate>) {
         let lowered = roman.to_ascii_lowercase();
-        for value in index.exact_roman(&lowered) {
+        // v2 keeps every target of an alias in preferred-rank order. Rank 0
+        // keeps the old exact score; later ranks lose a small bounded amount
+        // so the authored preference is visible without letting a rare
+        // alternative displace a clearly better row.
+        for (rank, value) in index.exact_roman_targets(&lowered).into_iter().enumerate() {
             let base = match index.exact_bangla(value) {
                 Some((_, zipf)) if zipf > 0 => 1.05 + popularity(zipf) * 0.08,
                 Some(_) => 0.98,
                 None => 0.90,
             };
-            push(staged, value, base, 0.85, CandidateSource::Dictionary);
+            let penalty = 0.015 * rank.min(4) as f32;
+            push(
+                staged,
+                value,
+                (base - penalty).max(0.30),
+                0.85,
+                CandidateSource::Dictionary,
+            );
         }
         // Include the first letter. `prefix_roman` is bounded by 240 hits and
         // a 2000-entry scan, so a one-letter prefix stays inside the latency
@@ -703,6 +714,28 @@ mod tests {
             rows.iter()
                 .any(|row| row.source == okkhor_core::CandidateSource::Dictionary),
             "a one-letter prefix must offer a dictionary-backed Bangla row: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn preferred_rank_keeps_the_authored_first_target_on_top() {
+        let engine = engine();
+        let rows = engine.suggest(&SuggestRequest::new("bari", 10), &Smriti::new());
+        let first_dictionary = rows
+            .iter()
+            .find(|row| row.source == okkhor_core::CandidateSource::Dictionary)
+            .map(|row| row.text.as_str());
+        assert_eq!(
+            first_dictionary,
+            Some("বাড়ি"),
+            "rank 0 must stay first among dictionary rows: {rows:?}"
+        );
+        assert!(
+            rows.iter()
+                .filter(|row| row.text == "বাড়ি" || row.text == "বারি")
+                .count()
+                <= 2,
+            "multi-target aliases must not flood the list"
         );
     }
 

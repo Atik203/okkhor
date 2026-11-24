@@ -5,15 +5,16 @@ utility. The goal is a fast, local-first typing experience: immediate
 transliteration and suggestions, personalization that learns on the device, and
 AI features that never sit in the keystroke path.
 
-> Status: **0.9.3 code-complete**. The workspace has the full local dictionary,
+> Status: **0.10.0 in progress**. 0.9.3 shipped the full local dictionary,
 > English completions, a caret-following suggestion popup, Smriti
 > personalization, the Tier 1 reranker (default-off), an opt-in isolated AI
-> rewrite worker, the 0.8 popup-stability/raw-fallback work, and the 0.9 layout
-> engine: Avro/Phonetic/Khipro as alternate roman tables plus National,
-> Probhat and Bijoy as real fixed physical-key layouts (ADR 0021). The portable
-> Windows build uses MSVC and has a code-signing hook. The installer, updater,
-> code signing certificate, speech, and inline preedit remain later milestones;
-> real-key QA is the owner's pass in `docs/qa/0.9-checklist.md`.
+> rewrite worker, the 0.8 popup-stability/raw-fallback work, and the real layout
+> engine (ADR 0021). 0.10 adds Kontho-style inline Bangla preedit (ADR 0022),
+> the full WTR1 dictionary as index v2 (ADR 0023), and real shown/accepted
+> learning signals. The portable Windows build uses MSVC and has a code-signing
+> hook. The installer, updater, code-signing certificate, speech and trained
+> global model remain later milestones; real-key QA is the owner's pass in
+> `docs/qa/0.9-checklist.md`.
 
 ## Why Rust
 
