@@ -94,15 +94,29 @@ impl SuggestionEngine {
     pub fn from_embedded() -> Result<Self, SuggestionError> {
         let transliterator = PhoneticTransliterator::from_embedded_avro()
             .map_err(|_| SuggestionError::Transliterator)?;
+        Ok(Self::with_transliterator(transliterator))
+    }
+
+    /// Build from an alternate embedded rule table (Khipro, Phonetic/Banglish)
+    /// and the shared suggestion index. Table compilation happens once at
+    /// startup; the index is unchanged because it is roman-shaped, not
+    /// layout-specific. A malformed table is a typed error, never a panic.
+    pub fn from_embedded_table(table_json: &str) -> Result<Self, SuggestionError> {
+        let transliterator = PhoneticTransliterator::from_asset_json(table_json)
+            .map_err(|_| SuggestionError::Transliterator)?;
+        Ok(Self::with_transliterator(transliterator))
+    }
+
+    fn with_transliterator(transliterator: PhoneticTransliterator) -> Self {
         let (index, index_error) = match SuggestionIndex::from_embedded() {
             Ok(index) => (Some(index), None),
             Err(error) => (None, Some(error.kind())),
         };
-        Ok(Self {
+        Self {
             index,
             index_error,
             transliterator,
-        })
+        }
     }
 
     /// Rule-only engine for tests and the corrupt-index fallback path.
@@ -685,6 +699,26 @@ mod tests {
                 .any(|row| row.source == okkhor_core::CandidateSource::Dictionary),
             "a one-letter prefix must offer a dictionary-backed Bangla row: {rows:?}"
         );
+    }
+
+    #[test]
+    fn alternate_embedded_table_compiles_and_keeps_the_index() {
+        let table = r#"{
+            "name": "khipro-test",
+            "source": "test",
+            "rule_count": 1,
+            "rules": [{ "pattern": "nftff", "replacement": "ণ্ঠ" }]
+        }"#;
+        let engine = SuggestionEngine::from_embedded_table(table).expect("alternate table");
+        assert_eq!(engine.index_error(), None);
+        let rows = engine.suggest(&SuggestRequest::new("amar", 8), &Smriti::new());
+        assert!(!rows.is_empty(), "the shared index still works");
+    }
+
+    #[test]
+    fn malformed_alternate_table_is_a_typed_error() {
+        let table = r#"{"name":"bad","source":"test","rule_count":9,"rules":[]}"#;
+        assert!(SuggestionEngine::from_embedded_table(table).is_err());
     }
 
     #[test]
