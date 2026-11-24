@@ -151,6 +151,10 @@ pub struct InputSession<P = DefaultEngine> {
     rank_ms: u64,
     /// (roman, previous, limit) -> rows for this composition.
     cache: VecDeque<(String, Option<String>, usize, Vec<String>)>,
+    /// True once the user moves the highlight with an arrow key. Only then
+    /// does `refresh` follow that row across a keystroke; the automatic top
+    /// row stays row 0.
+    selection_pinned: bool,
 }
 
 impl<P: SuggestionProvider> InputSession<P> {
@@ -167,6 +171,7 @@ impl<P: SuggestionProvider> InputSession<P> {
             user_words: Vec::new(),
             rank_ms: 0,
             cache: VecDeque::with_capacity(PREFIX_CACHE_ENTRIES),
+            selection_pinned: false,
         }
     }
 
@@ -251,6 +256,7 @@ impl<P: SuggestionProvider> InputSession<P> {
             // starts with a fresh cache so the previous word cannot leak in.
             self.rank_ms = self.now_ms;
             self.cache.clear();
+            self.selection_pinned = false;
         }
         self.buffer.push(lower as char);
         self.refresh();
@@ -264,6 +270,7 @@ impl<P: SuggestionProvider> InputSession<P> {
         }
         if self.buffer.is_empty() {
             self.rank_ms = 0;
+            self.selection_pinned = false;
         }
         self.refresh();
         if self.buffer.is_empty() {
@@ -284,6 +291,7 @@ impl<P: SuggestionProvider> InputSession<P> {
         let len = len as i32;
         let next = (self.selected as i32 + delta).rem_euclid(len);
         self.selected = next as usize;
+        self.selection_pinned = true;
     }
 
     /// Commit the currently selected candidate (default index 0).
@@ -344,9 +352,19 @@ impl<P: SuggestionProvider> InputSession<P> {
         self.selected = 0;
         self.rank_ms = 0;
         self.cache.clear();
+        self.selection_pinned = false;
     }
 
     fn refresh(&mut self) {
+        // Keep the highlighted row across a keystroke when that same text is
+        // still offered. Kontho selects `wordSofar` and Bongo restores the
+        // previous selection; snapping back to row 0 makes an arrow selection
+        // feel lost.
+        let previous_selection = if self.selection_pinned {
+            self.candidates.get(self.selected).cloned()
+        } else {
+            None
+        };
         self.candidates.clear();
         self.selected = 0;
         if self.buffer.is_empty() {
@@ -365,6 +383,7 @@ impl<P: SuggestionProvider> InputSession<P> {
             .map(|(_, _, _, rows)| rows.clone());
         if let Some(rows) = cached {
             self.candidates = rows;
+            self.restore_selection(previous_selection);
             return;
         }
         let rank_ms = if self.rank_ms == 0 {
@@ -384,6 +403,19 @@ impl<P: SuggestionProvider> InputSession<P> {
             self.candidates.clone(),
         ));
         self.cache.truncate(PREFIX_CACHE_ENTRIES);
+        self.restore_selection(previous_selection);
+    }
+
+    fn restore_selection(&mut self, previous: Option<String>) {
+        if let Some(text) = previous {
+            if let Some(index) = self.candidates.iter().position(|row| *row == text) {
+                self.selected = index;
+                return;
+            }
+            // The user's row fell out of the list; do not keep chasing it.
+            self.selection_pinned = false;
+        }
+        self.selected = 0;
     }
 }
 
@@ -624,6 +656,16 @@ mod tests {
         assert_eq!(session.candidates(), full.as_slice());
         // b, bh, bha, bhal; the backspace and retype are cache hits.
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn selection_survives_a_keystroke_when_the_row_stays() {
+        let mut session = InputSession::new(FixedEngine::new(&["a", "b", "c"]));
+        type_text(&mut session, "x");
+        session.move_selection(2);
+        assert_eq!(session.selected(), 2);
+        assert!(session.push_letter(b'y'));
+        assert_eq!(session.selected(), 2);
     }
 
     #[test]

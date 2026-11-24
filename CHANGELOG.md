@@ -18,9 +18,11 @@ Versioning once it reaches 1.0.
   anchor, and a late caret sample re-shows the popup without waiting for the
   next keystroke. A transient UI Automation miss no longer hides the list for
   the rest of a word.
-- **Stable ranking.** Recency time is frozen for the duration of one
-  composition and a bounded prefix cache returns the exact rows previously
-  shown when the user backspaces and retypes.
+- **Stable ranking and selection.** Recency time is frozen for the duration of
+  one composition, a bounded prefix cache returns the exact rows previously
+  shown when the user backspaces and retypes, and an arrow-key selection now
+  follows the same row across later keystrokes instead of snapping back to the
+  top.
 
 ### Added
 

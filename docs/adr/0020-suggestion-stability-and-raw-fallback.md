@@ -55,6 +55,9 @@ for the decisions below.
 - A bounded per-composition prefix cache (16 entries, keyed by roman, previous
   word, and visible limit) returns the exact rows previously shown. It is
   cleared on commit, cancel, word-list change, and limit change.
+- The highlight follows the selected text across a keystroke only after the
+  user moves it with an arrow key. The automatic top row stays row 0, so Space
+  still commits the best Bangla candidate rather than the raw Latin fallback.
 
 ### Raw input fallback
 
