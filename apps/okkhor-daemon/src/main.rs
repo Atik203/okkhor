@@ -1277,6 +1277,28 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         hide_popup(ctx.popup, ctx.state);
     }
 
+    fn emit_english_commit(
+        learn_tx: &mpsc::SyncSender<LearningEvent>,
+        learn_dropped: &AtomicU64,
+        learning_enabled: bool,
+        word: &str,
+        previous_word: Option<String>,
+    ) {
+        if !learning_enabled || word.is_empty() {
+            return;
+        }
+        let event = LearningEvent::WordCommitted {
+            word: word.to_owned(),
+            language: Language::English,
+            previous_word,
+            timestamp_ms: now_ms(),
+            source: okkhor_learn::CommitSource::AcceptedSuggestion,
+        };
+        if learn_tx.try_send(event).is_err() {
+            learn_dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     fn now_ms() -> u64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
@@ -2064,6 +2086,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     };
     let mut fixed_composition = FixedComposition::default();
     let mut english = EnglishSession::new();
+    let mut english_previous: Option<String> = None;
     let mut compose_window = foreground_window_id();
     let mut compose_pid = foreground_window_pid();
     let mut preedit_rendered = String::new();
@@ -2412,11 +2435,20 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             for index in clicked {
                 if english.is_visible() {
                     if let Some(commit) = english.accept_index(index) {
+                        let text = commit.text.clone();
                         if !apply_english_commit(commit, logger, &injection_lock)
                             && okkhor_win::english_popup_visible()
                         {
                             let _ = send_tab();
                         }
+                        emit_english_commit(
+                            &learn_tx,
+                            &learn_dropped,
+                            learning_enabled,
+                            &text,
+                            english_previous.take(),
+                        );
+                        english_previous = Some(text);
                     }
                 }
             }
@@ -2437,11 +2469,20 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                                 let _ = send_tab();
                             }
                         } else if let Some(commit) = english.accept() {
+                            let text = commit.text.clone();
                             if !apply_english_commit(commit, logger, &injection_lock)
                                 && okkhor_win::english_popup_visible()
                             {
                                 let _ = send_tab();
                             }
+                            emit_english_commit(
+                                &learn_tx,
+                                &learn_dropped,
+                                learning_enabled,
+                                &text,
+                                english_previous.take(),
+                            );
+                            english_previous = Some(text);
                         } else if okkhor_win::english_popup_visible() {
                             let _ = send_tab();
                         }
