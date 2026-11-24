@@ -34,7 +34,7 @@ const DEFAULT_PIPE: &str = r"\\.\pipe\okkhor-ai-worker-v1";
 const DEFAULT_MODEL: &str = "gpt-6-luna";
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_MAX_TOKENS: u32 = 512;
-const DEFAULT_TEMPERATURE: f32 = 0.3;
+const DEFAULT_TEMPERATURE: f32 = 1.0;
 const DEFAULT_TIMEOUT_MS: u64 = 15_000;
 const PROMPT_VERSION: &str = "rewrite-v1";
 
@@ -76,7 +76,17 @@ impl WorkerHandler {
             prompt_version: PROMPT_VERSION.to_owned(),
         };
 
-        match self.service.complete(&request, &CancellationToken::new()) {
+        // `reqwest::blocking` refuses to run inside a Tokio runtime context.
+        // The IPC server invokes this handler from `spawn_blocking`, which still
+        // carries that context, so hand the provider call to a plain OS thread.
+        let service = Arc::clone(&self.service);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(service.complete(&request, &CancellationToken::new()));
+        });
+        let result = receiver.recv().unwrap_or(Err(AiError::Internal));
+
+        match result {
             Ok(response) => Response::AiJob(AiJobState::Done {
                 text: response.text,
                 model: response.model,
@@ -178,8 +188,7 @@ fn setting(env_file: &HashMap<String, String>, key: &str) -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let env_file = load_env_file();
 
     let Some(token_hex) = setting(&env_file, "OKKHOR_AI_TOKEN") else {
@@ -225,7 +234,17 @@ async fn main() -> ExitCode {
         .with_request_deadline(Duration::from_secs(20));
 
     let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-    match server.run(shutdown_rx).await {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(_) => {
+            eprintln!("okkhor-worker: could not start the runtime");
+            return ExitCode::from(1);
+        }
+    };
+    match runtime.block_on(server.run(shutdown_rx)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::from(1),
     }
