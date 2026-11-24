@@ -28,6 +28,7 @@
 | [Kontho inline-preedit analysis](superpowers/analysis/0.10-kontho-inline-preedit.md) | observed LCP state machine and reference bugs |
 | [Kontho suggestions/data analysis](superpowers/analysis/0.10-suggestions-and-data.md) | WTR1 format, scoring, index gaps and metrics |
 | [Dataset pipeline](superpowers/analysis/0.10-dataset-pipeline.md) | licensed corpora, manifests, GPU runbook |
+| [Training runs](superpowers/analysis/0.10-training-runs.md) | measured bigram/MLP baselines, full corpus, 1B plan |
 | [Layout engine design](superpowers/specs/2026-11-24-fixed-layout-engine-design.md) | approved architecture for the fixed and alternate phonetic paths |
 | [Layout engine plan](superpowers/plans/2026-11-24-fixed-layout-engine.md) | implementation tasks and verification |
 | [0.9 learning plan](superpowers/plans/0.9-learning-and-next-word.md) | local user learning and next-word suggestions (0.9.x) |

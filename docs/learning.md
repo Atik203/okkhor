@@ -274,6 +274,18 @@ Online:
 - guardrail metrics: latency, crash rate, clear-data rate, pause usage;
 - no text in telemetry, only aggregate counters.
 
+## Global model training (0.10)
+
+- The global next-word prior is trained **offline** from licensed public
+  corpora and synthetic data, never from user text.
+- Current program: 1B tokens per language, a 768-d teacher, then a distilled
+  512-d int8 student (~180–220 MB) for shipping.
+- The student ships only if it stays within ~1.5 points top-1 of the teacher and
+  meets the latency/p99 gate.
+- The trained model is a signed static artifact; it does not learn on the device.
+- Personal adaptation remains Smriti-only. An opt-in aggregate contribution is a
+  later, separate decision (deferred; B in the 0.10 plan).
+
 ## Privacy
 
 - Local-only by default.

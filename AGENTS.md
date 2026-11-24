@@ -20,10 +20,10 @@ scope.
 
 ## Current state
 
-- This repository is **0.9 code-complete**. The live typing path is the Win32
+- This repository is **0.10 in progress**. The live typing path is the Win32
   hook, the resident daemon, the Avro phonetic table, and the embedded `OKS1`
-  suggestion engine (184k Bangla words, 114k roman pairs, curated corrections,
-  `wordfreq` popularity). English mode offers prefix completions (Tab/click,
+  v2 suggestion engine (135k aliases, 151k roman pairs, preferred rank,
+  curated corrections, `wordfreq` popularity). English mode offers prefix completions (Tab/click,
   never auto-replace). The quick bar receives pushed mode/pause/encoding
   state. Learning is persisted to an encrypted `data/learning.bin`. Caret and
   password UI Automation run on a dedicated latest-wins thread.
@@ -38,9 +38,12 @@ scope.
   build, and the code-signing hook. 0.8.1 adds first-character suggestions,
   Backspace-stable rows, a no-op popup fast path, and a blank-commit guard.
   0.9 adds the real layout engine (ADR 0021): Avro/Phonetic/Khipro as alternate
-  roman tables and National/Probhat/Bijoy as fixed physical-key layouts. Inline
-  preedit, punctuation commit, and accepted/correction learning remain later
-  work.
+  roman tables and National/Probhat/Bijoy as fixed physical-key layouts. 0.10
+  adds inline Bangla preedit (ADR 0022), index v2 (ADR 0023), ghost next-word
+  hints, and real shown/accepted/correction learning. Global next-word models
+  are trained on licensed 1B-token corpora and distilled for shipping; personal
+  patterns stay local. Punctuation-commit choices and 1B model integration
+  remain in progress.
 - The **Tier 1 logistic reranker exists** in `okkhor-model` and is selectable
   with `okkhor daemon --ranker hybrid`; the **default is `--ranker baseline`**
   (deterministic Smriti) until an A/B on real or licensed data is accepted. On

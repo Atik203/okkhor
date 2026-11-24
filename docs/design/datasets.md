@@ -309,6 +309,22 @@ pipeline prepares. Every row below becomes a `files[]` entry in
 | Corrections | `mehedihasanbijoy/BanglaSEC` | MIT; NC-labelled portions evaluation-only | BanglaSEC dataset, MIT License; NC portions pending legal review | correction features; NC parts eval only |
 | Coverage | Synthetic romanisation through Okkhor's own layouts (ADR 0021) | project-generated; recorded as CC0-1.0 | Okkhor synthetic romanisation from bundled layouts; no third-party text | cold-start pairs, coverage, fixtures |
 
+### 0.10 1B scale-up sources
+
+The 1B-token teacher adds these operator-supplied corpora. They are text only;
+no user data. Each becomes a `dataset-sources.json` entry with its own licence
+and attribution.
+
+| Role | Source | Licence | Required attribution | Target |
+| --- | --- | --- | --- | --- |
+| Bangla 1B | `HuggingFaceFW/fineweb-2` `ben_Beng` + Wikipedia | ODC-By-1.0 | FineWeb-2, Hugging Face, ODC-By 1.0 | 1.05B Bangla words |
+| English 1B | `HuggingFaceFW/fineweb` `sample-10BT` + Wikipedia | ODC-By-1.0 | FineWeb, Hugging Face, ODC-By 1.0 | 1.05B English words |
+
+The raw corpora are converted to sentence-per-line text and kept outside git.
+The prepared shards and model packages are checksummed; only manifests and
+fixtures are committed. Delete the raw text after the shards are built to stay
+inside the 200 GB server quota.
+
 Details:
 
 - `wikimedia/wikipedia` bn is dual-licensed CC-BY-SA-3.0 and GFDL. The manifest

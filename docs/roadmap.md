@@ -32,11 +32,17 @@ The dataset manifests, Tier 1 reranker, and AI worker from
 `0.6-model-data-ai.md` move to 0.7/0.8; that plan is retained for the later
 work.
 
-0.9 is the **layout engine** phase: Avro, Phonetic and Khipro as alternate
-phonetic tables, plus National/Jatiya, Probhat and Bijoy as real fixed
-physical-key layouts (ADR 0021). Voice typing and local next-word learning move
-to 0.9.x. Keyboard input, language data, the reranker, UI, and release
-mechanics come first.
+0.9 shipped the **layout engine**: Avro/Phonetic/Khipro as alternate phonetic
+tables plus National/Jatiya, Probhat and Bijoy as fixed physical-key layouts
+(ADR 0021).
+
+0.10 is the **Kontho-feel and learning** phase: inline Bangla preedit (ADR
+0022), the full WTR1 dictionary as index v2 (ADR 0023), ghost next-word hints,
+and real shown/accepted/correction events. Training runs are separate from the
+typing path: a 1B-token teacher per language is trained on licensed corpora,
+then distilled into a 512-d int8 student of about 180–220 MB for shipping.
+Global models are general accuracy; Smriti remains the per-user layer. Voice
+typing is deferred until after owner daily-use QA.
 
 Manual Windows QA execution remains in issue #8. The full suggestion-rendering
 UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
@@ -63,9 +69,10 @@ UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
 | 6. Hardening, model, AI | 0.7 | 36–44 | IME/RDP/DPI, stress, Tier 1 reranker, opt-in AI worker |
 | 7. Parity | 0.8 | 44–48 | real dictionaries/layouts, importers, migration, parity matrix |
 | 8. Fixed layouts | 0.9 | 48–50 | National, Probhat, Bijoy; alternate roman tables |
-| 9. Local learning and next-word | 0.9.x | 50–53 | accepted/corrected events, bigram strip, replay |
-| 10. Voice typing | later | — | after owner daily-use QA; not a 1.0 blocker |
-| 11. Release 1.0 | 1.0 | 53–57 | signed installer, updater, SBOM, beta hardening |
+| 9. Kontho-feel + local learning | 0.10 | 50–53 | inline preedit, ghost next-word, shown/accepted/correction events, index v2 |
+| 10. 1B models + distillation | 0.10.x | 53–58 | 1B teacher per language, distilled 512-d int8 student, English reranker |
+| 11. Voice typing | later | — | after owner daily-use QA; not a 1.0 blocker |
+| 12. Release 1.0 | 1.0 | 58–62 | signed installer, updater, SBOM, beta hardening |
 
 Weeks are relative to project start, not calendar dates. Add 20–30% buffer for
 Windows compatibility and Bengali edge cases.
@@ -293,11 +300,27 @@ hook swallows letters in fixed mode so IME composition cannot corrupt the
 result. ADR 0021 and `docs/superpowers/specs/2026-11-24-fixed-layout-engine-design.md`
 record the design.
 
-Local learning and next-word suggestions are Phase 8b (0.9.x). Voice typing is
-deferred until after the owner has used the keyboard for a couple of days and
-the typing path is verified seamless in daily use — most users will use the
-keyboard, not voice, so voice is not a 1.0 blocker. The voice deliverables and
-exit criteria below remain the specification for that later slice.
+### 0.10 — Kontho feel and learning
+
+- Inline Bangla preedit: per-keystroke Bangla, grapheme-safe LCP diff, one
+  atomic injection, Backspace walk-back, live Up/Down, Tab/Space/Esc (ADR 0022).
+- Full WTR1 import as index v2: 135k aliases / 151k pairs, preferred rank,
+  nukta→NFC (ADR 0023).
+- Ghost next-word hint for Bangla and English: grey overlay after the caret,
+  Up/Down cycles, Tab accepts, typing dismisses, never auto-inserts.
+- Real `SuggestionShown` / `SuggestionAccepted` / `Correction` events and
+  English `WordCommitted`, so Smriti has real signals.
+- Training: 1B-token teacher per language on licensed corpora, then a
+  distilled 512-d int8 student (~180–220 MB) for shipping. Teacher quality is
+  the ceiling; the student ships only within ~1.5 points top-1 and the p99 gate.
+- Global models are general accuracy; personal patterns stay in the local,
+  encrypted Smriti store. No user text leaves the device.
+
+Voice typing is deferred until after the owner has used the keyboard for a
+couple of days and the typing path is verified seamless in daily use — most
+users will use the keyboard, not voice, so voice is not a 1.0 blocker. The
+voice deliverables and exit criteria below remain the specification for that
+later slice.
 
 Deliverables:
 

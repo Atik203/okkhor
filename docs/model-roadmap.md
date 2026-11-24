@@ -51,6 +51,22 @@ deadline-bound rerank
 top-N suggestions
 ```
 
+### 0.10 training status
+
+Measured on the 1g.18gb slice:
+
+| Model | Data | top-1 | top-5 |
+| --- | --- | ---: | ---: |
+| Bangla bigram | 6.35M tokens | 12.29 % | 25.07 % |
+| Bangla context-2 MLP | 6.35M tokens | 14.85 % | 27.94 % |
+| English bigram | 65.6M tokens | 16.93 % | 31.33 % |
+
+The 0.10 program scales to **1B tokens per language** from licensed corpora
+(FineWeb-2 `ben_Beng`, FineWeb `sample-10BT`, Wikipedia) and trains a 768-d /
+6-layer teacher. The shipped artifact is a **distilled 512-d / 4-layer int8
+student**, target **180–220 MB**, within ~1.5 points top-1 of the teacher. No
+user text is used. See `docs/superpowers/analysis/0.10-training-runs.md`.
+
 ### Global prior
 
 Trained from:
