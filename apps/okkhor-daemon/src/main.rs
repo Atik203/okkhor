@@ -21,6 +21,7 @@ mod ai_proxy;
 mod english;
 mod input_session;
 mod ipc;
+mod layout_engine;
 mod paths;
 mod settings_store;
 mod words_store;
@@ -748,7 +749,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::time::{Duration, Instant};
 
     use crate::english::{EnglishCommit, EnglishSession};
+    use crate::layout_engine::{FixedComposition, LayoutEngine};
     use okkhor_core::Language;
+    use okkhor_lang::fixed_layout::{FixedLayout, ModifierSet, vk_to_key_name};
     use okkhor_learn::{LearningEvent, LearningSnapshot, Smriti, SmritiConfig};
     use okkhor_storage::{EncryptedJsonRepository, StorageError};
     use okkhor_win::{
@@ -1142,7 +1145,57 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn handle_key(vk: u16, ctx: &mut CompositionCtx<'_>) {
+    fn handle_key(
+        vk: u16,
+        ctx: &mut CompositionCtx<'_>,
+        fixed: Option<&FixedLayout>,
+        fixed_composition: &mut FixedComposition,
+        fixed_enabled: bool,
+    ) {
+        if fixed_enabled {
+            if let Some(layout) = fixed {
+                // AltGr is a layout modifier here, not a shortcut chord.
+                if ctrl_or_alt_pressed() && !okkhor_win::altgr_pressed() {
+                    return;
+                }
+                track_focus(ctx);
+                if let Some(key) = vk_to_key_name(vk) {
+                    let is_digit = key.starts_with("Num")
+                        || key.starts_with("Key_")
+                            && key.as_bytes().get(4).is_some_and(u8::is_ascii_digit);
+                    if is_digit && ctx.encoding == crate::OutputEncoding::Bijoy {
+                        return;
+                    }
+                    let flags = okkhor_win::modifier_state();
+                    let modifiers = ModifierSet {
+                        shift: flags.shift,
+                        altgr: flags.altgr,
+                    };
+                    if let Some(text) =
+                        fixed_composition.push(layout, key, modifiers, Instant::now())
+                    {
+                        let converted = match ctx.encoding {
+                            crate::OutputEncoding::Unicode => text,
+                            crate::OutputEncoding::Bijoy => {
+                                crate::apply_encoding(&text, ctx.encoding).unwrap_or(text)
+                            }
+                        };
+                        if let Err(error) = okkhor_win::inject_commit(0, &converted, false) {
+                            // Never lose a keystroke: the raw letter is safe
+                            // to re-emit because it was swallowed by the hook.
+                            ctx.logger.error(
+                                logging::Scope::Daemon,
+                                "inject_commit",
+                                inject_code(&error),
+                            );
+                            let raw = (vk as u8).to_ascii_lowercase() as char;
+                            let _ = okkhor_win::inject_commit(0, &raw.to_string(), false);
+                        }
+                    }
+                    return;
+                }
+            }
+        }
         if let Some(letter) = vk_to_letter(vk) {
             // Shortcuts (Ctrl/Alt/Win chords) produce no text in the target;
             // growing the buffer for them would erase the user's real text on
@@ -1587,13 +1640,34 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         },
         RankerChoice::Baseline => baseline,
     };
-    let engine = default_engine(ranker);
-    if let Some(kind) = engine.fallback_kind() {
-        // Load failure or a disabled dictionary: allowlisted startup record
-        // only (scope + kind, never text). Typing continues on what loaded.
+    let layout_code = ipc_state
+        .as_deref()
+        .map(|state| state.status().layout)
+        .unwrap_or_else(|| "avro".to_owned());
+    let (layout_engine, layout_health) =
+        LayoutEngine::from_settings(&layout_code, Arc::clone(&ranker));
+    if let Some(kind) = layout_health {
+        // Allowlisted startup record only: never the layout text or a path.
         logger.error(logging::Scope::Engine, kind, None);
     }
-    let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
+    let base_engine = default_engine(Arc::clone(&ranker));
+    if let Some(kind) = base_engine.fallback_kind() {
+        // Load failure or a disabled dictionary: allowlisted startup record
+        // only (scope + kind, never text). Typing continues on rule output.
+        logger.error(logging::Scope::Engine, kind, None);
+    }
+    let mut session: InputSession<DefaultEngine> = InputSession::new(base_engine);
+    let fixed_layout = match layout_engine {
+        LayoutEngine::Fixed(layout) => Some(layout),
+        LayoutEngine::Phonetic(engine) => {
+            session = InputSession::new(DefaultEngine::Suggest {
+                engine,
+                ranker: Arc::clone(&ranker),
+            });
+            None
+        }
+    };
+    let mut fixed_composition = FixedComposition::default();
     let mut english = EnglishSession::new();
     let mut compose_window = foreground_window_id();
     let mut compose_pid = foreground_window_pid();
@@ -2018,6 +2092,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 );
             }
             hook.set_english_popup(english.is_visible());
+            okkhor_win::set_swallow_letters(false);
+            fixed_composition.clear();
             hook.set_composition_state(false, false, false);
             if !english.is_visible() && toast_until_ms == 0 {
                 hide_popup(&mut popup, ipc_state.as_deref());
@@ -2030,6 +2106,20 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // the drain so a key arriving during this poll sees the last buffer,
         // and again after it so the next poll sees the new one.
         hook.set_english_popup(false);
+        let fixed_enabled =
+            fixed_layout.is_some() && mode.allows_composition() && hook.capture_enabled();
+        okkhor_win::set_swallow_letters(fixed_enabled);
+        if fixed_enabled && foreground_window_id() != compose_window {
+            fixed_composition.clear();
+        }
+        if !hook.capture_enabled() || !mode.allows_composition() {
+            fixed_composition.clear();
+        }
+        if let Some(text) = fixed_composition.flush(Instant::now()) {
+            if let Err(error) = okkhor_win::inject_commit(0, &text, false) {
+                logger.error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
+            }
+        }
         let bangla_unicode =
             mode.allows_composition() && encoding == crate::OutputEncoding::Unicode;
         hook.set_composition_state(
@@ -2100,7 +2190,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 caret: caret_tracker.as_ref(),
                 caret_generation: &mut last_anchor_generation,
             };
-            handle_key(event.virtual_key, &mut ctx);
+            handle_key(
+                event.virtual_key,
+                &mut ctx,
+                fixed_layout.as_deref(),
+                &mut fixed_composition,
+                fixed_layout.is_some() && mode.allows_composition() && hook.capture_enabled(),
+            );
         }
 
         if session.is_composing() {

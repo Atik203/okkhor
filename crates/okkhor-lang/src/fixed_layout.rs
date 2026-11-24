@@ -10,6 +10,11 @@
 
 use okkhor_core::text::normalize_nfc;
 
+/// Embedded National/Jatiya fixed-layout asset.
+pub const NATIONAL_ASSET: &str = include_str!("../assets/layouts/fixed-national-v1.json");
+/// Embedded Probhat fixed-layout asset.
+pub const PROBHAT_ASSET: &str = include_str!("../assets/layouts/fixed-probhat-v1.json");
+
 /// Maximum number of keys in one ordered sequence rule.
 pub const MAX_SEQUENCE_KEYS: usize = 3;
 /// Upper bound on the number of sequence rules in a layout asset.
@@ -399,6 +404,21 @@ impl FixedLayout {
         None
     }
 
+    /// Whether any sequence rule starts with these keys. Used by the daemon
+    /// to delay a single character only when it could begin a conjunct rule.
+    pub fn is_sequence_prefix(&self, keys: &[&str]) -> bool {
+        !keys.is_empty()
+            && keys.len() <= MAX_SEQUENCE_KEYS
+            && self.sequences.iter().any(|rule| {
+                rule.0.len() > keys.len()
+                    && rule
+                        .0
+                        .iter()
+                        .zip(keys.iter())
+                        .all(|(rule_key, key)| rule_key == key)
+            })
+    }
+
     /// Match the longest ordered sequence rule: three keys first, then two.
     /// A sequence buffer longer than three keys is rejected outright.
     pub fn resolve_sequence(&self, keys: &[&str]) -> Option<&str> {
@@ -446,8 +466,8 @@ mod tests {
         "sequences": []
     }"#;
 
-    const NATIONAL: &str = include_str!("../assets/layouts/fixed-national-v1.json");
-    const PROBHAT: &str = include_str!("../assets/layouts/fixed-probhat-v1.json");
+    const NATIONAL: &str = NATIONAL_ASSET;
+    const PROBHAT: &str = PROBHAT_ASSET;
 
     const NONE: ModifierSet = ModifierSet {
         shift: false,

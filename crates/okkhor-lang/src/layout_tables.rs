@@ -19,6 +19,43 @@ pub const PHONETIC_RULES: &str = include_str!("../assets/layouts/phonetic-v1.jso
 ///
 /// `rule_count` is rechecked against the actual rule array so a truncated or
 /// hand-edited asset fails at startup instead of silently changing typing.
+/// Strip look-around groups that Rust's `regex` engine does not support.
+///
+/// The stored tables contain three such rules. Their guards only refine when
+/// a punctuation character converts; the conversion itself is the same, so
+/// `(?<!\d)\.(?!\d)` becomes `\.` and `(?<!/)/(?!/)` becomes `/`. Dropping
+/// the whole rule would lose a real mapping; keeping the plain form preserves
+/// it at the cost of a slightly broader match.
+fn sanitize_pattern(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len());
+    let mut chars = pattern.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '(' && matches!(chars.peek(), Some('?')) {
+            chars.next();
+            let mut group = String::from("(?");
+            let mut lookaround = false;
+            for next in chars.by_ref() {
+                group.push(next);
+                if next == '<' || next == '=' || next == '!' {
+                    lookaround = group.starts_with("(?<")
+                        || group.starts_with("(?!")
+                        || group.starts_with("(?=");
+                }
+                if next == ')' {
+                    break;
+                }
+            }
+            if lookaround {
+                continue;
+            }
+            out.push_str(&group);
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 pub fn layout_rules_to_asset_json(source: &str) -> Result<String, FixedLayoutError> {
     let table: Value = serde_json::from_str(source).map_err(|_| FixedLayoutError::InvalidJson)?;
     let rules = table
@@ -51,10 +88,11 @@ pub fn layout_rules_to_asset_json(source: &str) -> Result<String, FixedLayoutErr
                 .ok_or(FixedLayoutError::InvalidJson)?;
             // An empty replacement is a deliberate deletion rule (Khipro has
             // one), so only an empty pattern is invalid here.
-            if pattern.is_empty() {
+            let sanitized = sanitize_pattern(pattern);
+            if sanitized.is_empty() {
                 return Err(FixedLayoutError::EmptyOutput);
             }
-            Ok(json!({ "pattern": pattern, "replacement": replacement }))
+            Ok(json!({ "pattern": sanitized, "replacement": replacement }))
         })
         .collect::<Result<Vec<_>, FixedLayoutError>>()?;
 
@@ -89,6 +127,15 @@ mod tests {
         let converted = layout_rules_to_asset_json(KHIPRO_RULES).expect("converted table");
         assert!(converted.contains("nftff"));
         assert!(converted.contains("ণ্ঠ"));
+    }
+
+    #[test]
+    fn lookaround_is_converted_to_a_plain_pattern() {
+        assert_eq!(sanitize_pattern(r"(?<!\d)\.(?!\d)"), r"\.");
+        assert_eq!(sanitize_pattern(r"(?<!/)/(?!/)"), "/");
+        assert_eq!(sanitize_pattern(r"[of]|(?<!;);(?!;)"), "[of]|;");
+        // Non-capturing groups are ordinary regex and must survive.
+        assert_eq!(sanitize_pattern(r"(?:a)b"), r"(?:a)b");
     }
 
     #[test]
