@@ -2448,6 +2448,12 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                             &text,
                             english_previous.take(),
                         );
+                        ghost.words = smriti
+                            .next_words(Language::English, &text, 3)
+                            .into_iter()
+                            .map(|(word, _)| word)
+                            .collect();
+                        ghost.selected = 0;
                         english_previous = Some(text);
                     }
                 }
@@ -2459,6 +2465,45 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
                 if !enabled {
                     continue;
+                }
+                if ghost.visible {
+                    match event.virtual_key {
+                        VK_TAB => {
+                            if let Some(word) = ghost.words.get(ghost.selected).cloned() {
+                                let _ = okkhor_win::inject_commit(0, &format!("{word} "), false);
+                            }
+                            ghost.hide();
+                            hide_popup(&mut popup, ipc_state.as_deref());
+                            continue;
+                        }
+                        VK_UP | VK_DOWN => {
+                            let len = ghost.words.len() as i32;
+                            if len > 0 {
+                                let delta = if event.virtual_key == VK_UP { -1 } else { 1 };
+                                ghost.selected =
+                                    (ghost.selected as i32 + delta).rem_euclid(len) as usize;
+                                let anchor = caret_tracker
+                                    .as_ref()
+                                    .and_then(CaretTracker::latest)
+                                    .map(|sample| sample.anchor)
+                                    .or_else(|| popup.as_ref().and_then(SuggestionPopup::anchor));
+                                if let (Some(anchor), Some(window)) = (anchor, popup.as_mut()) {
+                                    let _ =
+                                        window.show_ghost(&ghost.words[ghost.selected], &anchor);
+                                }
+                            }
+                            continue;
+                        }
+                        VK_ESCAPE => {
+                            ghost.hide();
+                            hide_popup(&mut popup, ipc_state.as_deref());
+                            continue;
+                        }
+                        _ => {
+                            ghost.hide();
+                            hide_popup(&mut popup, ipc_state.as_deref());
+                        }
+                    }
                 }
                 match event.virtual_key {
                     VK_TAB if english.is_visible() => {
@@ -2482,6 +2527,12 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                                 &text,
                                 english_previous.take(),
                             );
+                            ghost.words = smriti
+                                .next_words(Language::English, &text, 3)
+                                .into_iter()
+                                .map(|(word, _)| word)
+                                .collect();
+                            ghost.selected = 0;
                             english_previous = Some(text);
                         } else if okkhor_win::english_popup_visible() {
                             let _ = send_tab();
@@ -2564,6 +2615,27 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     &mut last_anchor_generation,
                 );
             }
+            if english.is_visible() {
+                if ghost.visible || !ghost.words.is_empty() {
+                    ghost.hide();
+                    hide_popup(&mut popup, ipc_state.as_deref());
+                }
+            } else if !ghost.words.is_empty() && !ghost.visible {
+                let anchor = caret_tracker
+                    .as_ref()
+                    .and_then(CaretTracker::latest)
+                    .map(|sample| sample.anchor)
+                    .or_else(|| popup.as_ref().and_then(SuggestionPopup::anchor));
+                if let (Some(anchor), Some(window)) = (anchor, popup.as_mut()) {
+                    if window
+                        .show_ghost(&ghost.words[ghost.selected], &anchor)
+                        .is_ok()
+                    {
+                        ghost.visible = true;
+                    }
+                }
+            }
+            okkhor_win::set_ghost_popup(ghost.visible);
             hook.set_english_popup(english.is_visible());
             okkhor_win::set_swallow_letters(false);
             fixed_composition.clear();
