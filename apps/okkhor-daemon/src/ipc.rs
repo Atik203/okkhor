@@ -33,6 +33,8 @@ use std::time::{Duration, Instant};
 
 use okkhor_ipc::error::ErrorCode;
 use okkhor_ipc::protocol::{LayoutInfo, Request, Response, Status, TextInserted, WordRemoveResult};
+
+use crate::ai_proxy;
 use okkhor_ipc::settings::{InputMode, OutputEncoding, Settings, SettingsPatch};
 use okkhor_storage::Protector;
 use thiserror::Error;
@@ -231,6 +233,7 @@ pub struct DaemonState<P> {
     apply_seq: AtomicU64,
     last_apply: Mutex<LiveApply>,
     store_failures: AtomicU64,
+    ai: Arc<ai_proxy::AiProxy>,
 }
 
 // Manual `Debug`: stores already redact paths and text; the sink is
@@ -322,6 +325,7 @@ impl<P: Protector> DaemonState<P> {
         injection: Arc<Mutex<()>>,
     ) -> Self {
         let current = settings.settings().clone();
+        let ai = ai_proxy::AiProxy::new(current.ai_enabled);
         Self {
             mode: AtomicU8::new(mode_to_u8(current.input_mode)),
             encoding: AtomicU8::new(encoding_to_u8(current.output_encoding)),
@@ -344,6 +348,7 @@ impl<P: Protector> DaemonState<P> {
             apply_seq: AtomicU64::new(0),
             last_apply: Mutex::new(LiveApply::Applied),
             store_failures: AtomicU64::new(0),
+            ai,
         }
     }
 
@@ -360,6 +365,11 @@ impl<P: Protector> DaemonState<P> {
     /// Current validated settings (clone under a brief IPC-rate lock).
     pub fn current_settings(&self) -> Settings {
         self.lock_settings().settings().clone()
+    }
+
+    /// Daemon-owned AI job proxy. Never called from the key path.
+    pub fn ai(&self) -> &Arc<ai_proxy::AiProxy> {
+        &self.ai
     }
 
     /// Live input mode mirror (lock-free; the key path reads this).
@@ -536,6 +546,7 @@ impl<P: Protector> DaemonState<P> {
             .store(merged.learning_enabled, Ordering::SeqCst);
         self.english_suggestions
             .store(merged.english_suggestions, Ordering::SeqCst);
+        self.ai.set_enabled(merged.ai_enabled);
         // The bar toggles mode through `settings.update`; the hotkey and tray
         // use the daemon-local path. Play the same click for both so feedback
         // is consistent, and only when the mode actually changed.
@@ -675,10 +686,16 @@ impl<P: Protector> DaemonState<P> {
                 self.shutdown_requested.store(true, Ordering::SeqCst);
                 Response::Ok(okkhor_ipc::protocol::NoArgs {})
             }
-            Request::AiComplete(_) => Response::error(ErrorCode::Unsupported),
-            Request::AiPoll(_) | Request::AiCancel(_) | Request::AiStatus(_) => {
-                Response::error(ErrorCode::Unsupported)
+            Request::AiComplete(params) => match self.ai.complete(params) {
+                Ok(started) => Response::AiJobStarted(started),
+                Err(code) => Response::error(code),
+            },
+            Request::AiPoll(params) => Response::AiJob(self.ai.poll(params.job_id)),
+            Request::AiCancel(params) => {
+                self.ai.cancel(params.job_id);
+                Response::Ok(okkhor_ipc::protocol::NoArgs {})
             }
+            Request::AiStatus(_) => Response::AiStatus(self.ai.status()),
         }
     }
 
@@ -1345,7 +1362,7 @@ mod tests {
         }));
         assert_eq!(
             response.error_body().map(|body| body.code),
-            Some(ErrorCode::Unsupported)
+            Some(ErrorCode::AiDisabled)
         );
         std::fs::remove_dir_all(&dir).ok();
     }

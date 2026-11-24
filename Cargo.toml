@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "apps/okkhor-bench",
     "apps/okkhor-daemon",
+    "apps/okkhor-worker",
     "crates/okkhor-ai",
     "crates/okkhor-compat",
     "crates/okkhor-core",
@@ -26,6 +27,7 @@ publish = false
 
 [workspace.dependencies]
 okkhor-core = { path = "crates/okkhor-core" }
+okkhor-ai = { path = "crates/okkhor-ai" }
 okkhor-engine = { path = "crates/okkhor-engine" }
 okkhor-features = { path = "crates/okkhor-features" }
 okkhor-ipc = { path = "crates/okkhor-ipc" }

@@ -17,6 +17,7 @@ use okkhor_storage::JsonFileRepository;
 #[cfg(windows)]
 mod logging;
 
+mod ai_proxy;
 mod english;
 mod input_session;
 mod ipc;
@@ -1998,9 +1999,15 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             session.is_composing(),
             bangla_unicode,
         );
+        if let Some(state) = ipc_state.as_deref() {
+            state.ai().reap();
+        }
         std::thread::sleep(Duration::from_millis(5));
     }
 
+    if let Some(state) = ipc_state.as_deref() {
+        state.ai().shutdown();
+    }
     hook.stop();
     hotkey.stop();
     mode_hotkey.stop();

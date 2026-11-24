@@ -721,6 +721,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "okkhor-worker"
+version = "0.6.0"
+dependencies = [
+ "okkhor-ai",
+ "okkhor-ipc",
+ "tokio",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
