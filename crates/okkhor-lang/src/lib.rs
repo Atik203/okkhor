@@ -16,6 +16,7 @@ pub mod bijoy;
 pub mod error;
 pub mod fixed_layout;
 pub mod importer;
+pub mod layout_tables;
 pub mod sutonnymj;
 
 pub use assets::{
