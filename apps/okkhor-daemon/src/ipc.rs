@@ -676,6 +676,9 @@ impl<P: Protector> DaemonState<P> {
                 Response::Ok(okkhor_ipc::protocol::NoArgs {})
             }
             Request::AiComplete(_) => Response::error(ErrorCode::Unsupported),
+            Request::AiPoll(_) | Request::AiCancel(_) | Request::AiStatus(_) => {
+                Response::error(ErrorCode::Unsupported)
+            }
         }
     }
 
@@ -1332,7 +1335,14 @@ mod tests {
             response.error_body().map(|body| body.code),
             Some(ErrorCode::InvalidRequest)
         );
-        let response = state.handle_request(Request::AiComplete(serde_json::json!({})));
+        let response = state.handle_request(Request::AiComplete(okkhor_ipc::AiCompleteParams {
+            prompt: "x".to_owned(),
+            system: None,
+            model: None,
+            max_tokens: None,
+            temperature: None,
+            timeout_ms: None,
+        }));
         assert_eq!(
             response.error_body().map(|body| body.code),
             Some(ErrorCode::Unsupported)

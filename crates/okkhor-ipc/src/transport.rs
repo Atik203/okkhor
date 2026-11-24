@@ -273,7 +273,8 @@ async fn serve_connection(
 }
 
 /// Run the handler under the per-request deadline on a blocking thread.
-/// `ai.complete` always answers [`ErrorCode::Unsupported`] in 0.5.
+/// `ai.complete` is a normal request: it must validate and enqueue, never wait
+/// for the provider (ADR 0018 §5).
 ///
 /// On deadline expiry the client gets [`ErrorCode::Timeout`]; the orphaned
 /// blocking thread runs to completion on its own and never touches the
@@ -283,9 +284,6 @@ async fn dispatch(
     request: Request,
     deadline: std::time::Duration,
 ) -> Response {
-    if matches!(request, Request::AiComplete(_)) {
-        return Response::error(ErrorCode::Unsupported);
-    }
     let worker = tokio::task::spawn_blocking(move || handler.handle(request));
     match tokio::time::timeout(deadline, worker).await {
         Ok(Ok(response)) => response,
@@ -535,11 +533,58 @@ impl Client {
         })
     }
 
+    /// `ai.complete`: validate and enqueue, then return the new job id. The
+    /// daemon answers immediately; the provider result is polled with
+    /// [`Client::ai_poll`] (ADR 0018 §5).
     pub async fn ai_complete(
         &mut self,
-        params: serde_json::Value,
-    ) -> Result<Response, ClientError> {
-        self.call(&Request::AiComplete(params)).await
+        params: &crate::protocol::AiCompleteParams,
+    ) -> Result<crate::protocol::AiJobStarted, ClientError> {
+        let response = self.call(&Request::AiComplete(params.clone())).await?;
+        Self::lift(response, |response| match response {
+            Response::AiJobStarted(started) => Some(started),
+            _ => None,
+        })
+    }
+
+    /// `ai.poll`: the current state of one AI job.
+    pub async fn ai_poll(
+        &mut self,
+        job_id: u64,
+    ) -> Result<crate::protocol::AiJobState, ClientError> {
+        let response = self
+            .call(&Request::AiPoll(crate::protocol::AiPollParams { job_id }))
+            .await?;
+        Self::lift(response, |response| match response {
+            Response::AiJob(state) => Some(state),
+            _ => None,
+        })
+    }
+
+    /// `ai.cancel`: request cancellation. `Ok` when the job is cancelled (or
+    /// was already finished); failures arrive as [`ClientError::Server`].
+    pub async fn ai_cancel(&mut self, job_id: u64) -> Result<(), ClientError> {
+        let response = self
+            .call(&Request::AiCancel(crate::protocol::AiCancelParams {
+                job_id,
+            }))
+            .await?;
+        Self::lift(response, |response| match response {
+            Response::Ok(_) => Some(()),
+            _ => None,
+        })
+    }
+
+    /// `ai.status`: policy and circuit-breaker state, never prompt or key
+    /// material (ADR 0018 §4).
+    pub async fn ai_status(&mut self) -> Result<crate::protocol::AiStatusInfo, ClientError> {
+        let response = self
+            .call(&Request::AiStatus(crate::protocol::NoArgs {}))
+            .await?;
+        Self::lift(response, |response| match response {
+            Response::AiStatus(status) => Some(status),
+            _ => None,
+        })
     }
 }
 
@@ -642,6 +687,101 @@ mod tests {
             let status = client.status().await.expect("status");
             assert_eq!(status.language, "bn");
         })
+        .await;
+    }
+
+    /// AI handler for the transport round-trip: proves `dispatch` no longer
+    /// short-circuits `ai.complete` before the handler (ADR 0018 §5).
+    struct AiHandler;
+
+    impl Handler for AiHandler {
+        fn handle(&self, request: Request) -> Response {
+            match request {
+                Request::AiComplete(params) if params.prompt == "x" => {
+                    Response::AiJobStarted(crate::protocol::AiJobStarted { job_id: 9 })
+                }
+                Request::AiComplete(_) => Response::error(ErrorCode::InvalidRequest),
+                Request::AiPoll(poll) if poll.job_id == 9 => {
+                    Response::AiJob(crate::protocol::AiJobState::Pending)
+                }
+                Request::AiPoll(_) => Response::error(ErrorCode::InvalidRequest),
+                Request::AiCancel(cancel) if cancel.job_id == 9 => Response::Ok(NoArgs {}),
+                Request::AiCancel(_) => Response::error(ErrorCode::InvalidRequest),
+                Request::AiStatus(_) => Response::AiStatus(crate::protocol::AiStatusInfo {
+                    enabled: true,
+                    provider: "mock".to_owned(),
+                    key_present: false,
+                    breaker_state: "closed".to_owned(),
+                    active_jobs: 1,
+                }),
+                _ => Response::error(ErrorCode::UnknownMethod),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn ai_complete_still_answers_stub_unsupported() {
+        // The 0.5 answer is now produced by the handler, not by `dispatch`.
+        with_server(async |token: Token, pipe: String, _server: Arc<Server>| {
+            let (mut client, _) = Client::connect_to_with_token(&pipe, &token.hex())
+                .await
+                .expect("handshake");
+            let error = client
+                .ai_complete(&crate::protocol::AiCompleteParams {
+                    prompt: "x".to_owned(),
+                    system: None,
+                    model: None,
+                    max_tokens: None,
+                    temperature: None,
+                    timeout_ms: None,
+                })
+                .await
+                .expect_err("stub answers Unsupported");
+            assert!(matches!(
+                error,
+                ClientError::Server(body) if body.code == ErrorCode::Unsupported
+            ));
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn ai_job_methods_reach_the_handler() {
+        with_custom_server(
+            AiHandler,
+            REQUEST_DEADLINE,
+            async |token: Token, pipe: String, _server: Arc<Server>| {
+                let (mut client, _) = Client::connect_to_with_token(&pipe, &token.hex())
+                    .await
+                    .expect("handshake");
+                let started = client
+                    .ai_complete(&crate::protocol::AiCompleteParams {
+                        prompt: "x".to_owned(),
+                        system: None,
+                        model: None,
+                        max_tokens: None,
+                        temperature: None,
+                        timeout_ms: None,
+                    })
+                    .await
+                    .expect("ai.complete");
+                assert_eq!(started.job_id, 9);
+                assert_eq!(
+                    client.ai_poll(9).await.expect("ai.poll"),
+                    crate::protocol::AiJobState::Pending
+                );
+                client.ai_cancel(9).await.expect("ai.cancel");
+                let status = client.ai_status().await.expect("ai.status");
+                assert!(status.enabled);
+                assert_eq!(status.active_jobs, 1);
+                // A mismatched job id is a typed error, not a connection leak.
+                let error = client.ai_poll(10).await.expect_err("unknown job");
+                assert!(matches!(
+                    error,
+                    ClientError::Server(body) if body.code == ErrorCode::InvalidRequest
+                ));
+            },
+        )
         .await;
     }
 

@@ -319,15 +319,22 @@ async fn ipc_roundtrip_over_pipe() {
     let status = client.set_capture(false).await.expect("capture.set");
     assert!(!status.paused);
 
-    // ai.complete is typed Unsupported in 0.5.
-    let response = client
-        .ai_complete(serde_json::json!({}))
+    // ai.complete is typed; the 0.7 test handler still answers Unsupported.
+    let error = client
+        .ai_complete(&okkhor_ipc::AiCompleteParams {
+            prompt: "x".to_owned(),
+            system: None,
+            model: None,
+            max_tokens: None,
+            temperature: None,
+            timeout_ms: None,
+        })
         .await
-        .expect("frame");
-    assert_eq!(
-        response.error_body().map(|body| body.code),
-        Some(ErrorCode::Unsupported)
-    );
+        .expect_err("typed handler answers Unsupported");
+    assert!(matches!(
+        error,
+        okkhor_ipc::ClientError::Server(body) if body.code == ErrorCode::Unsupported
+    ));
 
     // Bad token: typed Unauthorized.
     let wrong = okkhor_ipc::Token::generate().expect("entropy");
@@ -510,7 +517,14 @@ fn handler_direct_status_settings_words_insert_capture() {
         Response::Status(status) => assert!(status.paused),
         other => panic!("capture.set failed: {other:?}"),
     }
-    let response = state.handle_request(Request::AiComplete(serde_json::json!({})));
+    let response = state.handle_request(Request::AiComplete(okkhor_ipc::AiCompleteParams {
+        prompt: "x".to_owned(),
+        system: None,
+        model: None,
+        max_tokens: None,
+        temperature: None,
+        timeout_ms: None,
+    }));
     assert_eq!(
         response.error_body().map(|body| body.code),
         Some(ErrorCode::Unsupported)
