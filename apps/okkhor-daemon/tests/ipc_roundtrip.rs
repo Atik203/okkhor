@@ -17,6 +17,9 @@
 //! and neither target can see the other's uses. Real dead code in *this* file
 //! still warns.
 #[allow(dead_code)]
+#[path = "../src/ai_proxy.rs"]
+mod ai_proxy;
+#[allow(dead_code)]
 #[path = "../src/ipc.rs"]
 mod ipc;
 #[allow(dead_code)]
@@ -330,10 +333,10 @@ async fn ipc_roundtrip_over_pipe() {
             timeout_ms: None,
         })
         .await
-        .expect_err("typed handler answers Unsupported");
+        .expect_err("typed handler answers AiDisabled");
     assert!(matches!(
         error,
-        okkhor_ipc::ClientError::Server(body) if body.code == ErrorCode::Unsupported
+        okkhor_ipc::ClientError::Server(body) if body.code == ErrorCode::AiDisabled
     ));
 
     // Bad token: typed Unauthorized.
@@ -527,6 +530,6 @@ fn handler_direct_status_settings_words_insert_capture() {
     }));
     assert_eq!(
         response.error_body().map(|body| body.code),
-        Some(ErrorCode::Unsupported)
+        Some(ErrorCode::AiDisabled)
     );
 }

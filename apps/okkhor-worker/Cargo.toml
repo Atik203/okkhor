@@ -1,0 +1,19 @@
+[package]
+name = "okkhor-worker"
+description = "Isolated opt-in AI worker for Okkhor: owns the OpenAI client and serves the daemon over a private pipe."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "okkhor-worker"
+path = "src/main.rs"
+
+[dependencies]
+okkhor-ai = { workspace = true, features = ["http"] }
+okkhor-ipc.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
