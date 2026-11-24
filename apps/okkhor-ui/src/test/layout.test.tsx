@@ -80,6 +80,15 @@ function online(command: string) {
   if (command === "ipc_list_layouts") {
     return Promise.resolve([{ code: "avro", name: "Avro" }]);
   }
+  if (command === "ipc_ai_status") {
+    return Promise.resolve({
+      enabled: false,
+      provider: "disabled",
+      key_present: false,
+      breaker_state: "closed",
+      active_jobs: 0,
+    });
+  }
   return Promise.reject({ code: "daemon_unavailable", message: "down" });
 }
 

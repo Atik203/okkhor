@@ -80,6 +80,18 @@ export function describeError(error: unknown): string {
       return "The daemon took too long to respond.";
     case "Unsupported":
       return "Not available in this milestone.";
+    case "WorkerDown":
+      return "The AI worker is not running. Typing and local suggestions keep working.";
+    case "AiDisabled":
+      return "AI is off. Turn on AI in Settings to use rewrites.";
+    case "AiBusy":
+      return "An AI request is already running. Wait for it or cancel it.";
+    case "AiKeyMissing":
+      return "No AI provider key is set. Set OKKHOR_OPENAI_API_KEY and restart Okkhor.";
+    case "AiProviderError":
+      return "The AI provider could not complete the request. Try again later.";
+    case "AiTimeout":
+      return "The AI request took too long. Try again.";
     case "internal":
       return "Something went wrong.";
     default:

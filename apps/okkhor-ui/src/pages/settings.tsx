@@ -1,10 +1,11 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, type Control } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type Settings } from "../lib/ipc";
+import { Copy, Loader2, Wand2 } from "lucide-react";
+import { api, type AiJobState, type Settings } from "../lib/ipc";
 import { describeError } from "../lib/errors";
 import {
   settingsSchema,
@@ -14,6 +15,7 @@ import {
   type SettingsForm,
 } from "../lib/settings-schema";
 import { applyTheme } from "../lib/theme";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Field, FieldError, Label } from "../components/ui/field";
@@ -26,6 +28,7 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
+import { Textarea } from "../components/ui/textarea";
 
 function ToggleRow({
   label,
@@ -122,6 +125,298 @@ function QuickbarPosition({
   );
 }
 
+const AI_SOURCE_LIMIT = 20_000;
+const AI_POLL_MS = 600;
+
+type AiPhase = "idle" | "working" | "done" | "failed" | "cancelled";
+
+/**
+ * Explicit AI rewrite panel (ADR 0018, docs/ai.md).
+ *
+ * The right to run is decided by the daemon (`ai.status`), not by the unsaved
+ * form toggle. The prompt is memory-only, the result is shown for review and
+ * never inserted anywhere, and every terminal path clears its timer.
+ */
+function AiRewriteCard({
+  control,
+  readOnly,
+  enabledOnSave,
+}: {
+  control: Control<SettingsForm>;
+  readOnly: boolean;
+  enabledOnSave: boolean;
+}) {
+  const statusQuery = useQuery({
+    queryKey: ["ai-status"],
+    queryFn: () => api.aiStatus(),
+    retry: false,
+    enabled: !readOnly,
+  });
+  const status = statusQuery.data;
+  const aiOn = status?.enabled ?? false;
+  const keyPresent = status?.key_present ?? false;
+
+  const [source, setSource] = React.useState("");
+  const [phase, setPhase] = React.useState<AiPhase>("idle");
+  const [result, setResult] = React.useState<{ text: string; model: string } | null>(null);
+  const [failure, setFailure] = React.useState<string | null>(null);
+  const jobRef = React.useRef<number | null>(null);
+  const timerRef = React.useRef<number | null>(null);
+  const mountedRef = React.useRef(true);
+
+  function stopTimer() {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+
+  // A pending job is cancelled on unmount; a late result is discarded and no
+  // timer can fire against a dead component.
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      stopTimer();
+      const jobId = jobRef.current;
+      jobRef.current = null;
+      if (jobId !== null) {
+        void api.aiCancel(jobId).catch(() => undefined);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function finish(next: AiPhase) {
+    stopTimer();
+    jobRef.current = null;
+    setPhase(next);
+  }
+
+  async function poll(jobId: number) {
+    timerRef.current = null;
+    let state: AiJobState;
+    try {
+      state = await api.aiPoll(jobId);
+    } catch (error) {
+      if (!mountedRef.current || jobRef.current !== jobId) return;
+      finish("failed");
+      setFailure(describeError(error));
+      return;
+    }
+    if (!mountedRef.current || jobRef.current !== jobId) return;
+    if (state.state === "pending") {
+      timerRef.current = window.setTimeout(() => void poll(jobId), AI_POLL_MS);
+      return;
+    }
+    if (state.state === "done") {
+      finish("done");
+      setResult({ text: state.text, model: state.model });
+      return;
+    }
+    if (state.state === "failed") {
+      finish("failed");
+      // Provider codes are mapped to static UI text; raw provider text is
+      // never rendered.
+      setFailure(describeError({ code: state.code, message: "" }));
+      return;
+    }
+    finish("cancelled");
+  }
+
+  function stopJob(markCancelled: boolean) {
+    stopTimer();
+    const jobId = jobRef.current;
+    jobRef.current = null;
+    if (jobId !== null) {
+      void api.aiCancel(jobId).catch(() => undefined);
+    }
+    if (markCancelled) {
+      setPhase("cancelled");
+      setFailure(null);
+    }
+  }
+
+  async function startRewrite() {
+    if (readOnly || !aiOn || !keyPresent || source.trim().length === 0) {
+      return;
+    }
+    // Replacing a request cancels the previous one first.
+    stopJob(false);
+    setPhase("working");
+    setResult(null);
+    setFailure(null);
+    let jobId: number;
+    try {
+      jobId = await api.aiComplete(source);
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setPhase("failed");
+      setFailure(describeError(error));
+      return;
+    }
+    if (!mountedRef.current) {
+      void api.aiCancel(jobId).catch(() => undefined);
+      return;
+    }
+    jobRef.current = jobId;
+    void poll(jobId);
+  }
+
+  async function copyResult() {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(result.text);
+      toast.success("Copied.");
+    } catch {
+      toast.error("Could not copy. Select the text and copy it manually.");
+    }
+  }
+
+  const canRun =
+    !readOnly && aiOn && keyPresent && source.trim().length > 0 && phase !== "working";
+  const togglePending = status !== undefined && enabledOnSave !== status.enabled;
+
+  return (
+    <Card data-testid="ai-card">
+      <CardHeader>
+        <CardTitle>AI</CardTitle>
+        <CardDescription>
+          Optional and off by default. Text is sent only when you click Try a rewrite.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <Controller
+          name="ai_enabled"
+          control={control}
+          render={({ field }) => (
+            <ToggleRow
+              name="ai_enabled"
+              label="Enable AI text actions"
+              description="Opt-in. The provider key stays in the environment; this panel only reports set or unset."
+              checked={field.value}
+              onChange={field.onChange}
+              disabled={readOnly}
+            />
+          )}
+        />
+
+        <div
+          data-testid="ai-status"
+          className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300"
+        >
+          {readOnly ? (
+            <span>AI is unavailable while the engine is not running.</span>
+          ) : statusQuery.isPending ? (
+            <span>Checking AI status…</span>
+          ) : statusQuery.isError || !status ? (
+            <span>{describeError(statusQuery.error)}</span>
+          ) : (
+            <>
+              <Badge variant={aiOn ? "default" : "secondary"}>
+                {aiOn ? "AI on" : "AI off"}
+              </Badge>
+              <Badge variant="outline">Provider: {status.provider}</Badge>
+              <Badge variant="outline">Key: {keyPresent ? "set" : "not set"}</Badge>
+            </>
+          )}
+        </div>
+
+        {togglePending && !readOnly && (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            Save to apply the AI toggle.
+          </p>
+        )}
+
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          Only the text you paste here is sent. Prompts are not saved.
+        </p>
+
+        <Field>
+          <Label htmlFor="ai_source">Text to rewrite</Label>
+          <Textarea
+            id="ai_source"
+            aria-label="Text to rewrite"
+            value={source}
+            maxLength={AI_SOURCE_LIMIT}
+            disabled={readOnly}
+            placeholder="Paste a paragraph to rewrite."
+            onChange={(event) => setSource(event.target.value)}
+          />
+          <p className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
+            {source.length.toLocaleString()} / 20,000 characters
+          </p>
+        </Field>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={() => void startRewrite()} disabled={!canRun}>
+            <Wand2 className="size-4" aria-hidden="true" />
+            Try a rewrite
+          </Button>
+          {phase === "working" && (
+            <>
+              <span
+                role="status"
+                className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"
+              >
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                Working…
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => stopJob(true)}
+              >
+                Cancel
+              </Button>
+            </>
+          )}
+        </div>
+
+        {phase === "failed" && failure && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {failure}
+          </p>
+        )}
+
+        {phase === "cancelled" && (
+          <p role="status" className="text-xs text-neutral-500 dark:text-neutral-400">
+            Rewrite cancelled.
+          </p>
+        )}
+
+        {phase === "done" && result && (
+          <div className="grid gap-2">
+            <Label htmlFor="ai_result">Rewrite result</Label>
+            <Textarea
+              id="ai_result"
+              aria-label="Rewrite result"
+              readOnly
+              value={result.text}
+              className="min-h-28"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void copyResult()}
+              >
+                <Copy className="size-3.5" aria-hidden="true" />
+                Copy
+              </Button>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Review it here; nothing is inserted automatically.
+              </p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
@@ -178,6 +473,9 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
     onSuccess: (settings) => {
       queryClient.setQueryData(["settings"], settings);
       reset(toForm(settings));
+      // The AI card gates on daemon truth, so an enable/disable toggle only
+      // takes effect after this refresh.
+      void queryClient.invalidateQueries({ queryKey: ["ai-status"] });
       toast.success("Settings saved.");
     },
     onError: (error) => toast.error(describeError(error)),
@@ -624,6 +922,12 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
           </div>
         </CardContent>
       </Card>
+
+      <AiRewriteCard
+        control={control}
+        readOnly={readOnly}
+        enabledOnSave={watch("ai_enabled")}
+      />
 
       {/* Advanced fonts: collapsed by default; no font picker on first run. */}
       <details className="rounded-lg border border-neutral-200 dark:border-neutral-800">
