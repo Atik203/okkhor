@@ -63,8 +63,9 @@ UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
 | 6. Hardening, model, AI | 0.7 | 36–44 | IME/RDP/DPI, stress, Tier 1 reranker, opt-in AI worker |
 | 7. Parity | 0.8 | 44–48 | real dictionaries/layouts, importers, migration, parity matrix |
 | 8. Fixed layouts | 0.9 | 48–50 | National, Probhat, Bijoy; alternate roman tables |
-| 9. Voice and learning | 0.9.x | 50–53 | opt-in dictation, local next-word learning |
-| 10. Release 1.0 | 1.0 | 53–57 | signed installer, updater, SBOM, beta hardening |
+| 9. Local learning and next-word | 0.9.x | 50–53 | accepted/corrected events, bigram strip, replay |
+| 10. Voice typing | later | — | after owner daily-use QA; not a 1.0 blocker |
+| 11. Release 1.0 | 1.0 | 53–57 | signed installer, updater, SBOM, beta hardening |
 
 Weeks are relative to project start, not calendar dates. Add 20–30% buffer for
 Windows compatibility and Bengali edge cases.
@@ -292,8 +293,11 @@ hook swallows letters in fixed mode so IME composition cannot corrupt the
 result. ADR 0021 and `docs/superpowers/specs/2026-11-24-fixed-layout-engine-design.md`
 record the design.
 
-Voice typing and local next-word learning are now Phase 8b (0.9.x); keyboard
-input remains the primary path.
+Local learning and next-word suggestions are Phase 8b (0.9.x). Voice typing is
+deferred until after the owner has used the keyboard for a couple of days and
+the typing path is verified seamless in daily use — most users will use the
+keyboard, not voice, so voice is not a 1.0 blocker. The voice deliverables and
+exit criteria below remain the specification for that later slice.
 
 Deliverables:
 
