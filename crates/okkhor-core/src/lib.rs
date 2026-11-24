@@ -7,6 +7,7 @@
 
 pub mod candidate;
 pub mod language;
+pub mod preedit;
 pub mod text;
 
 pub use candidate::{
@@ -14,4 +15,5 @@ pub use candidate::{
     SuggestionRequest,
 };
 pub use language::Language;
+pub use preedit::{EditPlan, is_join_mark, plan_edit};
 pub use text::{contains_bengali, is_bengali_char, normalize_lookup, normalize_nfc};
