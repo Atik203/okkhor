@@ -17,6 +17,7 @@ export interface Settings {
   popup_enabled: boolean;
   popup_max_items: number;
   english_suggestions: boolean;
+  inline_preedit: boolean;
   toggle_hotkey: string;
   pause_hotkey: string;
   show_toggle_toast: boolean;

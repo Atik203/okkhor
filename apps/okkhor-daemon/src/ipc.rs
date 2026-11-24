@@ -164,6 +164,7 @@ pub fn live_plan(patch: &SettingsPatch) -> LivePlan {
     flag!(patch.popup_enabled, "popup_enabled", false);
     flag!(patch.popup_max_items, "popup_max_items", false);
     flag!(patch.english_suggestions, "english_suggestions", false);
+    flag!(patch.inline_preedit, "inline_preedit", false);
     flag!(patch.toggle_hotkey, "toggle_hotkey", true);
     flag!(patch.pause_hotkey, "pause_hotkey", true);
     flag!(patch.show_toggle_toast, "show_toggle_toast", false);
@@ -227,6 +228,7 @@ pub struct DaemonState<P> {
     toggle_sound: AtomicBool,
     learning: AtomicBool,
     english_suggestions: AtomicBool,
+    inline_preedit: AtomicBool,
     words_revision: AtomicU64,
     shutdown_requested: AtomicBool,
     rebind_requested: AtomicBool,
@@ -334,6 +336,7 @@ impl<P: Protector> DaemonState<P> {
             toggle_sound: AtomicBool::new(current.toggle_sound),
             learning: AtomicBool::new(current.learning_enabled),
             english_suggestions: AtomicBool::new(current.english_suggestions),
+            inline_preedit: AtomicBool::new(current.inline_preedit),
             words_revision: AtomicU64::new(0),
             shutdown_requested: AtomicBool::new(false),
             settings: Mutex::new(settings),
@@ -435,6 +438,11 @@ impl<P: Protector> DaemonState<P> {
     /// Whether English prefix completions are enabled.
     pub fn english_suggestions(&self) -> bool {
         self.english_suggestions.load(Ordering::SeqCst)
+    }
+
+    /// Whether Bangla is rendered in the document per keystroke.
+    pub fn inline_preedit(&self) -> bool {
+        self.inline_preedit.load(Ordering::SeqCst)
     }
 
     /// Monotonic counter bumped by every words mutation.
@@ -546,6 +554,8 @@ impl<P: Protector> DaemonState<P> {
             .store(merged.learning_enabled, Ordering::SeqCst);
         self.english_suggestions
             .store(merged.english_suggestions, Ordering::SeqCst);
+        self.inline_preedit
+            .store(merged.inline_preedit, Ordering::SeqCst);
         self.ai.set_enabled(merged.ai_enabled);
         // The bar toggles mode through `settings.update`; the hotkey and tray
         // use the daemon-local path. Play the same click for both so feedback

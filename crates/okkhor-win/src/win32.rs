@@ -68,6 +68,10 @@ static ENGLISH_POPUP: AtomicBool = AtomicBool::new(false);
 /// swallowed before either release, which could leave a key looking stuck.
 static SWALLOWED_DOWN: [AtomicBool; 256] = [const { AtomicBool::new(false) }; 256];
 
+/// Inline Bangla preedit swallows letters so the roman key never reaches the
+/// document; the daemon renders the Bangla form itself.
+static INLINE_PREEDIT: AtomicBool = AtomicBool::new(false);
+
 /// Whether fixed-layout mode is active. The hook drops ASCII letter keydowns
 /// (and their matching keyups via `LAST_SWALLOWED_VK`) so the daemon can inject
 /// the mapped Bangla character instead of letting an IME compose the raw ASCII.
@@ -77,6 +81,12 @@ static SWALLOW_LETTERS: AtomicBool = AtomicBool::new(false);
 /// it on a mode or layout switch so the Avro phonetic path keeps its letters.
 pub fn set_swallow_letters(enabled: bool) {
     SWALLOW_LETTERS.store(enabled, Ordering::Release);
+}
+
+/// Publish inline Bangla preedit for the hook. Only letters are hidden; the
+/// daemon injects the rendered Bangla form.
+pub fn set_swallow_inline(enabled: bool) {
+    INLINE_PREEDIT.store(enabled, Ordering::Release);
 }
 
 /// Publish the composition state the hook needs to decide swallowing.
@@ -342,6 +352,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     let unicode = BANGLA_UNICODE.load(Ordering::Relaxed);
                     let english_popup = ENGLISH_POPUP.load(Ordering::Relaxed);
                     let fixed = SWALLOW_LETTERS.load(Ordering::Relaxed);
+                    let inline = INLINE_PREEDIT.load(Ordering::Relaxed);
                     // AltGr is a layout modifier, not a shortcut chord. Only
                     // the fixed-layout letter predicate uses this relaxed test;
                     // the phonetic predicates keep the original chord rule.
@@ -359,6 +370,13 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                             bangla,
                             fixed,
                             fixed_chord,
+                            false,
+                            virtual_key,
+                        ) || crate::input::should_swallow_inline_letters(
+                            capture,
+                            bangla,
+                            inline,
+                            chord,
                             false,
                             virtual_key,
                         ) || crate::input::should_swallow_danda(

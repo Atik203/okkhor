@@ -854,6 +854,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         learn_dropped: &'a AtomicU64,
         compose_window: &'a mut isize,
         compose_pid: &'a mut u32,
+        /// Bangla text last written by inline preedit (empty when inactive).
+        preedit_rendered: &'a mut String,
         encoding: crate::OutputEncoding,
         learning_enabled: bool,
         state: Option<&'a ProdState>,
@@ -957,6 +959,86 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     state.set_popup_visible(false);
                 }
             }
+        }
+    }
+
+    /// Render the current best Bangla candidate into the document as an
+    /// inline preedit. Only the suffix after the common prefix is rewritten,
+    /// and the whole edit is one atomic `SendInput` batch.
+    fn refresh_inline_preedit(ctx: &mut CompositionCtx<'_>) {
+        if ctx.encoding != crate::OutputEncoding::Unicode {
+            return;
+        }
+        let next = if ctx.session.is_composing() {
+            ctx.session
+                .candidates()
+                .get(ctx.session.selected())
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let plan = okkhor_core::plan_edit(ctx.preedit_rendered, &next);
+        if plan.is_noop() {
+            *ctx.preedit_rendered = next;
+            return;
+        }
+        if let Err(error) = okkhor_win::inject_commit(plan.erase_utf16, &plan.insert, false) {
+            ctx.logger.error(
+                logging::Scope::Daemon,
+                "preedit_inject",
+                inject_code(&error),
+            );
+            return;
+        }
+        *ctx.preedit_rendered = next;
+    }
+
+    /// Finalize an inline-preedit word. The document already contains the
+    /// rendered Bangla, so only the delimiter is injected.
+    fn finalize_inline(
+        ctx: &mut CompositionCtx<'_>,
+        roman: String,
+        previous_word: Option<String>,
+        trailing_space: bool,
+        newline: bool,
+    ) {
+        let rendered = ctx.preedit_rendered.clone();
+        let committed = ctx.session.commit(trailing_space);
+        ctx.preedit_rendered.clear();
+        hide_popup(ctx.popup, ctx.state);
+        if newline {
+            let _ = okkhor_win::send_enter();
+        } else if trailing_space {
+            let _ = okkhor_win::inject_commit(0, "", true);
+        } else if committed.is_none() {
+            // Nothing to accept: preserve the Tab the hook swallowed.
+            let _ = okkhor_win::send_tab();
+        }
+        let Some(commit) = committed else {
+            return;
+        };
+        let unicode_text = if rendered.is_empty() {
+            commit.text
+        } else {
+            rendered
+        };
+        if !ctx.learning_enabled
+            || !unicode_text
+                .chars()
+                .any(|ch| ('\u{0980}'..='\u{09FF}').contains(&ch))
+        {
+            return;
+        }
+        let event = LearningEvent::TransliterationCommitted {
+            roman_input: roman,
+            output: unicode_text,
+            language: Language::Bangla,
+            previous_word,
+            timestamp_ms: now_ms(),
+        };
+        if ctx.learn_tx.try_send(event).is_err() {
+            ctx.learn_dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -1177,6 +1259,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // `cancel` returns the raw roman buffer, which the caller deliberately
         // drops: already-typed text stays untouched in the target.
         let _ = ctx.session.cancel();
+        // Inline preedit leaves the already-rendered Bangla in the document
+        // (Kontho behaviour); only the tracking state is dropped.
+        ctx.preedit_rendered.clear();
         hide_popup(ctx.popup, ctx.state);
     }
 
@@ -1190,6 +1275,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         let same = same_target(*ctx.compose_pid, *ctx.compose_window, pid, foreground);
         if ctx.session.is_composing() && !same {
             ctx.session.reset();
+            ctx.preedit_rendered.clear();
             hide_popup(ctx.popup, ctx.state);
         }
         // A child-window swap inside the same application is not a focus
@@ -1208,6 +1294,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         fixed: Option<&FixedLayout>,
         fixed_composition: &mut FixedComposition,
         fixed_enabled: bool,
+        inline_enabled: bool,
     ) {
         if fixed_enabled {
             if let Some(layout) = fixed {
@@ -1243,6 +1330,24 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     }
                     return;
                 }
+            }
+        }
+        if inline_enabled {
+            if let Some(letter) = vk_to_letter(vk) {
+                if ctrl_or_alt_pressed() {
+                    let _ = ctx.session.cancel();
+                    ctx.preedit_rendered.clear();
+                    return;
+                }
+                track_focus(ctx);
+                if ctx.session.push_letter(letter) {
+                    refresh_popup(ctx);
+                    refresh_inline_preedit(ctx);
+                } else {
+                    let _ = ctx.session.cancel();
+                    ctx.preedit_rendered.clear();
+                }
+                return;
             }
         }
         if let Some(letter) = vk_to_letter(vk) {
@@ -1314,9 +1419,18 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 if ctx.session.backspace() != BackspaceOutcome::Empty {
                     refresh_popup(ctx);
                 }
+                if inline_enabled {
+                    refresh_inline_preedit(ctx);
+                }
             }
             VK_SPACE | VK_RETURN => {
                 if !ctx.session.is_composing() {
+                    return;
+                }
+                if inline_enabled {
+                    let roman = ctx.session.buffer().to_owned();
+                    let previous_word = ctx.session.previous_word().map(str::to_owned);
+                    finalize_inline(ctx, roman, previous_word, vk == VK_SPACE, vk == VK_RETURN);
                     return;
                 }
                 let roman = ctx.session.buffer().to_owned();
@@ -1350,12 +1464,18 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 if ctx.session.is_composing() {
                     ctx.session.move_selection(-1);
                     refresh_popup(ctx);
+                    if inline_enabled {
+                        refresh_inline_preedit(ctx);
+                    }
                 }
             }
             VK_RIGHT | VK_DOWN => {
                 if ctx.session.is_composing() {
                     ctx.session.move_selection(1);
                     refresh_popup(ctx);
+                    if inline_enabled {
+                        refresh_inline_preedit(ctx);
+                    }
                 }
             }
             VK_TAB if ctx.session.is_composing() => {
@@ -1364,6 +1484,10 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 // is why the selected Bangla word was never typed.
                 let roman = ctx.session.buffer().to_owned();
                 let previous_word = ctx.session.previous_word().map(str::to_owned);
+                if inline_enabled {
+                    finalize_inline(ctx, roman, previous_word, false, false);
+                    return;
+                }
                 match ctx.session.commit(false) {
                     Some(commit) => {
                         do_commit(ctx, commit, roman, false, previous_word);
@@ -1716,6 +1840,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut last_english_token = String::new();
     let mut last_english_visible = false;
     let mut last_english_foreground = foreground_window_id();
+    let mut inline_was_enabled = false;
 
     let baseline: Arc<dyn Ranker + Send + Sync> = smriti.clone();
     let ranker: Arc<dyn Ranker + Send + Sync> = match options.ranker {
@@ -1760,6 +1885,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut english = EnglishSession::new();
     let mut compose_window = foreground_window_id();
     let mut compose_pid = foreground_window_pid();
+    let mut preedit_rendered = String::new();
     let mut encoding = options.encoding;
     let mut mode = options.mode;
     let mut learning_enabled = true;
@@ -1975,6 +2101,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 mode = live_mode;
                 let _ = okkhor_win::signal_state_changed();
                 session.reset();
+                preedit_rendered.clear();
                 hide_popup(&mut popup, Some(state));
                 tray.set_mode(tray_mode_of(mode));
                 println!("daemon: mode {}", mode.as_str());
@@ -1983,6 +2110,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             if live_encoding != encoding {
                 encoding = live_encoding;
                 fixed_composition.clear();
+                session.reset();
+                preedit_rendered.clear();
                 println!("daemon: encoding {}", encoding.as_str());
             }
             // Layout changes apply live: no daemon restart required. Rebuild the
@@ -1995,6 +2124,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     logger.error(logging::Scope::Engine, kind, None);
                 }
                 fixed_composition.clear();
+                session.reset();
+                preedit_rendered.clear();
                 hide_popup(&mut popup, Some(state));
                 match next {
                     LayoutEngine::Fixed(layout) => {
@@ -2053,8 +2184,10 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 hide_popup(&mut popup, ipc_state.as_deref());
             }
             toast_until_ms = 0;
+            preedit_rendered.clear();
             // Nothing may be swallowed while capture is off.
             hook.set_english_popup(false);
+            okkhor_win::set_swallow_inline(false);
             hook.set_composition_state(false, false, false);
             // Drain injected and real events alike while paused.
             while hook.try_next().is_some() {}
@@ -2069,6 +2202,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             if session.is_composing() {
                 session.reset();
             }
+            preedit_rendered.clear();
+            okkhor_win::set_swallow_inline(false);
             let enabled = ipc_state
                 .as_deref()
                 .is_none_or(|state| state.english_suggestions());
@@ -2220,6 +2355,26 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         let fixed_enabled =
             fixed_layout.is_some() && mode.allows_composition() && hook.capture_enabled();
         okkhor_win::set_swallow_letters(fixed_enabled);
+        let inline_enabled = !fixed_enabled
+            && mode.allows_composition()
+            && hook.capture_enabled()
+            && encoding == crate::OutputEncoding::Unicode
+            && ipc_state
+                .as_deref()
+                .is_none_or(|state| state.inline_preedit());
+        okkhor_win::set_swallow_inline(inline_enabled);
+        if inline_enabled != inline_was_enabled {
+            // Switching the setting mid-word cannot reconcile text that was
+            // already delivered under the other mode; end the composition and
+            // leave the document as-is.
+            session.reset();
+            preedit_rendered.clear();
+            hide_popup(&mut popup, ipc_state.as_deref());
+            inline_was_enabled = inline_enabled;
+        }
+        if !inline_enabled {
+            preedit_rendered.clear();
+        }
         if fixed_enabled
             && !same_target(
                 compose_pid,
@@ -2270,6 +2425,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     learn_dropped: &learn_dropped,
                     compose_window: &mut compose_window,
                     compose_pid: &mut compose_pid,
+                    preedit_rendered: &mut preedit_rendered,
                     encoding,
                     learning_enabled,
                     state: ipc_state.as_deref(),
@@ -2299,6 +2455,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 learn_dropped: &learn_dropped,
                 compose_window: &mut compose_window,
                 compose_pid: &mut compose_pid,
+                preedit_rendered: &mut preedit_rendered,
                 encoding,
                 learning_enabled,
                 state: ipc_state.as_deref(),
@@ -2312,6 +2469,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 fixed_layout.as_deref(),
                 &mut fixed_composition,
                 fixed_layout.is_some() && mode.allows_composition() && hook.capture_enabled(),
+                inline_enabled,
             );
         }
 

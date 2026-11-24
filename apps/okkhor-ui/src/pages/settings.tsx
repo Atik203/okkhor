@@ -736,6 +736,22 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
           </Field>
           <Field className="sm:col-span-2">
             <Controller
+              name="inline_preedit"
+              control={control}
+              render={({ field }) => (
+                <ToggleRow
+                  name="inline_preedit"
+                  label="Inline Bangla preedit"
+                  description="Show Bangla in the document as you type, updating on every key. Off restores commit-on-Space."
+                  checked={field.value}
+                  onChange={field.onChange}
+                  disabled={readOnly}
+                />
+              )}
+            />
+          </Field>
+          <Field className="sm:col-span-2">
+            <Controller
               name="english_suggestions"
               control={control}
               render={({ field }) => (

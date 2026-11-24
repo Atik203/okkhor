@@ -3,6 +3,21 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.10.0] - unreleased
+
+### Added
+
+- **Inline Bangla preedit (Kontho-style).** In Bangla phonetic mode the hook
+  now swallows the letter and the document shows the evolving Bangla on every
+  keystroke. The daemon keeps the roman buffer and the last rendered string and
+  writes only the suffix after the common prefix, in one atomic `SendInput`
+  batch. Backspace pops one roman character and walks the Bangla back. Up/Down
+  change the highlighted row live; Tab/Space finalize; Esc leaves the text.
+  Grapheme-safe: appending a vowel sign is a pure insert, changing a mark
+  retypes only that cluster.
+- **`Inline Bangla preedit` setting**, on by default; off restores the 0.9
+  commit-on-Space behaviour exactly.
+
 ## [0.9.3] - 2026-11-24
 
 ### Fixed

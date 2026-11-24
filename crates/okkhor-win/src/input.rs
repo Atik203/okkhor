@@ -194,6 +194,25 @@ pub const fn should_swallow_letters(
         && is_fixed_layout_key(vk)
 }
 
+/// Whether inline Bangla preedit should swallow this letter. Only `A`..`Z`
+/// qualify: punctuation and digits keep their existing commit/pass-through
+/// behavior, and the daemon renders the Bangla preedit itself.
+pub const fn should_swallow_inline_letters(
+    capture_enabled: bool,
+    bangla_mode: bool,
+    inline_preedit: bool,
+    chord_pressed: bool,
+    injected: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && bangla_mode
+        && inline_preedit
+        && !chord_pressed
+        && !injected
+        && matches!(vk, 0x41..=0x5A)
+}
+
 /// Whether the English completion list should take the Up/Down arrows.
 ///
 /// Without this the arrow reaches the target, moves the caret, and Okkhor also
@@ -247,8 +266,8 @@ mod tests {
     use super::{
         KeyEvent, KeyPhase, LLKHF_INJECTED, VK_OEM_PERIOD, VK_TAB_KEY, is_composition_key,
         is_injected_event, should_enqueue, should_swallow, should_swallow_danda,
-        should_swallow_english_arrows, should_swallow_letters, should_swallow_numeral,
-        should_swallow_tab,
+        should_swallow_english_arrows, should_swallow_inline_letters, should_swallow_letters,
+        should_swallow_numeral, should_swallow_tab,
     };
 
     #[test]
@@ -499,6 +518,25 @@ mod tests {
         assert!(!should_swallow_numeral(
             true, true, true, false, false, false, 0x41
         ));
+    }
+
+    #[test]
+    fn inline_preedit_swallows_only_letters() {
+        assert!(should_swallow_inline_letters(
+            true, true, true, false, false, 0x41
+        ));
+        assert!(!should_swallow_inline_letters(
+            true, true, false, false, false, 0x41
+        ));
+        assert!(!should_swallow_inline_letters(
+            true, true, true, true, false, 0x41
+        ));
+        for vk in [0x30, 0xBE, 0x08, 0x20, 0x09, 0x26] {
+            assert!(
+                !should_swallow_inline_letters(true, true, true, false, false, vk),
+                "vk {vk:#04X} must not be swallowed by inline preedit"
+            );
+        }
     }
 
     #[test]

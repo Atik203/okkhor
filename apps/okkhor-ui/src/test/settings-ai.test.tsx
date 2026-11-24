@@ -25,6 +25,7 @@ const SETTINGS = {
   popup_enabled: true,
   popup_max_items: 5,
   english_suggestions: true,
+  inline_preedit: true,
   toggle_hotkey: "F9",
   pause_hotkey: "Ctrl+Alt+Shift+P",
   show_toggle_toast: true,

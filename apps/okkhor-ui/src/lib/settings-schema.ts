@@ -102,6 +102,7 @@ export const settingsSchema = z.object({
     .min(1, "At least 1 popup item.")
     .max(10, "At most 10 popup items."),
   english_suggestions: z.boolean(),
+  inline_preedit: z.boolean(),
   toggle_hotkey: z
     .string()
     .min(1, "Toggle hotkey is required.")
@@ -152,6 +153,7 @@ export function toForm(settings: Settings): SettingsForm {
     popup_enabled: settings.popup_enabled,
     popup_max_items: settings.popup_max_items,
     english_suggestions: settings.english_suggestions,
+    inline_preedit: settings.inline_preedit,
     toggle_hotkey: settings.toggle_hotkey,
     pause_hotkey: settings.pause_hotkey,
     show_toggle_toast: settings.show_toggle_toast,

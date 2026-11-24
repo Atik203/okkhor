@@ -193,6 +193,10 @@ pub struct Settings {
     /// Offer English prefix completions (never auto-replace; Tab/click only).
     #[serde(default = "default_true")]
     pub english_suggestions: bool,
+    /// Show Bangla in the document on every keystroke (Kontho-style preedit).
+    /// Off restores commit-on-Space exactly.
+    #[serde(default = "default_true")]
+    pub inline_preedit: bool,
     #[serde(default = "default_toggle_hotkey")]
     pub toggle_hotkey: String,
     #[serde(default = "default_pause_hotkey")]
@@ -260,6 +264,7 @@ impl Default for Settings {
             popup_enabled: true,
             popup_max_items: 8,
             english_suggestions: true,
+            inline_preedit: true,
             toggle_hotkey: "F9".to_owned(),
             pause_hotkey: "Ctrl+Alt+Shift+P".to_owned(),
             show_toggle_toast: true,
@@ -570,6 +575,9 @@ impl Settings {
         if let Some(english_suggestions) = patch.english_suggestions {
             merged.english_suggestions = english_suggestions;
         }
+        if let Some(inline_preedit) = patch.inline_preedit {
+            merged.inline_preedit = inline_preedit;
+        }
         if let Some(input_mode) = patch.input_mode {
             merged.input_mode = input_mode;
         }
@@ -660,6 +668,8 @@ pub struct SettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub english_suggestions: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_preedit: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toggle_hotkey: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pause_hotkey: Option<String>,
@@ -722,6 +732,7 @@ mod tests {
             "popup_enabled": true,
             "popup_max_items": 8,
             "english_suggestions": true,
+            "inline_preedit": true,
             "toggle_hotkey": "F9",
             "pause_hotkey": "Ctrl+Alt+Shift+P",
             "show_toggle_toast": true,
