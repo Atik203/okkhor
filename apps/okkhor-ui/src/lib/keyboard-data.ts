@@ -5,8 +5,8 @@
  * inserts Unicode text through `text.insert` and does NOT replay any layout's
  * roman keystrokes. Per-layout roman mappings are intentionally not bundled
  * (no invented mappings). The layout list mirrors the daemon's
- * `layouts.list`, which currently offers only the Avro table that actually
- * handles hardware typing.
+ * `layouts.list`: one phonetic style plus the fixed National, Probhat and
+ * Bijoy layouts.
  *
  * Privacy: `localStorage` holds only non-sensitive UI state (group order,
  * pinned single-character favorites) under versioned keys. Recents are

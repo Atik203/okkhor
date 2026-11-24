@@ -14,8 +14,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LMENU,
-    VK_LWIN, VK_MENU, VK_RETURN, VK_RMENU, VK_RWIN, VK_SHIFT, VK_TAB,
+    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LWIN,
+    VK_MENU, VK_RETURN, VK_RMENU, VK_RWIN, VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
@@ -652,8 +652,8 @@ pub struct ModifierFlags {
 /// Read Shift and AltGr for a fixed-layout key on the worker thread.
 ///
 /// This is deliberately not called from the hook callback: the callback only
-/// timestamps and enqueues. `VK_RMENU` is the standard AltGr key; `VK_LMENU` is
-/// also accepted for layouts that report AltGr through the left Alt key.
+/// timestamps and enqueues. Only `VK_RMENU` is AltGr; plain left Alt remains a
+/// shortcut modifier so Alt+F and similar app shortcuts still work.
 pub fn modifier_state() -> ModifierFlags {
     // SAFETY: GetAsyncKeyState with a virtual-key code has no pointer
     // preconditions; a negative return means the key is currently down.
@@ -671,9 +671,9 @@ pub fn modifier_state() -> ModifierFlags {
 pub fn altgr_pressed() -> bool {
     // SAFETY: GetAsyncKeyState with a virtual-key code has no pointer
     // preconditions; a negative return means the key is currently down.
-    unsafe {
-        GetAsyncKeyState(i32::from(VK_RMENU.0)) < 0 || GetAsyncKeyState(i32::from(VK_LMENU.0)) < 0
-    }
+    // SAFETY: GetAsyncKeyState with a virtual-key code has no pointer
+    // preconditions; a negative return means the key is currently down.
+    unsafe { GetAsyncKeyState(i32::from(VK_RMENU.0)) < 0 }
 }
 
 /// Whether Ctrl, Alt, or the Windows key is currently held.

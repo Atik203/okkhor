@@ -20,7 +20,7 @@ scope.
 
 ## Current state
 
-- This repository is **0.8 code-complete**. The live typing path is the Win32
+- This repository is **0.9 code-complete**. The live typing path is the Win32
   hook, the resident daemon, the Avro phonetic table, and the embedded `OKS1`
   suggestion engine (184k Bangla words, 114k roman pairs, curated corrections,
   `wordfreq` popularity). English mode offers prefix completions (Tab/click,

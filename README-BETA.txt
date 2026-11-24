@@ -137,7 +137,8 @@ memory-only and are never logged or inserted automatically.
   valid saved settings. National/Jatiya, Probhat and Bijoy are fixed
   physical-key layouts with Shift/AltGr and conjunct sequences. In fixed mode
   the raw letter is swallowed, the popup stays hidden, and output encoding
-  (including Bijoy) still applies.
+  (including Bijoy) still applies. Changing layout in Settings takes effect
+  immediately; no restart is needed.
 - The first letter no longer disappears in browsers: a child-window swap in
   the same process no longer resets the composition. The English popup no
   longer flickers while a caret sample is pending. The card sits closer under

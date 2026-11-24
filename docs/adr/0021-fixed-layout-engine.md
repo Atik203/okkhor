@@ -72,7 +72,10 @@ fixed mapping.
 
 ## Consequences
 
-- All six selector codes produce real, different behavior after 0.9.
+- Every accepted layout code produces real, different behavior after 0.9. The
+  selector advertises four of them: Avro (Phonetic), National, Probhat and
+  Bijoy. `phonetic` and `khipro` remain valid stored codes with their own Roman
+  rule tables but are not offered as separate new-user choices.
 - Fixed layouts never depend on the system keyboard language or IME, because
   no raw character is delivered to the target.
 - Two code paths must be tested separately; golden tests are required per

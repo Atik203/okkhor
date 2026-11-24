@@ -152,14 +152,27 @@ pub const fn should_swallow(
 
 /// Whether the hook must swallow an ASCII letter key-down in fixed-layout mode.
 ///
-/// A fixed layout maps the physical letter to a Bengali character that the
-/// daemon injects directly, so the raw letter must never reach the target: an
-/// active Bengali IME could otherwise compose it into a different character.
-/// Only `A`..`Z` virtual keys qualify; Shift and AltGr are resolved from the
-/// layout's own modifier table, not from extra key events. Phonetic mode
-/// (`fixed_layout = false`) never swallows letters because the roman letters
-/// are the composition buffer and must stay visible. The matching key-up is
-/// swallowed by the hook's last-swallowed-VK path, leaving no phantom release.
+/// Virtual keys that a fixed layout can map. Space, Enter, Backspace, the
+/// arrows and the modifier keys are deliberately absent: those must keep their
+/// normal behavior. The set mirrors `okkhor_lang::fixed_layout::vk_to_key_name`.
+pub const fn is_fixed_layout_key(vk: u16) -> bool {
+    matches!(
+        vk,
+        0x30..=0x39
+            | 0x41..=0x5A
+            | 0x60..=0x6F
+            | 0xC0
+            | 0xBA..=0xBF
+            | 0xDB..=0xDE
+    )
+}
+
+/// In fixed mode the daemon injects the mapped character for every physical
+/// key, so the raw key must never also reach the target. Swallowing letters
+/// alone duplicated punctuation, Shift+punctuation and AltGr+digits.
+/// Phonetic mode (`fixed_layout = false`) never swallows these keys because
+/// the roman characters are the composition buffer and must stay visible. The
+/// matching key-up is swallowed by the hook's last-swallowed-VK path.
 pub const fn should_swallow_letters(
     capture_enabled: bool,
     bangla_mode: bool,
@@ -173,7 +186,7 @@ pub const fn should_swallow_letters(
         && fixed_layout
         && !chord_pressed
         && !injected
-        && matches!(vk, 0x41..=0x5A)
+        && is_fixed_layout_key(vk)
 }
 
 /// Whether a key transition is a press or a release.
@@ -312,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn only_ascii_letters_are_swallowed_in_fixed_layout_mode() {
+    fn every_mapped_fixed_key_is_swallowed() {
         // The whole ASCII letter VK range, including both boundaries.
         for vk in 0x41..=0x5A {
             assert!(
@@ -334,11 +347,19 @@ mod tests {
         )); // English mode
         assert!(!should_swallow_letters(true, true, true, true, false, 0x41)); // Ctrl/Alt/Win chord
         assert!(!should_swallow_letters(true, true, true, false, true, 0x41)); // injected event
-        // Adjacent VKs, digits, commit keys and punctuation are not letters.
-        for vk in [0x40, 0x5B, 0x08, 0x09, 0x0D, 0x20, 0x30, 0x60, 0xBE] {
+        // Digits, numpad and OEM punctuation are mapped by fixed layouts and
+        // must be swallowed too, otherwise the target receives them twice.
+        for vk in [0x30, 0x39, 0x60, 0x69, 0xBA, 0xBE, 0xC0, 0xDB] {
+            assert!(
+                should_swallow_letters(true, true, true, false, false, vk),
+                "vk {vk:#04X} is mapped by fixed layouts"
+            );
+        }
+        // Commit keys and modifiers are never swallowed.
+        for vk in [0x40, 0x5B, 0x08, 0x09, 0x0D, 0x20, 0x10, 0x12] {
             assert!(
                 !should_swallow_letters(true, true, true, false, false, vk),
-                "vk {vk:#04X} is not an ASCII letter"
+                "vk {vk:#04X} must pass through"
             );
         }
         // The predicate is usable in a constant context from the hook.

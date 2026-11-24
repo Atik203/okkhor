@@ -109,11 +109,23 @@ fn avro_fallback(ranker: Arc<dyn Ranker + Send + Sync>) -> LayoutEngine {
 /// is injected. Only keys that actually start a sequence are delayed.
 pub const SEQUENCE_HOLD: Duration = Duration::from_millis(30);
 
-/// Bounded pending state for physical-key sequences.
+/// What one fixed-layout key produced.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FixedKeyOutcome {
+    /// The key could start a sequence; its character is held briefly.
+    Hold,
+    /// Text to inject.
+    Text(String),
+    /// The key is unmapped for this modifier pair; re-emit these characters.
+    PassThrough(String),
+}
+
+/// Bounded pending state for physical-key sequences. Each held character
+/// remembers the raw key so a failed injection can re-emit it.
 #[derive(Debug)]
 pub struct FixedComposition {
     keys: Vec<&'static str>,
-    pending: Option<(String, Instant)>,
+    pending: Option<(String, String, Instant)>,
 }
 
 impl Default for FixedComposition {
@@ -126,53 +138,68 @@ impl Default for FixedComposition {
 }
 
 impl FixedComposition {
-    /// Accept one physical key. Returns text to inject immediately, or `None`
-    /// when the character is held briefly because it could start a sequence.
+    /// Accept one physical key. `fallback` is the raw text to re-emit if the
+    /// key has no mapping or injection fails.
     pub fn push(
         &mut self,
         layout: &FixedLayout,
         key: &'static str,
         modifiers: ModifierSet,
         now: Instant,
-    ) -> Option<String> {
-        if let Some((held, _)) = self.pending.take() {
+        fallback: char,
+    ) -> FixedKeyOutcome {
+        if let Some((held, _held_raw, _)) = self.pending.take() {
             self.keys.push(key);
             if let Some(sequence) = layout.resolve_sequence(&self.keys) {
                 self.keys.clear();
-                return Some(sequence.to_owned());
+                return FixedKeyOutcome::Text(sequence.to_owned());
             }
-            // No sequence: emit the held character first, then handle this
-            // key as a fresh candidate prefix so ordering stays correct.
             self.keys.clear();
             let single = self.single(layout, key, modifiers);
             self.keys.push(key);
-            if layout.is_sequence_prefix(&self.keys) {
-                self.pending = Some((single, now));
-                return Some(held);
+            match single {
+                None => {
+                    self.clear();
+                    return FixedKeyOutcome::PassThrough(format!("{held}{fallback}"));
+                }
+                Some(single) => {
+                    if layout.is_sequence_prefix(&self.keys) {
+                        self.pending = Some((single, fallback.to_string(), now));
+                        return FixedKeyOutcome::Text(held);
+                    }
+                    self.clear();
+                    return FixedKeyOutcome::Text(format!("{held}{single}"));
+                }
             }
-            self.keys.clear();
-            return Some(format!("{held}{single}"));
         }
 
         self.keys.clear();
         self.keys.push(key);
-        let single = self.single(layout, key, modifiers);
-        if layout.is_sequence_prefix(&self.keys) {
-            self.pending = Some((single, now));
-            None
-        } else {
-            self.keys.clear();
-            Some(single)
+        match self.single(layout, key, modifiers) {
+            None => {
+                self.clear();
+                FixedKeyOutcome::PassThrough(fallback.to_string())
+            }
+            Some(single) => {
+                if layout.is_sequence_prefix(&self.keys) {
+                    self.pending = Some((single, fallback.to_string(), now));
+                    FixedKeyOutcome::Hold
+                } else {
+                    self.keys.clear();
+                    FixedKeyOutcome::Text(single)
+                }
+            }
         }
     }
 
-    /// Flush a held character whose sequence window has elapsed.
-    pub fn flush(&mut self, now: Instant) -> Option<String> {
+    /// Flush a held character whose sequence window has elapsed. Returns the
+    /// text and the raw fallback if injection fails.
+    pub fn flush(&mut self, now: Instant) -> Option<(String, String)> {
         match &self.pending {
-            Some((text, at)) if now.duration_since(*at) >= SEQUENCE_HOLD => {
-                let text = text.clone();
+            Some((text, raw, at)) if now.duration_since(*at) >= SEQUENCE_HOLD => {
+                let result = (text.clone(), raw.clone());
                 self.clear();
-                Some(text)
+                Some(result)
             }
             _ => None,
         }
@@ -184,11 +211,8 @@ impl FixedComposition {
         self.pending = None;
     }
 
-    fn single(&self, layout: &FixedLayout, key: &str, modifiers: ModifierSet) -> String {
-        layout
-            .resolve(key, modifiers)
-            .unwrap_or_default()
-            .to_owned()
+    fn single(&self, layout: &FixedLayout, key: &str, modifiers: ModifierSet) -> Option<String> {
+        layout.resolve(key, modifiers).map(str::to_owned)
     }
 }
 
@@ -238,10 +262,13 @@ mod tests {
             shift: false,
             altgr: false,
         };
-        assert_eq!(composition.push(layout, "Key_G", none, now), None);
         assert_eq!(
-            composition.push(layout, "Key_S", none, now),
-            Some("উ".to_owned())
+            composition.push(layout, "Key_G", none, now, 'g'),
+            FixedKeyOutcome::Hold
+        );
+        assert_eq!(
+            composition.push(layout, "Key_S", none, now, 's'),
+            FixedKeyOutcome::Text("উ".to_owned())
         );
     }
 
@@ -252,14 +279,40 @@ mod tests {
         let now = Instant::now();
         let none = ModifierSet::default();
         let mut composition = FixedComposition::default();
-        assert_eq!(composition.push(layout, "Key_G", none, now), None);
+        assert_eq!(
+            composition.push(layout, "Key_G", none, now, 'g'),
+            FixedKeyOutcome::Hold
+        );
         assert_eq!(composition.flush(now), None);
-        assert_eq!(composition.flush(now + SEQUENCE_HOLD), Some("্".to_owned()));
+        assert_eq!(
+            composition.flush(now + SEQUENCE_HOLD),
+            Some(("্".to_owned(), "g".to_owned()))
+        );
 
         let mut composition = FixedComposition::default();
-        assert_eq!(composition.push(layout, "Key_G", none, now), None);
+        assert_eq!(
+            composition.push(layout, "Key_G", none, now, 'g'),
+            FixedKeyOutcome::Hold
+        );
         composition.clear();
         assert_eq!(composition.flush(now + SEQUENCE_HOLD), None);
+    }
+
+    #[test]
+    fn unmapped_modifier_combination_passes_the_raw_key_through() {
+        let empty = r#"{
+            "kind": "fixed", "version": 1, "rule_count": 1,
+            "keys": {"normal": {"Key_A_Normal": null}, "shift": {}, "altgr": {}, "shift_altgr": {}},
+            "sequences": []
+        }"#;
+        let layout = from_asset_json(empty).expect("empty layout");
+        let now = Instant::now();
+        let none = ModifierSet::default();
+        let mut composition = FixedComposition::default();
+        assert_eq!(
+            composition.push(&layout, "Key_A", none, now, 'a'),
+            FixedKeyOutcome::PassThrough("a".to_owned())
+        );
     }
 
     #[test]

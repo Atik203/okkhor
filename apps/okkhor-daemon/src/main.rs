@@ -678,6 +678,63 @@ fn parse_autostart_action(_argument: Option<&str>) -> Option<()> {
 /// `inject_commit`: that would erase the roman word and leave a blank. The
 /// daemon abandons the composition and logs an allowlisted code instead.
 #[cfg(windows)]
+/// Raw text to re-emit when a fixed-layout key is unmapped or injection fails.
+#[cfg(windows)]
+fn raw_key_text(vk: u16, shift: bool) -> String {
+    let plain = match vk {
+        0x30..=0x39 => (vk as u8) as char,
+        0x41..=0x5A => {
+            let lower = (vk as u8) + 32;
+            if shift {
+                (lower - 32) as char
+            } else {
+                lower as char
+            }
+        }
+        0x60..=0x69 => (0x30 + (vk - 0x60) as u8) as char,
+        0xBA => ';',
+        0xBB => '=',
+        0xBC => ',',
+        0xBD => '-',
+        0xBE => '.',
+        0xBF => '/',
+        0xC0 => '`',
+        0xDB => '[',
+        0xDC => '\\',
+        0xDD => ']',
+        0xDE => '\'',
+        _ => return String::new(),
+    };
+    plain.to_string()
+}
+
+/// Inject a fixed-layout character with the current output encoding. On a
+/// failed injection the raw key is re-emitted so no keystroke is lost.
+#[cfg(windows)]
+fn inject_fixed_text(
+    text: &str,
+    raw: &str,
+    encoding: crate::OutputEncoding,
+    logger: &logging::Logger,
+) {
+    let converted = match encoding {
+        crate::OutputEncoding::Unicode => text.to_owned(),
+        crate::OutputEncoding::Bijoy => {
+            crate::apply_encoding(text, encoding).unwrap_or_else(|_| text.to_owned())
+        }
+    };
+    if let Err(error) = okkhor_win::inject_commit(0, &converted, false) {
+        let code = match &error {
+            okkhor_win::InjectError::Win32 { code, .. } => Some(*code as i32),
+            _ => None,
+        };
+        logger.error(logging::Scope::Daemon, "inject_commit", code);
+        if !raw.is_empty() {
+            let _ = okkhor_win::inject_commit(0, raw, false);
+        }
+    }
+}
+
 fn injectable_text(text: &str) -> bool {
     // `str::trim` does not remove zero-width joiners/non-joiners. A string of
     // only those characters paints as nothing but would still erase the roman
@@ -701,27 +758,20 @@ fn injectable_text(text: &str) -> bool {
 /// comparison.
 /// What the English completion card should do for one keystroke.
 ///
-/// The old rule hid the card whenever a caret request was still in flight, so
-/// every letter and every Backspace blanked it until UIA answered — visible
-/// flicker even though Bangla was smooth. A published password sample still
-/// hides immediately, and a changed foreground window hides without waiting.
-/// Between those two boundaries an already-visible card is kept as-is.
+/// A card is shown only with a fresh, known non-password sample. It is hidden
+/// on a password sample or a field change. Flicker is avoided not by showing a
+/// stale card, but by only *requesting* a new caret sample when a token starts
+/// or the foreground changes — continuous typing keeps the last sample fresh.
 #[cfg(windows)]
 fn english_popup_action(
     latest_password: Option<bool>,
     fresh: bool,
-    was_visible: bool,
     field_changed: bool,
 ) -> EnglishPopupAction {
-    if field_changed {
-        return EnglishPopupAction::Hide;
-    }
-    match latest_password {
-        None => EnglishPopupAction::Hide,
-        Some(true) => EnglishPopupAction::Hide,
-        Some(false) if fresh => EnglishPopupAction::Show,
-        Some(false) if was_visible => EnglishPopupAction::Keep,
-        Some(false) => EnglishPopupAction::Hide,
+    if field_changed || !fresh || latest_password != Some(false) {
+        EnglishPopupAction::Hide
+    } else {
+        EnglishPopupAction::Show
     }
 }
 
@@ -729,7 +779,6 @@ fn english_popup_action(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EnglishPopupAction {
     Show,
-    Keep,
     Hide,
 }
 
@@ -749,7 +798,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::time::{Duration, Instant};
 
     use crate::english::{EnglishCommit, EnglishSession};
-    use crate::layout_engine::{FixedComposition, LayoutEngine};
+    use crate::layout_engine::{FixedComposition, FixedKeyOutcome, LayoutEngine};
     use okkhor_core::Language;
     use okkhor_lang::fixed_layout::{FixedLayout, ModifierSet, vk_to_key_name};
     use okkhor_learn::{LearningEvent, LearningSnapshot, Smriti, SmritiConfig};
@@ -931,7 +980,6 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             english_popup_action(
                 tracker.latest().map(|sample| sample.password),
                 fresh,
-                window.is_visible(),
                 field_changed,
             )
         } else {
@@ -942,9 +990,6 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             if let Some(state) = state {
                 state.set_popup_visible(false);
             }
-            return;
-        }
-        if action == EnglishPopupAction::Keep {
             return;
         }
         match caret_for_popup(caret, caret_generation).or_else(|| window.anchor()) {
@@ -1171,25 +1216,17 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                         shift: flags.shift,
                         altgr: flags.altgr,
                     };
-                    if let Some(text) =
-                        fixed_composition.push(layout, key, modifiers, Instant::now())
-                    {
-                        let converted = match ctx.encoding {
-                            crate::OutputEncoding::Unicode => text,
-                            crate::OutputEncoding::Bijoy => {
-                                crate::apply_encoding(&text, ctx.encoding).unwrap_or(text)
-                            }
-                        };
-                        if let Err(error) = okkhor_win::inject_commit(0, &converted, false) {
-                            // Never lose a keystroke: the raw letter is safe
-                            // to re-emit because it was swallowed by the hook.
-                            ctx.logger.error(
-                                logging::Scope::Daemon,
-                                "inject_commit",
-                                inject_code(&error),
-                            );
-                            let raw = (vk as u8).to_ascii_lowercase() as char;
-                            let _ = okkhor_win::inject_commit(0, &raw.to_string(), false);
+                    let raw = raw_key_text(vk, flags.shift);
+                    let fallback = raw.chars().next().unwrap_or('?');
+                    match fixed_composition.push(layout, key, modifiers, Instant::now(), fallback) {
+                        FixedKeyOutcome::Hold => {}
+                        FixedKeyOutcome::Text(text) => {
+                            inject_fixed_text(&text, &raw, ctx.encoding, ctx.logger);
+                        }
+                        FixedKeyOutcome::PassThrough(text) => {
+                            // Unmapped for this modifier pair: the hook swallowed
+                            // it, so re-emit the raw key instead of dropping it.
+                            let _ = okkhor_win::inject_commit(0, &text, false);
                         }
                     }
                     return;
@@ -1640,7 +1677,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         },
         RankerChoice::Baseline => baseline,
     };
-    let layout_code = ipc_state
+    let mut layout_code = ipc_state
         .as_deref()
         .map(|state| state.status().layout)
         .unwrap_or_else(|| "avro".to_owned());
@@ -1657,7 +1694,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         logger.error(logging::Scope::Engine, kind, None);
     }
     let mut session: InputSession<DefaultEngine> = InputSession::new(base_engine);
-    let fixed_layout = match layout_engine {
+    let mut fixed_layout = match layout_engine {
         LayoutEngine::Fixed(layout) => Some(layout),
         LayoutEngine::Phonetic(engine) => {
             session = InputSession::new(DefaultEngine::Suggest {
@@ -1916,7 +1953,34 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             let live_encoding = daemon_output_encoding(state.encoding());
             if live_encoding != encoding {
                 encoding = live_encoding;
+                fixed_composition.clear();
                 println!("daemon: encoding {}", encoding.as_str());
+            }
+            // Layout changes apply live: no daemon restart required. Rebuild the
+            // engine once on the IPC thread, never on the typing path.
+            let live_layout = state.status().layout;
+            if live_layout != layout_code {
+                layout_code = live_layout;
+                let (next, health) = LayoutEngine::from_settings(&layout_code, Arc::clone(&ranker));
+                if let Some(kind) = health {
+                    logger.error(logging::Scope::Engine, kind, None);
+                }
+                fixed_composition.clear();
+                hide_popup(&mut popup, Some(state));
+                match next {
+                    LayoutEngine::Fixed(layout) => {
+                        fixed_layout = Some(layout);
+                        session = InputSession::new(default_engine(Arc::clone(&ranker)));
+                    }
+                    LayoutEngine::Phonetic(engine) => {
+                        fixed_layout = None;
+                        session = InputSession::new(DefaultEngine::Suggest {
+                            engine,
+                            ranker: Arc::clone(&ranker),
+                        });
+                    }
+                }
+                println!("daemon: layout {}", layout_code);
             }
             learning_enabled = state.learning();
             if state.take_rebind_request() {
@@ -2057,7 +2121,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             let foreground = foreground_window_id();
             let foreground_changed = foreground != last_english_foreground;
             last_english_foreground = foreground;
-            if english_visible && (token_changed || became_visible || foreground_changed) {
+            if english_visible && (became_visible || foreground_changed) {
                 if let Some(tracker) = caret_tracker.as_ref() {
                     last_caret_request = tracker.request();
                 }
@@ -2109,16 +2173,21 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         let fixed_enabled =
             fixed_layout.is_some() && mode.allows_composition() && hook.capture_enabled();
         okkhor_win::set_swallow_letters(fixed_enabled);
-        if fixed_enabled && foreground_window_id() != compose_window {
+        if fixed_enabled
+            && !same_target(
+                compose_pid,
+                compose_window,
+                foreground_window_pid(),
+                foreground_window_id(),
+            )
+        {
             fixed_composition.clear();
         }
         if !hook.capture_enabled() || !mode.allows_composition() {
             fixed_composition.clear();
         }
-        if let Some(text) = fixed_composition.flush(Instant::now()) {
-            if let Err(error) = okkhor_win::inject_commit(0, &text, false) {
-                logger.error(logging::Scope::Daemon, "inject_commit", inject_code(&error));
-            }
+        if let Some((text, raw)) = fixed_composition.flush(Instant::now()) {
+            inject_fixed_text(&text, &raw, encoding, logger);
         }
         let bangla_unicode =
             mode.allows_composition() && encoding == crate::OutputEncoding::Unicode;
@@ -2827,32 +2896,39 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn english_card_does_not_flicker_while_a_caret_sample_is_pending() {
+    fn english_card_only_shows_with_a_fresh_non_password_sample() {
         use super::EnglishPopupAction;
-        // A stale non-password sample while the card is already visible: keep
-        // it, instead of blanking it on every letter and Backspace.
+        // No stale card is ever kept in an unverified field.
         assert_eq!(
-            super::english_popup_action(Some(false), false, true, false),
-            EnglishPopupAction::Keep
+            super::english_popup_action(Some(false), false, false),
+            EnglishPopupAction::Hide
         );
         assert_eq!(
-            super::english_popup_action(Some(false), true, true, false),
+            super::english_popup_action(Some(false), true, false),
             EnglishPopupAction::Show
         );
-        // First show with no sample yet still waits.
         assert_eq!(
-            super::english_popup_action(None, false, false, false),
-            EnglishPopupAction::Hide
-        );
-        // Password and field changes are never overridden.
-        assert_eq!(
-            super::english_popup_action(Some(true), true, true, false),
+            super::english_popup_action(None, true, false),
             EnglishPopupAction::Hide
         );
         assert_eq!(
-            super::english_popup_action(Some(false), true, true, true),
+            super::english_popup_action(Some(true), true, false),
             EnglishPopupAction::Hide
         );
+        assert_eq!(
+            super::english_popup_action(Some(false), true, true),
+            EnglishPopupAction::Hide
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn raw_key_re_emit_uses_the_held_shift_state() {
+        assert_eq!(super::raw_key_text(0x41, false), "a");
+        assert_eq!(super::raw_key_text(0x41, true), "A");
+        assert_eq!(super::raw_key_text(0xBC, false), ",");
+        assert_eq!(super::raw_key_text(0x61, false), "1");
+        assert_eq!(super::raw_key_text(0x20, false), "");
     }
 
     #[cfg(windows)]
