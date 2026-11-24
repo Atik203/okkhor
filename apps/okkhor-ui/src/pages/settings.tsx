@@ -926,7 +926,7 @@ export default function SettingsPage({ readOnly }: { readOnly: boolean }) {
       <AiRewriteCard
         control={control}
         readOnly={readOnly}
-        enabledOnSave={watch("ai_enabled")}
+        enabledOnSave={watch("ai_enabled") ?? false}
       />
 
       {/* Advanced fonts: collapsed by default; no font picker on first run. */}
