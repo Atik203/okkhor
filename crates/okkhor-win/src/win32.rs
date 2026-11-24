@@ -14,8 +14,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LWIN,
-    VK_MENU, VK_RETURN, VK_RWIN, VK_SHIFT, VK_TAB,
+    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LMENU,
+    VK_LWIN, VK_MENU, VK_RETURN, VK_RMENU, VK_RWIN, VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
@@ -64,6 +64,17 @@ static ENGLISH_POPUP: AtomicBool = AtomicBool::new(false);
 /// Virtual key of the last key-down the hook swallowed, so its key-up is
 /// swallowed too. Zero means none pending.
 static LAST_SWALLOWED_VK: AtomicU16 = AtomicU16::new(0);
+
+/// Whether fixed-layout mode is active. The hook drops ASCII letter keydowns
+/// (and their matching keyups via `LAST_SWALLOWED_VK`) so the daemon can inject
+/// the mapped Bangla character instead of letting an IME compose the raw ASCII.
+static SWALLOW_LETTERS: AtomicBool = AtomicBool::new(false);
+
+/// Publish fixed-layout mode for the hook. Strictly scoped: callers must clear
+/// it on a mode or layout switch so the Avro phonetic path keeps its letters.
+pub fn set_swallow_letters(enabled: bool) {
+    SWALLOW_LETTERS.store(enabled, Ordering::Release);
+}
 
 /// Publish the composition state the hook needs to decide swallowing.
 ///
@@ -141,6 +152,11 @@ impl WindowsKeyboardHook {
     /// Publish the Bangla/composing state used for key swallowing.
     pub fn set_composition_state(&self, bangla_mode: bool, composing: bool, bangla_unicode: bool) {
         set_composition_state(bangla_mode, composing, bangla_unicode);
+    }
+
+    /// Publish fixed-layout mode so the hook swallows raw letter keys.
+    pub fn set_swallow_letters(&self, enabled: bool) {
+        set_swallow_letters(enabled);
     }
 
     /// Publish the English completion visibility for Tab swallowing.
@@ -315,11 +331,19 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     let composing = COMPOSING.load(Ordering::Relaxed);
                     let unicode = BANGLA_UNICODE.load(Ordering::Relaxed);
                     let english_popup = ENGLISH_POPUP.load(Ordering::Relaxed);
+                    let fixed = SWALLOW_LETTERS.load(Ordering::Relaxed);
                     let decision = !injected
                         && (crate::input::should_swallow(
                             capture,
                             bangla,
                             composing,
+                            chord,
+                            false,
+                            virtual_key,
+                        ) || crate::input::should_swallow_letters(
+                            capture,
+                            bangla,
+                            fixed,
                             chord,
                             false,
                             virtual_key,
@@ -438,6 +462,26 @@ impl TextInjector for WindowsInjector {
 /// while keeping the `SendInput` batch bounded.
 pub const MAX_SEND_BACKSPACES: usize = 64;
 
+/// Build the commit event batch without calling Win32, so its exact shape is
+/// unit-testable. Backspaces come first as VK down/up pairs, then one
+/// `KEYEVENTF_UNICODE` down/up pair per UTF-16 code unit.
+fn build_commit_inputs(backspaces: usize, units: &[u16]) -> Vec<INPUT> {
+    let mut inputs = Vec::with_capacity(
+        backspaces
+            .saturating_mul(2)
+            .saturating_add(units.len().saturating_mul(2)),
+    );
+    for _ in 0..backspaces {
+        inputs.push(virtual_key_input(VK_BACK, KEYBD_EVENT_FLAGS(0)));
+        inputs.push(virtual_key_input(VK_BACK, KEYEVENTF_KEYUP));
+    }
+    for unit in units {
+        inputs.push(key_input(*unit, KEYEVENTF_UNICODE));
+        inputs.push(key_input(*unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+    }
+    inputs
+}
+
 /// Commit an erase plus replacement text in one `SendInput` batch.
 ///
 /// Builds a single `INPUT` array — `backspaces` Backspace down/up pairs
@@ -468,19 +512,7 @@ pub fn inject_commit(
     if backspaces == 0 && units.is_empty() {
         return Ok(());
     }
-    let mut inputs = Vec::with_capacity(
-        backspaces
-            .saturating_mul(2)
-            .saturating_add(units.len().saturating_mul(2)),
-    );
-    for _ in 0..backspaces {
-        inputs.push(virtual_key_input(VK_BACK, KEYBD_EVENT_FLAGS(0)));
-        inputs.push(virtual_key_input(VK_BACK, KEYEVENTF_KEYUP));
-    }
-    for unit in &units {
-        inputs.push(key_input(*unit, KEYEVENTF_UNICODE));
-        inputs.push(key_input(*unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
-    }
+    let inputs = build_commit_inputs(backspaces, &units);
     // SAFETY: inputs is a valid, fully initialized INPUT slice and the
     // structure size is provided to SendInput.
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
@@ -497,6 +529,18 @@ pub fn inject_commit(
             })
         }
     }
+}
+
+/// Inject one mapped fixed-layout character.
+///
+/// The hook swallowed the raw letter, so there is nothing to erase: zero
+/// backspaces, no trailing space, one `SendInput` batch, one Unicode down/up
+/// pair for a BMP character. Supplementary characters need one pair per UTF-16
+/// code unit, which [`inject_commit`] handles. No `WM_CHAR` fast path and no
+/// clipboard fallback: the character is delivered exactly once or not at all,
+/// so the daemon can re-emit the raw ASCII letter on failure.
+pub fn inject_char(ch: char) -> Result<(), InjectError> {
+    inject_commit(0, &ch.to_string(), false)
 }
 
 /// Send `count` Backspace key presses via `SendInput`.
@@ -588,6 +632,33 @@ pub fn foreground_window_pid() -> u32 {
         let mut pid = 0u32;
         GetWindowThreadProcessId(window, Some(&mut pid));
         pid
+    }
+}
+
+/// Modifier snapshot used by the fixed-layout resolver.
+///
+/// Both fields are plain booleans so the daemon can convert this into the
+/// layout engine's own modifier set without any Win32 dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ModifierFlags {
+    pub shift: bool,
+    pub altgr: bool,
+}
+
+/// Read Shift and AltGr for a fixed-layout key on the worker thread.
+///
+/// This is deliberately not called from the hook callback: the callback only
+/// timestamps and enqueues. `VK_RMENU` is the standard AltGr key; `VK_LMENU` is
+/// also accepted for layouts that report AltGr through the left Alt key.
+pub fn modifier_state() -> ModifierFlags {
+    // SAFETY: GetAsyncKeyState with a virtual-key code has no pointer
+    // preconditions; a negative return means the key is currently down.
+    unsafe {
+        ModifierFlags {
+            shift: GetAsyncKeyState(i32::from(VK_SHIFT.0)) < 0,
+            altgr: GetAsyncKeyState(i32::from(VK_RMENU.0)) < 0
+                || GetAsyncKeyState(i32::from(VK_LMENU.0)) < 0,
+        }
     }
 }
 
@@ -851,8 +922,25 @@ fn key_input(scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use super::{WindowsInjector, unicode_inputs, utf16_units};
     use crate::inject::{InjectionMethod, TextInjector};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK,
+    };
+
+    /// Read the keyboard arm of an INPUT built by this module.
+    fn keyboard_fields(
+        input: &windows::Win32::UI::Input::KeyboardAndMouse::INPUT,
+    ) -> (u16, u16, u32) {
+        // SAFETY: every INPUT in these batches is built by `virtual_key_input`
+        // or `key_input`, both of which initialize the `ki` union arm.
+        unsafe {
+            let ki = &input.Anonymous.ki;
+            (ki.wVk.0, ki.wScan, ki.dwFlags.0)
+        }
+    }
 
     #[test]
     fn bengali_is_bmp_encoded() {
@@ -911,5 +999,66 @@ mod tests {
         assert!(super::supports_wm_char("Scintilla"));
         assert!(!super::supports_wm_char("Chrome_WidgetWin_1"));
         assert!(!super::supports_wm_char("Static"));
+    }
+
+    #[test]
+    fn inject_char_batch_is_one_unicode_down_up_pair() {
+        // Same batch `inject_char` sends: 0 backspaces, one char, no space.
+        let inputs = super::build_commit_inputs(0, &utf16_units("a"));
+        assert_eq!(inputs.len(), 2);
+        let (down_vk, down_scan, down_flags) = keyboard_fields(&inputs[0]);
+        let (up_vk, up_scan, up_flags) = keyboard_fields(&inputs[1]);
+        assert_eq!(down_vk, VIRTUAL_KEY(0).0);
+        assert_eq!(up_vk, VIRTUAL_KEY(0).0);
+        assert_eq!(down_scan, u16::from(b'a'));
+        assert_eq!(up_scan, u16::from(b'a'));
+        assert_eq!(down_flags, KEYEVENTF_UNICODE.0);
+        assert_eq!(up_flags, (KEYEVENTF_UNICODE | KEYEVENTF_KEYUP).0);
+        assert_eq!(inputs[0].r#type, INPUT_KEYBOARD);
+        assert_eq!(inputs[1].r#type, INPUT_KEYBOARD);
+        // Zero backspaces: the fixed path never erases the swallowed letter.
+        assert!(
+            inputs
+                .iter()
+                .all(|input| keyboard_fields(input).0 != VK_BACK.0)
+        );
+    }
+
+    #[test]
+    fn bengali_char_batch_uses_its_code_unit() {
+        let inputs = super::build_commit_inputs(0, &utf16_units("স"));
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(keyboard_fields(&inputs[0]).1, 0x09B8);
+        assert_eq!(keyboard_fields(&inputs[1]).1, 0x09B8);
+    }
+
+    #[test]
+    fn empty_char_batch_is_a_noop() {
+        assert!(super::build_commit_inputs(0, &[]).is_empty());
+        // A char always has at least one UTF-16 unit; the empty path is the
+        // zero-backspace, empty-text commit, which touches no Win32 API.
+        assert!(super::inject_commit(0, "", false).is_ok());
+    }
+
+    #[test]
+    fn swallow_letters_flag_round_trips() {
+        super::set_swallow_letters(true);
+        assert!(super::SWALLOW_LETTERS.load(Ordering::Relaxed));
+        super::set_swallow_letters(false);
+        assert!(!super::SWALLOW_LETTERS.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn modifier_flags_expose_shift_and_altgr() {
+        let flags: super::ModifierFlags = super::modifier_state();
+        // Live values depend on the keyboard at test time; only the shape is
+        // asserted here.
+        let _ = (flags.shift, flags.altgr);
+        let explicit = super::ModifierFlags {
+            shift: true,
+            altgr: false,
+        };
+        assert!(explicit.shift);
+        assert!(!explicit.altgr);
     }
 }

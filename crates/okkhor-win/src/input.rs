@@ -150,6 +150,32 @@ pub const fn should_swallow(
         && is_composition_key(vk)
 }
 
+/// Whether the hook must swallow an ASCII letter key-down in fixed-layout mode.
+///
+/// A fixed layout maps the physical letter to a Bengali character that the
+/// daemon injects directly, so the raw letter must never reach the target: an
+/// active Bengali IME could otherwise compose it into a different character.
+/// Only `A`..`Z` virtual keys qualify; Shift and AltGr are resolved from the
+/// layout's own modifier table, not from extra key events. Phonetic mode
+/// (`fixed_layout = false`) never swallows letters because the roman letters
+/// are the composition buffer and must stay visible. The matching key-up is
+/// swallowed by the hook's last-swallowed-VK path, leaving no phantom release.
+pub const fn should_swallow_letters(
+    capture_enabled: bool,
+    bangla_mode: bool,
+    fixed_layout: bool,
+    chord_pressed: bool,
+    injected: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && bangla_mode
+        && fixed_layout
+        && !chord_pressed
+        && !injected
+        && matches!(vk, 0x41..=0x5A)
+}
+
 /// Whether a key transition is a press or a release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -182,7 +208,7 @@ mod tests {
     use super::{
         KeyEvent, KeyPhase, LLKHF_INJECTED, VK_OEM_PERIOD, VK_TAB_KEY, is_composition_key,
         is_injected_event, should_enqueue, should_swallow, should_swallow_danda,
-        should_swallow_numeral, should_swallow_tab,
+        should_swallow_letters, should_swallow_numeral, should_swallow_tab,
     };
 
     #[test]
@@ -283,6 +309,40 @@ mod tests {
         assert!(!should_swallow(true, true, true, false, true, 0x0D));
         // A letter is never swallowed even mid-composition.
         assert!(!should_swallow(true, true, true, false, false, 0x41));
+    }
+
+    #[test]
+    fn only_ascii_letters_are_swallowed_in_fixed_layout_mode() {
+        // The whole ASCII letter VK range, including both boundaries.
+        for vk in 0x41..=0x5A {
+            assert!(
+                should_swallow_letters(true, true, true, false, false, vk),
+                "vk {vk:#04X} must be swallowed in fixed mode"
+            );
+        }
+        // Phonetic mode (fixed_layout = false) NEVER swallows letters, not even
+        // while a composition buffer is active.
+        assert!(!should_swallow_letters(
+            true, true, false, false, false, 0x41
+        ));
+        // Every other gate alone is enough to pass the key through.
+        assert!(!should_swallow_letters(
+            false, true, true, false, false, 0x41
+        )); // capture paused
+        assert!(!should_swallow_letters(
+            true, false, true, false, false, 0x41
+        )); // English mode
+        assert!(!should_swallow_letters(true, true, true, true, false, 0x41)); // Ctrl/Alt/Win chord
+        assert!(!should_swallow_letters(true, true, true, false, true, 0x41)); // injected event
+        // Adjacent VKs, digits, commit keys and punctuation are not letters.
+        for vk in [0x40, 0x5B, 0x08, 0x09, 0x0D, 0x20, 0x30, 0x60, 0xBE] {
+            assert!(
+                !should_swallow_letters(true, true, true, false, false, vk),
+                "vk {vk:#04X} is not an ASCII letter"
+            );
+        }
+        // The predicate is usable in a constant context from the hook.
+        const { assert!(should_swallow_letters(true, true, true, false, false, 0x41)) };
     }
 
     #[test]
