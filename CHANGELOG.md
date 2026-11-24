@@ -27,6 +27,10 @@ Versioning once it reaches 1.0.
 - The English completion card no longer blanks on every keystroke while a
   caret sample is pending. Password samples and field changes still hide it.
 - The card is placed just below and slightly left of the caret.
+- The tray uses Okkhor's own `okkhor.ico` from the portable folder instead of
+  the Windows default application icon.
+- The IPC pipe now opens right after settings load, before learning, engine and
+  caret setup, so the UI connects without polling for several seconds.
 
 ## [0.8.1] - 2026-11-24
 

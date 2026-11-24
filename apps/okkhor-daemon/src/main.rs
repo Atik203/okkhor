@@ -692,6 +692,11 @@ fn raw_key_text(vk: u16, shift: bool) -> String {
             }
         }
         0x60..=0x69 => (0x30 + (vk - 0x60) as u8) as char,
+        0x6A => '*',
+        0x6B => '+',
+        0x6D => '-',
+        0x6E => '.',
+        0x6F => '/',
         0xBA => ';',
         0xBB => '=',
         0xBC => ',',
@@ -708,6 +713,18 @@ fn raw_key_text(vk: u16, shift: bool) -> String {
     plain.to_string()
 }
 
+/// Convert a fixed-layout character for the active output encoding. Pure so
+/// the timeout-flush path can be tested without Win32.
+#[cfg(windows)]
+fn fixed_text_for_encoding(text: &str, encoding: crate::OutputEncoding) -> String {
+    match encoding {
+        crate::OutputEncoding::Unicode => text.to_owned(),
+        crate::OutputEncoding::Bijoy => {
+            crate::apply_encoding(text, encoding).unwrap_or_else(|_| text.to_owned())
+        }
+    }
+}
+
 /// Inject a fixed-layout character with the current output encoding. On a
 /// failed injection the raw key is re-emitted so no keystroke is lost.
 #[cfg(windows)]
@@ -717,12 +734,7 @@ fn inject_fixed_text(
     encoding: crate::OutputEncoding,
     logger: &logging::Logger,
 ) {
-    let converted = match encoding {
-        crate::OutputEncoding::Unicode => text.to_owned(),
-        crate::OutputEncoding::Bijoy => {
-            crate::apply_encoding(text, encoding).unwrap_or_else(|_| text.to_owned())
-        }
-    };
+    let converted = fixed_text_for_encoding(text, encoding);
     if let Err(error) = okkhor_win::inject_commit(0, &converted, false) {
         let code = match &error {
             okkhor_win::InjectError::Win32 { code, .. } => Some(*code as i32),
@@ -1570,6 +1582,29 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     };
 
+    // IPC pipe starts as soon as settings and the word store are ready, before
+    // the slower learning/engine/caret setup. The UI can connect immediately
+    // instead of polling for up to eight seconds while those load.
+    let mut ipc_server: Option<(crate::ipc::IpcServer, std::path::PathBuf)> = None;
+    if !options.no_ipc {
+        if let Some(state) = ipc_state.clone() {
+            match crate::paths::token_path() {
+                Ok(token_path) => match crate::ipc::install_token(&token_path) {
+                    Ok(token) => match crate::ipc::IpcServer::start(state, token) {
+                        Ok(server) => {
+                            logger.info(logging::Scope::Ipc, "ipc_start");
+                            println!("daemon: IPC ready for the settings UI");
+                            ipc_server = Some((server, token_path));
+                        }
+                        Err(_) => logger.error(logging::Scope::Ipc, "ipc_server", None),
+                    },
+                    Err(_) => logger.error(logging::Scope::Ipc, "ipc_token", None),
+                },
+                Err(_) => logger.error(logging::Scope::Ipc, "ipc_token", None),
+            }
+        }
+    }
+
     // Learning: load the encrypted snapshot once, share it with the engine
     // (read locks for ranking) and the background thread (writes + debounced
     // saves). A corrupt/missing file starts empty; typing never depends on it.
@@ -1840,29 +1875,6 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         println!("daemon: type phonetic English and press Space to commit Bangla");
     }
     println!("daemon: use the tray menu or pause hotkey to pause");
-
-    // IPC pipe (unless --no-ipc): token create/rotate, then serve on a
-    // dedicated thread. Any failure degrades to typing-without-IPC (logged
-    // with one allowlisted code); the pipe is owner-only per ADR 0012 §2.
-    let mut ipc_server: Option<(crate::ipc::IpcServer, std::path::PathBuf)> = None;
-    if !options.no_ipc {
-        if let Some(state) = ipc_state.clone() {
-            match crate::paths::token_path() {
-                Ok(token_path) => match crate::ipc::install_token(&token_path) {
-                    Ok(token) => match crate::ipc::IpcServer::start(state, token) {
-                        Ok(server) => {
-                            logger.info(logging::Scope::Ipc, "ipc_start");
-                            println!("daemon: IPC ready for the settings UI");
-                            ipc_server = Some((server, token_path));
-                        }
-                        Err(_) => logger.error(logging::Scope::Ipc, "ipc_server", None),
-                    },
-                    Err(_) => logger.error(logging::Scope::Ipc, "ipc_token", None),
-                },
-                Err(_) => logger.error(logging::Scope::Ipc, "ipc_token", None),
-            }
-        }
-    }
 
     if options.ui {
         open_settings_ui(&tray, logger);
@@ -2923,11 +2935,29 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn timeout_flush_text_is_bijoy_encoded() {
+        let virama = "্";
+        assert_eq!(
+            super::fixed_text_for_encoding(virama, super::OutputEncoding::Unicode),
+            virama
+        );
+        let bijoy = super::fixed_text_for_encoding(virama, super::OutputEncoding::Bijoy);
+        assert_ne!(bijoy, virama, "Bijoy output must differ from Unicode");
+        assert!(!bijoy.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn raw_key_re_emit_uses_the_held_shift_state() {
         assert_eq!(super::raw_key_text(0x41, false), "a");
         assert_eq!(super::raw_key_text(0x41, true), "A");
         assert_eq!(super::raw_key_text(0xBC, false), ",");
         assert_eq!(super::raw_key_text(0x61, false), "1");
+        assert_eq!(super::raw_key_text(0x6A, false), "*");
+        assert_eq!(super::raw_key_text(0x6B, false), "+");
+        assert_eq!(super::raw_key_text(0x6D, false), "-");
+        assert_eq!(super::raw_key_text(0x6E, false), ".");
+        assert_eq!(super::raw_key_text(0x6F, false), "/");
         assert_eq!(super::raw_key_text(0x20, false), "");
     }
 

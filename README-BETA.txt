@@ -142,7 +142,8 @@ memory-only and are never logged or inserted automatically.
 - The first letter no longer disappears in browsers: a child-window swap in
   the same process no longer resets the composition. The English popup no
   longer flickers while a caret sample is pending. The card sits closer under
-  the caret.
+  the caret. The tray uses Okkhor's own icon, and the settings UI connects
+  sooner after launch.
 
 0.8.1 features remain:
 - Stable suggestion popup: updated in place instead of re-shown, painted

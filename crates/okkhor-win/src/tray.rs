@@ -30,11 +30,12 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetCursorPos, GetMessageW, HWND_MESSAGE, IDI_APPLICATION, LoadIconW,
-    MF_SEPARATOR, MF_STRING, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
-    SetForegroundWindow, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
-    UnregisterClassW, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP,
-    WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+    DispatchMessageW, GetCursorPos, GetMessageW, HWND_MESSAGE, IDI_APPLICATION, IMAGE_ICON,
+    LR_LOADFROMFILE, LoadIconW, LoadImageW, MF_SEPARATOR, MF_STRING, MSG, PostMessageW,
+    PostQuitMessage, RegisterClassW, SetForegroundWindow, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON,
+    TrackPopupMenu, TranslateMessage, UnregisterClassW, WM_APP, WM_CLOSE, WM_COMMAND,
+    WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW,
+    WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -383,11 +384,43 @@ fn run_tray_thread(event_tx: SyncSender<TrayEvent>, ready_tx: Sender<Result<isiz
     }
 }
 
+/// Load Okkhor's own tray icon from the portable folder next to the exe.
+/// Falls back to the system application icon when running from source or when
+/// the icon file is missing, so the tray still works in development builds.
+fn load_tray_icon() -> Option<windows::Win32::UI::WindowsAndMessaging::HICON> {
+    let path = std::env::current_exe().ok()?.parent()?.join("okkhor.ico");
+    let wide: Vec<u16> = path
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `wide` is a live, null-terminated UTF-16 path for the duration
+    // of the call; LR_LOADFROMFILE reads that file and returns an owned HICON.
+    let loaded = unsafe {
+        LoadImageW(
+            None,
+            PCWSTR(wide.as_ptr()),
+            IMAGE_ICON,
+            0,
+            0,
+            LR_LOADFROMFILE,
+        )
+    };
+    loaded
+        .ok()
+        .map(|handle| windows::Win32::UI::WindowsAndMessaging::HICON(handle.0))
+}
+
 fn add_tray_icon(window: HWND) -> Result<(), TrayError> {
-    // SAFETY: IDI_APPLICATION is a system icon resource; a null instance asks
-    // the system for the shared icon.
-    let icon = unsafe { LoadIconW(None, IDI_APPLICATION) }
-        .map_err(|error| last_error("LoadIconW", error.code().0))?;
+    let icon = match load_tray_icon() {
+        Some(icon) => icon,
+        None => {
+            // SAFETY: IDI_APPLICATION is a system icon resource; a null
+            // instance asks the system for the shared icon.
+            unsafe { LoadIconW(None, IDI_APPLICATION) }
+                .map_err(|error| last_error("LoadIconW", error.code().0))?
+        }
+    };
 
     let mut data = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
