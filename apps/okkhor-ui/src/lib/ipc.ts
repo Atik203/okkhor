@@ -63,6 +63,29 @@ export type QuickbarSnapshot = {
   visible: boolean;
 };
 
+/** Let the daemon report AI policy without exposing the provider key. */
+export interface AiStatusInfo {
+  enabled: boolean;
+  provider: string;
+  key_present: boolean;
+  breaker_state: string;
+  active_jobs: number;
+}
+
+/** `ai.poll` result (ADR 0018 §5); serde-tagged by `state`. */
+export type AiJobState =
+  | { state: "pending" }
+  | {
+      state: "done";
+      text: string;
+      model: string;
+      input_tokens: number;
+      output_tokens: number;
+      latency_ms: number;
+    }
+  | { state: "failed"; code: string }
+  | { state: "cancelled" };
+
 /**
  * Thin wrappers over the Tauri Rust commands. Errors arrive as
  * `{ code, message }`; see `lib/errors.ts`.
@@ -85,6 +108,18 @@ export const api = {
   },
   insertText(text: string): Promise<boolean> {
     return invoke<boolean>("ipc_insert_text", { text });
+  },
+  aiStatus(): Promise<AiStatusInfo> {
+    return invoke<AiStatusInfo>("ipc_ai_status");
+  },
+  aiComplete(prompt: string): Promise<number> {
+    return invoke<number>("ipc_ai_complete", { prompt });
+  },
+  aiPoll(jobId: number): Promise<AiJobState> {
+    return invoke<AiJobState>("ipc_ai_poll", { jobId });
+  },
+  aiCancel(jobId: number): Promise<void> {
+    return invoke<void>("ipc_ai_cancel", { jobId });
   },
   setPaused(paused: boolean): Promise<Status> {
     return invoke<Status>("ipc_set_paused", { paused });

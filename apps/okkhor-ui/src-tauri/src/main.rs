@@ -244,6 +244,91 @@ async fn ipc_update_settings(
     }
 }
 
+/// AI policy and circuit-breaker state (ADR 0018 §4). Reports only
+/// enabled/provider/key-set/breaker/active counts — never prompt or key text.
+#[tauri::command]
+async fn ipc_ai_status() -> Result<okkhor_ipc::protocol::AiStatusInfo, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client.ai_status().await.map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Enqueue one explicit rewrite and return its job id immediately. The daemon
+/// validates and enqueues under its own 5 s deadline; the result is polled with
+/// [`ipc_ai_poll`]. The prompt is memory-only and never logged or persisted.
+#[tauri::command]
+async fn ipc_ai_complete(prompt: String) -> Result<u64, UiError> {
+    // Reject an empty/whitespace prompt locally so we never open the pipe for
+    // nothing; the daemon re-validates the UTF-16 cap authoritatively.
+    if prompt.trim().is_empty() {
+        return Err(UiError::new("InvalidRequest", "Prompt must not be empty."));
+    }
+    #[cfg(windows)]
+    {
+        let params = okkhor_ipc::protocol::AiCompleteParams {
+            prompt,
+            system: None,
+            model: None,
+            max_tokens: Some(512),
+            temperature: Some(1.0),
+            timeout_ms: Some(15_000),
+        };
+        let mut client = connect().await?;
+        client
+            .ai_complete(&params)
+            .await
+            .map(|started| started.job_id)
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = prompt;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Poll one AI job: pending, done(text), failed(code), or cancelled.
+#[tauri::command]
+async fn ipc_ai_poll(job_id: u64) -> Result<okkhor_ipc::protocol::AiJobState, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .ai_poll(job_id)
+            .await
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = job_id;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Cancel one AI job. A late provider response is discarded by the daemon.
+#[tauri::command]
+async fn ipc_ai_cancel(job_id: u64) -> Result<(), UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .ai_cancel(job_id)
+            .await
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = job_id;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
 #[tauri::command]
 async fn ipc_list_layouts() -> Result<Vec<okkhor_ipc::protocol::LayoutInfo>, UiError> {
     #[cfg(windows)]
@@ -960,6 +1045,10 @@ fn main() {
             ipc_status,
             ipc_get_settings,
             ipc_update_settings,
+            ipc_ai_status,
+            ipc_ai_complete,
+            ipc_ai_poll,
+            ipc_ai_cancel,
             ipc_list_layouts,
             ipc_insert_text,
             ipc_set_paused,
