@@ -545,7 +545,11 @@ pub fn place_popup(anchor: &CaretAnchor, width: i32, height: i32) -> PopupPlacem
     let work_height = (work.bottom - work.top).max(1);
     let width = width.clamp(1, work_width);
     let height = height.clamp(1, work_height);
-    let gap = ((4_i64 * i64::from(anchor.dpi)) / 96).max(2) as i32;
+    // Keep the card just under the caret: a small vertical gap and a small
+    // leftward inset so the caret sits at the card's leading edge instead of
+    // the card appearing further to the right of the typing position.
+    let gap = ((2_i64 * i64::from(anchor.dpi)) / 96).max(1) as i32;
+    let inset = ((2_i64 * i64::from(anchor.dpi)) / 96).max(1) as i32;
 
     let below_y = anchor.rect.bottom.saturating_add(gap);
     let above_y = anchor.rect.top.saturating_sub(gap).saturating_sub(height);
@@ -555,7 +559,11 @@ pub fn place_popup(anchor: &CaretAnchor, width: i32, height: i32) -> PopupPlacem
 
     let max_x = (work.right - width).max(work.left);
     let max_y = (work.bottom - height).max(work.top);
-    let x = anchor.rect.left.clamp(work.left, max_x);
+    let x = anchor
+        .rect
+        .left
+        .saturating_sub(inset)
+        .clamp(work.left, max_x);
     let y = if above { above_y } else { below_y }.clamp(work.top, max_y);
 
     PopupPlacement {
@@ -796,8 +804,8 @@ mod tests {
     #[test]
     fn places_below_the_caret_when_it_fits() {
         let placement = place_popup(&anchor(100, 100, 101, 120, work()), 200, 100);
-        assert_eq!(placement.x, 100);
-        assert_eq!(placement.y, 124);
+        assert_eq!(placement.x, 98);
+        assert_eq!(placement.y, 122);
         assert!(!placement.above);
     }
 
@@ -805,7 +813,7 @@ mod tests {
     fn flips_above_when_below_does_not_fit() {
         let placement = place_popup(&anchor(100, 550, 101, 580, work()), 200, 100);
         assert!(placement.above);
-        assert_eq!(placement.y, 446);
+        assert_eq!(placement.y, 448);
     }
 
     #[test]
@@ -828,6 +836,6 @@ mod tests {
         let mut anchor = anchor(100, 100, 101, 120, work());
         anchor.dpi = 192;
         let placement = place_popup(&anchor, 200, 100);
-        assert_eq!(placement.y, 128);
+        assert_eq!(placement.y, 124);
     }
 }

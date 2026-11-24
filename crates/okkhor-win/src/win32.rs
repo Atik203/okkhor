@@ -572,6 +572,25 @@ pub fn foreground_window_id() -> isize {
     unsafe { GetForegroundWindow() }.0 as isize
 }
 
+/// Process id that owns the foreground window. Browsers swap HWNDs for the
+/// address bar and its autocomplete popup while a word is being typed; the
+/// process stays the same, so comparing PIDs avoids resetting a composition
+/// because of a child-window switch. Returns 0 when there is no foreground
+/// window, which never compares equal to a live composition's PID.
+pub fn foreground_window_pid() -> u32 {
+    // SAFETY: GetForegroundWindow and GetWindowThreadProcessId have no pointer
+    // preconditions; the out-pointer is valid for the duration of the call.
+    unsafe {
+        let window = GetForegroundWindow();
+        if window.0.is_null() {
+            return 0;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(window, Some(&mut pid));
+        pid
+    }
+}
+
 /// Whether Ctrl, Alt, or the Windows key is currently held.
 ///
 /// The composition loop calls this before treating a letter as composition

@@ -690,6 +690,57 @@ fn injectable_text(text: &str) -> bool {
     })
 }
 
+/// Whether the foreground window still belongs to the same typing target.
+///
+/// Browsers replace the HWND of the focused control with a child window when
+/// the address-bar autocomplete opens. Comparing only HWNDs reset the roman
+/// buffer after the first letter, so a commit erased `mar` and left the first
+/// `a` in the document. A PID match means the same application, so the handle
+/// change is benign. If either PID is unavailable, fall back to exact HWND
+/// comparison.
+/// What the English completion card should do for one keystroke.
+///
+/// The old rule hid the card whenever a caret request was still in flight, so
+/// every letter and every Backspace blanked it until UIA answered — visible
+/// flicker even though Bangla was smooth. A published password sample still
+/// hides immediately, and a changed foreground window hides without waiting.
+/// Between those two boundaries an already-visible card is kept as-is.
+#[cfg(windows)]
+fn english_popup_action(
+    latest_password: Option<bool>,
+    fresh: bool,
+    was_visible: bool,
+    field_changed: bool,
+) -> EnglishPopupAction {
+    if field_changed {
+        return EnglishPopupAction::Hide;
+    }
+    match latest_password {
+        None => EnglishPopupAction::Hide,
+        Some(true) => EnglishPopupAction::Hide,
+        Some(false) if fresh => EnglishPopupAction::Show,
+        Some(false) if was_visible => EnglishPopupAction::Keep,
+        Some(false) => EnglishPopupAction::Hide,
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EnglishPopupAction {
+    Show,
+    Keep,
+    Hide,
+}
+
+#[cfg(windows)]
+fn same_target(pid: u32, hwnd: isize, current_pid: u32, current_hwnd: isize) -> bool {
+    if pid == 0 || current_pid == 0 {
+        hwnd != 0 && hwnd == current_hwnd
+    } else {
+        pid == current_pid && hwnd != 0 && current_hwnd != 0
+    }
+}
+
 #[cfg(windows)]
 fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -704,7 +755,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         CaretAnchor, CaretTracker, InjectError, KeyPhase, KeyboardHook, ModeHotkey, PauseHotkey,
         SingleInstance, SingleInstanceError, SuggestionPopup, TrayEvent, TrayIcon, TrayMode,
         WindowsKeyboardHook, caret_anchor, ctrl_or_alt_pressed, foreground_window_id,
-        inject_commit, place_popup, send_tab,
+        foreground_window_pid, inject_commit, place_popup, send_tab,
     };
 
     use crate::input_session::{
@@ -738,6 +789,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         learn_tx: &'a mpsc::SyncSender<LearningEvent>,
         learn_dropped: &'a AtomicU64,
         compose_window: &'a mut isize,
+        compose_pid: &'a mut u32,
         encoding: crate::OutputEncoding,
         learning_enabled: bool,
         state: Option<&'a ProdState>,
@@ -846,9 +898,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
 
     /// Show or hide the English completion popup at the caret.
     ///
-    /// With a tracker present, the popup is only shown once a sample for the
-    /// latest request exists: a sample from the previous field may carry a
-    /// stale `password == false`, so an older generation stays hidden.
+    /// A password sample or a new foreground window hides it at once. A
+    /// pending caret request no longer blanks an existing card: it stays where
+    /// it is until the sample lands, which removes the per-keystroke flicker.
     fn refresh_english_popup(
         popup: &mut Option<SuggestionPopup>,
         english: &EnglishSession,
@@ -856,6 +908,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         caret: Option<&CaretTracker>,
         caret_generation: &mut u64,
         last_caret_request: u64,
+        field_changed: bool,
     ) {
         let Some(window) = popup.as_mut() else {
             return;
@@ -867,20 +920,29 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             return;
         }
-        if let Some(tracker) = caret {
+        let action = if let Some(tracker) = caret {
             let fresh = last_caret_request == 0
                 || tracker
                     .latest()
                     .is_some_and(|sample| sample.generation >= last_caret_request);
-            if !fresh {
-                // Never show with a password flag from the previous field;
-                // wait (without blocking) for the queued resolve.
-                window.hide();
-                if let Some(state) = state {
-                    state.set_popup_visible(false);
-                }
-                return;
+            english_popup_action(
+                tracker.latest().map(|sample| sample.password),
+                fresh,
+                window.is_visible(),
+                field_changed,
+            )
+        } else {
+            EnglishPopupAction::Show
+        };
+        if action == EnglishPopupAction::Hide {
+            window.hide();
+            if let Some(state) = state {
+                state.set_popup_visible(false);
             }
+            return;
+        }
+        if action == EnglishPopupAction::Keep {
+            return;
         }
         match caret_for_popup(caret, caret_generation).or_else(|| window.anchor()) {
             Some(anchor) => {
@@ -964,7 +1026,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         newline: bool,
         previous_word: Option<String>,
     ) -> bool {
-        if foreground_window_id() != *ctx.compose_window {
+        let foreground = foreground_window_id();
+        let pid = foreground_window_pid();
+        if !same_target(*ctx.compose_pid, *ctx.compose_window, pid, foreground) {
             ctx.session.reset();
             hide_popup(ctx.popup, ctx.state);
             ctx.logger
@@ -1062,12 +1126,18 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     /// text stays where it was typed) and the window id is refreshed.
     fn track_focus(ctx: &mut CompositionCtx<'_>) {
         let foreground = foreground_window_id();
-        if ctx.session.is_composing() && foreground != *ctx.compose_window {
+        let pid = foreground_window_pid();
+        let same = same_target(*ctx.compose_pid, *ctx.compose_window, pid, foreground);
+        if ctx.session.is_composing() && !same {
             ctx.session.reset();
             hide_popup(ctx.popup, ctx.state);
         }
-        if !ctx.session.is_composing() {
+        // A child-window swap inside the same application is not a focus
+        // change: re-anchor so commit's own focus check agrees. This is what
+        // fixes the stray first `a` in browser address bars.
+        if !ctx.session.is_composing() || same {
             *ctx.compose_window = foreground;
+            *ctx.compose_pid = pid;
         }
     }
 
@@ -1526,6 +1596,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut session: InputSession<DefaultEngine> = InputSession::new(engine);
     let mut english = EnglishSession::new();
     let mut compose_window = foreground_window_id();
+    let mut compose_pid = foreground_window_pid();
     let mut encoding = options.encoding;
     let mut mode = options.mode;
     let mut learning_enabled = true;
@@ -1936,6 +2007,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 caret_tracker.as_ref(),
                 &mut last_anchor_generation,
                 last_caret_request,
+                foreground_changed,
             );
             if english.is_visible() {
                 apply_caret_anchor(
@@ -1991,6 +2063,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     learn_tx: &learn_tx,
                     learn_dropped: &learn_dropped,
                     compose_window: &mut compose_window,
+                    compose_pid: &mut compose_pid,
                     encoding,
                     learning_enabled,
                     state: ipc_state.as_deref(),
@@ -2019,6 +2092,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 learn_tx: &learn_tx,
                 learn_dropped: &learn_dropped,
                 compose_window: &mut compose_window,
+                compose_pid: &mut compose_pid,
                 encoding,
                 learning_enabled,
                 state: ipc_state.as_deref(),
@@ -2652,8 +2726,51 @@ mod tests {
     use super::{
         DaemonOptions, FontsAction, InputMode, OutputEncoding, RankerChoice, apply_encoding,
         injectable_text, parse_daemon_args, parse_fonts_args, resolve_uninstall_target,
-        select_fonts_dir,
+        same_target, select_fonts_dir,
     };
+
+    #[cfg(windows)]
+    #[test]
+    fn english_card_does_not_flicker_while_a_caret_sample_is_pending() {
+        use super::EnglishPopupAction;
+        // A stale non-password sample while the card is already visible: keep
+        // it, instead of blanking it on every letter and Backspace.
+        assert_eq!(
+            super::english_popup_action(Some(false), false, true, false),
+            EnglishPopupAction::Keep
+        );
+        assert_eq!(
+            super::english_popup_action(Some(false), true, true, false),
+            EnglishPopupAction::Show
+        );
+        // First show with no sample yet still waits.
+        assert_eq!(
+            super::english_popup_action(None, false, false, false),
+            EnglishPopupAction::Hide
+        );
+        // Password and field changes are never overridden.
+        assert_eq!(
+            super::english_popup_action(Some(true), true, true, false),
+            EnglishPopupAction::Hide
+        );
+        assert_eq!(
+            super::english_popup_action(Some(false), true, true, true),
+            EnglishPopupAction::Hide
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn browser_child_window_does_not_look_like_a_focus_change() {
+        assert!(same_target(100, 10, 100, 10));
+        // Same process, new HWND: the omnibox/autocomplete child window.
+        assert!(same_target(100, 10, 100, 11));
+        // A genuinely different application must still reset the buffer.
+        assert!(!same_target(100, 10, 200, 11));
+        // Unknown PIDs fall back to exact HWND matching.
+        assert!(same_target(0, 10, 0, 10));
+        assert!(!same_target(0, 10, 0, 11));
+    }
 
     #[cfg(windows)]
     #[test]
