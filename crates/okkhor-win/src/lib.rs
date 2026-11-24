@@ -26,6 +26,7 @@ mod hotkey;
 mod popup;
 #[cfg(windows)]
 mod quickbar_show;
+mod settings_show;
 #[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]
@@ -70,6 +71,10 @@ pub use popup::{MAX_ITEMS, PopupError, PopupMetrics, PopupTheme, SuggestionPopup
 pub use quickbar_show::{
     QUICKBAR_SHOW_EVENT, QuickbarShowError, QuickbarShowWaiter, signal_quickbar_show,
     spawn_quickbar_show_listener,
+};
+pub use settings_show::{
+    SETTINGS_SHOW_EVENT, SettingsShowError, SettingsShowWaiter, signal_settings_show,
+    spawn_settings_show_listener,
 };
 #[cfg(windows)]
 pub use single_instance::{SingleInstance, SingleInstanceError};

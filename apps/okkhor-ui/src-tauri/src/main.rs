@@ -945,6 +945,27 @@ fn apply_bar_chrome(bar: &tauri::WebviewWindow, collapsed: bool) {
 }
 
 fn main() {
+    // One UI process owns both windows. A second launch (tray Settings, a
+    // desktop shortcut, or `daemon --ui`) wakes the existing process instead
+    // of opening another window.
+    #[cfg(windows)]
+    let _single_instance = {
+        use okkhor_win::{SingleInstance, SingleInstanceError};
+        match SingleInstance::acquire("Local\\Okkhor.UI") {
+            Ok(guard) => Some(guard),
+            Err(SingleInstanceError::AlreadyRunning) => {
+                let args: Vec<String> = std::env::args().collect();
+                if quickbar::is_quickbar_launch(&args) {
+                    let _ = okkhor_win::signal_quickbar_show();
+                } else {
+                    let _ = okkhor_win::signal_settings_show();
+                }
+                return;
+            }
+            Err(_) => None,
+        }
+    };
+
     tauri::Builder::default()
         .setup(|app| {
             // Both windows start `visible: false` in `tauri.conf.json`, so no
@@ -1030,6 +1051,12 @@ fn main() {
                 let handle = app.handle().clone();
                 let _ = okkhor_win::spawn_quickbar_show_listener(move || {
                     let _ = handle.emit("okkhor:quickbar-show", ());
+                });
+                // Tray Settings, a second shortcut, or `daemon --ui` shows the
+                // existing window instead of starting another UI process.
+                let handle = app.handle().clone();
+                let _ = okkhor_win::spawn_settings_show_listener(move || {
+                    let _ = show_main_at(&handle, "/settings");
                 });
             }
             {

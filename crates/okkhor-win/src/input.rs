@@ -190,6 +190,27 @@ pub const fn should_swallow_letters(
         && is_fixed_layout_key(vk)
 }
 
+/// Whether the English completion list should take the Up/Down arrows.
+///
+/// Without this the arrow reaches the target, moves the caret, and Okkhor also
+/// changes its highlight, so Tab accepts the wrong row. The list is only
+/// visible in English mode with completions, so phonetic typing is unaffected.
+pub const fn should_swallow_english_arrows(
+    capture_enabled: bool,
+    english_mode: bool,
+    popup_visible: bool,
+    chord_pressed: bool,
+    injected: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && english_mode
+        && popup_visible
+        && !chord_pressed
+        && !injected
+        && matches!(vk, 0x26 | 0x28)
+}
+
 /// Whether a key transition is a press or a release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -222,7 +243,8 @@ mod tests {
     use super::{
         KeyEvent, KeyPhase, LLKHF_INJECTED, VK_OEM_PERIOD, VK_TAB_KEY, is_composition_key,
         is_injected_event, should_enqueue, should_swallow, should_swallow_danda,
-        should_swallow_letters, should_swallow_numeral, should_swallow_tab,
+        should_swallow_english_arrows, should_swallow_letters, should_swallow_numeral,
+        should_swallow_tab,
     };
 
     #[test]
@@ -471,6 +493,31 @@ mod tests {
         ));
         assert!(!should_swallow_numeral(
             true, true, true, false, false, false, 0x41
+        ));
+    }
+
+    #[test]
+    fn english_arrows_are_taken_only_with_a_visible_list() {
+        assert!(should_swallow_english_arrows(
+            true, true, true, false, false, 0x26
+        ));
+        assert!(should_swallow_english_arrows(
+            true, true, true, false, false, 0x28
+        ));
+        assert!(!should_swallow_english_arrows(
+            true, true, false, false, false, 0x26
+        ));
+        assert!(!should_swallow_english_arrows(
+            true, false, true, false, false, 0x26
+        ));
+        assert!(!should_swallow_english_arrows(
+            true, true, true, true, false, 0x26
+        ));
+        assert!(!should_swallow_english_arrows(
+            true, true, true, false, true, 0x26
+        ));
+        assert!(!should_swallow_english_arrows(
+            true, true, true, false, false, 0x25
         ));
     }
 

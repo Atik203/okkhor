@@ -374,6 +374,13 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                             chord,
                             false,
                             virtual_key,
+                        ) || crate::input::should_swallow_english_arrows(
+                            capture,
+                            !bangla,
+                            english_popup,
+                            chord,
+                            false,
+                            virtual_key,
                         ));
                     if decision {
                         LAST_SWALLOWED_VK.store(virtual_key, Ordering::Relaxed);
@@ -519,8 +526,17 @@ pub fn inject_commit(
     let inputs = build_commit_inputs(backspaces, &units);
     // SAFETY: inputs is a valid, fully initialized INPUT slice and the
     // structure size is provided to SendInput.
-    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
-    if sent as usize == inputs.len() {
+    let mut sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) } as usize;
+    // A partial batch can deliver the backspaces but not the replacement,
+    // which left an erased word looking like spaces. Retry only the unsent
+    // tail once; event order is preserved, so this cannot duplicate a prefix.
+    if sent > 0 && sent < inputs.len() {
+        let rest = &inputs[sent..];
+        // SAFETY: `rest` is a valid, fully initialized tail of `inputs`.
+        let more = unsafe { SendInput(rest, std::mem::size_of::<INPUT>() as i32) } as usize;
+        sent += more;
+    }
+    if sent == inputs.len() {
         Ok(())
     } else {
         let code = last_error_code();

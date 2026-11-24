@@ -1358,7 +1358,24 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     refresh_popup(ctx);
                 }
             }
-            VK_ESCAPE | VK_TAB if ctx.session.is_composing() => {
+            VK_TAB if ctx.session.is_composing() => {
+                // Tab accepts the highlighted candidate, like the English
+                // completion list. It no longer cancels the composition, which
+                // is why the selected Bangla word was never typed.
+                let roman = ctx.session.buffer().to_owned();
+                let previous_word = ctx.session.previous_word().map(str::to_owned);
+                match ctx.session.commit(false) {
+                    Some(commit) => {
+                        do_commit(ctx, commit, roman, false, previous_word);
+                    }
+                    None => {
+                        ctx.session.reset();
+                        hide_popup(ctx.popup, ctx.state);
+                        let _ = okkhor_win::send_tab();
+                    }
+                }
+            }
+            VK_ESCAPE if ctx.session.is_composing() => {
                 cancel_composition(ctx);
             }
             VK_OEM_PERIOD if ctx.encoding == crate::OutputEncoding::Unicode => {
@@ -2090,13 +2107,21 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
                 match event.virtual_key {
                     VK_TAB if english.is_visible() => {
-                        if let Some(commit) = english.accept() {
+                        // Never erase a token that was typed in another field.
+                        if english.window() != foreground_window_id() {
+                            english.reset();
+                            let _ = send_tab();
+                        } else if let Some(commit) = english.accept() {
                             if !apply_english_commit(commit, logger, &injection_lock) {
                                 let _ = send_tab();
                             }
                         } else {
                             let _ = send_tab();
                         }
+                    }
+                    VK_UP | VK_DOWN if english.is_visible() => {
+                        let delta = if event.virtual_key == VK_UP { -1 } else { 1 };
+                        english.move_selection(delta);
                     }
                     VK_ESCAPE => english.dismiss(),
                     VK_BACK => english.backspace(limit, |prefix, limit| {
@@ -2399,6 +2424,11 @@ fn show_quick_bar(tray: &okkhor_win::TrayIcon, logger: &logging::Logger) {
 
 #[cfg(windows)]
 fn open_settings_ui(tray: &okkhor_win::TrayIcon, logger: &logging::Logger) {
+    // Tray Settings must reuse the running UI. Spawning Okkhor.exe again
+    // opened a second window every time.
+    if okkhor_win::signal_settings_show() {
+        return;
+    }
     match crate::ipc::launch_ui() {
         Ok(()) => logger.error(logging::Scope::Ipc, "ui_launch", None),
         Err(crate::ipc::UiLaunchError::NotFound) => {

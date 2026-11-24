@@ -388,27 +388,44 @@ fn run_tray_thread(event_tx: SyncSender<TrayEvent>, ready_tx: Sender<Result<isiz
 /// Falls back to the system application icon when running from source or when
 /// the icon file is missing, so the tray still works in development builds.
 fn load_tray_icon() -> Option<windows::Win32::UI::WindowsAndMessaging::HICON> {
-    let path = std::env::current_exe().ok()?.parent()?.join("okkhor.ico");
-    let wide: Vec<u16> = path
-        .to_string_lossy()
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
-    // SAFETY: `wide` is a live, null-terminated UTF-16 path for the duration
-    // of the call; LR_LOADFROMFILE reads that file and returns an owned HICON.
-    let loaded = unsafe {
-        LoadImageW(
-            None,
-            PCWSTR(wide.as_ptr()),
-            IMAGE_ICON,
-            0,
-            0,
-            LR_LOADFROMFILE,
-        )
-    };
-    loaded
-        .ok()
-        .map(|handle| windows::Win32::UI::WindowsAndMessaging::HICON(handle.0))
+    // The tray is created by `bin\okkhor-engine.exe`, but the portable folder
+    // keeps `okkhor.ico` one level up next to `Okkhor.exe`. Try the exe folder,
+    // its parent, then the repo branding folder for a source build.
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let mut candidates = vec![dir.join("okkhor.ico")];
+    if let Some(parent) = dir.parent() {
+        candidates.push(parent.join("okkhor.ico"));
+        if let Some(root) = parent.parent() {
+            candidates.push(root.join("assets").join("branding").join("okkhor.ico"));
+        }
+    }
+    for path in candidates {
+        if !path.is_file() {
+            continue;
+        }
+        let wide: Vec<u16> = path
+            .to_string_lossy()
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        // SAFETY: `wide` is a live, null-terminated UTF-16 path for the
+        // duration of the call; LR_LOADFROMFILE returns an owned HICON.
+        let loaded = unsafe {
+            LoadImageW(
+                None,
+                PCWSTR(wide.as_ptr()),
+                IMAGE_ICON,
+                0,
+                0,
+                LR_LOADFROMFILE,
+            )
+        };
+        if let Ok(handle) = loaded {
+            return Some(windows::Win32::UI::WindowsAndMessaging::HICON(handle.0));
+        }
+    }
+    None
 }
 
 fn add_tray_icon(window: HWND) -> Result<(), TrayError> {

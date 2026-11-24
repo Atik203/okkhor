@@ -3,6 +3,25 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.1] - 2026-11-24
+
+### Fixed
+
+- **English completion navigation.** Up/Down move the highlight and Tab accepts
+  the highlighted row. The hook swallows those arrows only while the English
+  list is visible, so the caret no longer moves at the same time.
+- **English Backspace and Tab safety.** The list keeps its rows after
+  Backspace, and Tab refuses to commit a token that was typed in another
+  field.
+- **Bangla Tab commits.** Tab now accepts the highlighted Bangla candidate
+  instead of cancelling the composition.
+- **Partial commit recovery.** If Windows delivers only part of a
+  `SendInput` batch (for example the backspaces but not the Bangla text), the
+  unsent tail is retried once instead of leaving the word erased.
+- **Tray icon and duplicate window.** The tray loads `okkhor.ico` from the
+  portable folder one level above `bin\`, and tray Settings reuses the running
+  Settings window instead of launching another one.
+
 ## [0.9.0] - 2026-11-24
 
 ### Added
