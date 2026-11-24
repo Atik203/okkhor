@@ -35,8 +35,12 @@ scope.
   QA/hardening slices. 0.8 adds the coalesced/in-place suggestion card, frozen
   per-word ranking with a prefix cache, sticky selection, the raw Latin
   fallback, the read-only legacy import report/parity matrix, the MSVC release
-  build, and the code-signing hook. Inline preedit, punctuation commit, and
-  accepted/correction learning remain later work.
+  build, and the code-signing hook. 0.8.1 adds first-character suggestions,
+  Backspace-stable rows, a no-op popup fast path, and a blank-commit guard.
+  0.9 adds the real layout engine (ADR 0021): Avro/Phonetic/Khipro as alternate
+  roman tables and National/Probhat/Bijoy as fixed physical-key layouts. Inline
+  preedit, punctuation commit, and accepted/correction learning remain later
+  work.
 - The **Tier 1 logistic reranker exists** in `okkhor-model` and is selectable
   with `okkhor daemon --ranker hybrid`; the **default is `--ranker baseline`**
   (deterministic Smriti) until an A/B on real or licensed data is accepted. On

@@ -3,6 +3,31 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.0] - 2026-11-24
+
+### Added
+
+- **Fixed-layout engine.** National/Jatiya, Probhat and Bijoy are now real
+  physical-key layouts with Normal/Shift/AltGr/ShiftAltGr mappings and bounded
+  conjunct sequences. Fixed mode swallows the raw letter and injects only the
+  mapped character, so a Bengali IME or a browser child-window swap cannot
+  corrupt the result. See ADR 0021.
+- **Alternate phonetic tables.** Khipro and Phonetic/Banglish compile their
+  stored rule tables through the existing regex transliterator and produce
+  their own output. The selector offers one default "Avro (Phonetic)" choice;
+  the other codes remain valid saved settings.
+- **Sequence handling.** A key that starts a conjunct is held for at most
+  30 ms; a matching second key replaces it, and a timeout flushes the single
+  character. Focus changes, pause and mode changes clear the buffer.
+
+### Fixed
+
+- The first letter no longer stays behind in browser address bars: composition
+  now tracks the owning process as well as the window handle.
+- The English completion card no longer blanks on every keystroke while a
+  caret sample is pending. Password samples and field changes still hide it.
+- The card is placed just below and slightly left of the caret.
+
 ## [0.8.1] - 2026-11-24
 
 ### Fixed

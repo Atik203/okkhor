@@ -32,8 +32,11 @@ The dataset manifests, Tier 1 reranker, and AI worker from
 `0.6-model-data-ai.md` move to 0.7/0.8; that plan is retained for the later
 work.
 
-Voice typing is the **last** feature phase (0.9). Keyboard input, language
-data, the reranker, UI, and release mechanics come first.
+0.9 is the **layout engine** phase: Avro, Phonetic and Khipro as alternate
+phonetic tables, plus National/Jatiya, Probhat and Bijoy as real fixed
+physical-key layouts (ADR 0021). Voice typing and local next-word learning move
+to 0.9.x. Keyboard input, language data, the reranker, UI, and release
+mechanics come first.
 
 Manual Windows QA execution remains in issue #8. The full suggestion-rendering
 UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
@@ -59,8 +62,9 @@ UI, hook-level end-to-end benchmark, and tray hardening are follow-ups.
 | 5. Suggestion quality | 0.6 | 28–36 | `OKS1` dictionary, English completions, eight rows, instant state |
 | 6. Hardening, model, AI | 0.7 | 36–44 | IME/RDP/DPI, stress, Tier 1 reranker, opt-in AI worker |
 | 7. Parity | 0.8 | 44–48 | real dictionaries/layouts, importers, migration, parity matrix |
-| 8. Voice typing | 0.9 | 48–50 | opt-in dictation, last feature phase |
-| 9. Release 1.0 | 1.0 | 50–54 | signed installer, updater, SBOM, beta hardening |
+| 8. Fixed layouts | 0.9 | 48–50 | National, Probhat, Bijoy; alternate roman tables |
+| 9. Voice and learning | 0.9.x | 50–53 | opt-in dictation, local next-word learning |
+| 10. Release 1.0 | 1.0 | 53–57 | signed installer, updater, SBOM, beta hardening |
 
 Weeks are relative to project start, not calendar dates. Add 20–30% buffer for
 Windows compatibility and Bengali edge cases.
@@ -279,9 +283,17 @@ Exit criteria:
 in `docs/parity/0.8-matrix.md`, so the matrix has no silent gaps but the
 migration is not complete. Do not call 0.8 a full-parity release.
 
-## Phase 8 — Voice typing (0.9)
+## Phase 8 — Fixed layouts (0.9)
 
-Voice is the last feature phase: keyboard input is the primary path.
+0.9 makes every advertised layout real. Avro, Phonetic and Khipro share one
+phonetic engine with different compiled rule tables; National, Probhat and
+Bijoy use a fixed physical-key engine with modifier and sequence support. The
+hook swallows letters in fixed mode so IME composition cannot corrupt the
+result. ADR 0021 and `docs/superpowers/specs/2026-11-24-fixed-layout-engine-design.md`
+record the design.
+
+Voice typing and local next-word learning are now Phase 8b (0.9.x); keyboard
+input remains the primary path.
 
 Deliverables:
 

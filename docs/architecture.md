@@ -68,7 +68,10 @@ a runtime dependency.
 3. The suggestion engine (`okkhor-engine::suggest`) returns local candidates
    from the embedded `OKS1` index (curated corrections, the direct roman
    dictionary, the Avro word list, autocorrect, suffixes, `wordfreq`
-   popularity) plus the phonetic table.
+   popularity) plus the phonetic table. From 0.9 the daemon selects the table
+   from `settings.layout`: Avro, Phonetic and Khipro are alternate roman
+   tables; National, Probhat and Bijoy take a fixed physical-key path that
+   bypasses suggestions and injects mapped characters directly (ADR 0021).
 4. Smriti reranks them using local statistics and request context.
 5. The popup shows the top N without activating.
 6. A commit is injected with batched Unicode `SendInput`, or clipboard paste

@@ -46,7 +46,7 @@ MSVC matches CI, uses the production Windows ABI, and does not depend on the
 MSYS2 runtime DLLs. The artifact must not contain those DLLs.
 
 ```powershell
-.\scripts\build-beta.ps1 -Version 0.8.0
+.\scripts\build-beta.ps1 -Version 0.9.0
 ```
 
 | Option | Meaning |
@@ -80,9 +80,9 @@ come from Windows 10/11 itself and are expected.
 Verify by hand if needed (the SDK path varies):
 
 ```powershell
-dumpbin /nologo /dependents dist\Okkhor-0.8.0-win64\Okkhor.exe
-dumpbin /nologo /dependents dist\Okkhor-0.8.0-win64\bin\okkhor-engine.exe
-dumpbin /nologo /dependents dist\Okkhor-0.8.0-win64\bin\okkhor-worker.exe
+dumpbin /nologo /dependents dist\Okkhor-0.9.0-win64\Okkhor.exe
+dumpbin /nologo /dependents dist\Okkhor-0.9.0-win64\bin\okkhor-engine.exe
+dumpbin /nologo /dependents dist\Okkhor-0.9.0-win64\bin\okkhor-worker.exe
 ```
 
 `BUILD-INFO.json` records the checked result under `runtime`
@@ -93,7 +93,7 @@ Visual C++ Redistributable. If a Tauri dependency ever refuses the static CRT,
 use the fallback:
 
 ```powershell
-.\scripts\build-beta.ps1 -Version 0.8.0 -UiDynamicCrt
+.\scripts\build-beta.ps1 -Version 0.9.0 -UiDynamicCrt
 ```
 
 That builds only `Okkhor.exe` with the dynamic CRT. The build prints a warning,
@@ -128,16 +128,16 @@ reports `"signed": false`. That is not a 1.0 signed release.
 ```powershell
 # PFX (password from a secret store, never a committed file)
 $env:OKKHOR_SIGN_PFX_PASSWORD = '<secret>'
-.\scripts\build-beta.ps1 -Version 0.8.0 -PfxPath C:\keys\okkhor.pfx
+.\scripts\build-beta.ps1 -Version 0.9.0 -PfxPath C:\keys\okkhor.pfx
 
 # Certificate already installed in CurrentUser\My
-.\scripts\build-beta.ps1 -Version 0.8.0 -CertificateThumbprint <SHA-1 thumbprint>
+.\scripts\build-beta.ps1 -Version 0.9.0 -CertificateThumbprint <SHA-1 thumbprint>
 
 # Sign an already staged folder
 .\scripts\sign-artifact.ps1 -Path `
-  dist\Okkhor-0.8.0-win64\Okkhor.exe, `
-  dist\Okkhor-0.8.0-win64\bin\okkhor-engine.exe, `
-  dist\Okkhor-0.8.0-win64\bin\okkhor-worker.exe `
+  dist\Okkhor-0.9.0-win64\Okkhor.exe, `
+  dist\Okkhor-0.9.0-win64\bin\okkhor-engine.exe, `
+  dist\Okkhor-0.9.0-win64\bin\okkhor-worker.exe `
   -CertificateThumbprint <thumbprint>
 ```
 

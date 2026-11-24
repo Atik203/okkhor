@@ -19,8 +19,12 @@
 | [Release](release.md) | versioning, signing, update and rollback |
 | [0.8.0 release notes](releases/0.8.0.md) | what shipped, verification, limitations |
 | [0.8.1 release notes](releases/0.8.1.md) | forward/backward suggestions, popup fast path, blank-commit guard |
-| [0.9 learning plan](superpowers/plans/0.9-learning-and-next-word.md) | local user learning and next-word suggestions |
-| [Layout engine plan](superpowers/plans/0.8.1-layout-engine.md) | why non-Avro layouts were unwired and what a real engine needs |
+| [0.9.0 release notes](releases/0.9.0.md) | all layouts working, fixed-key engine, popup and first-letter fixes |
+| [0.9 QA checklist](qa/0.9-checklist.md) | per-layout real-key rows and automated gates |
+| [Layout engine design](superpowers/specs/2026-11-24-fixed-layout-engine-design.md) | approved architecture for the fixed and alternate phonetic paths |
+| [Layout engine plan](superpowers/plans/2026-11-24-fixed-layout-engine.md) | implementation tasks and verification |
+| [0.9 learning plan](superpowers/plans/0.9-learning-and-next-word.md) | local user learning and next-word suggestions (0.9.x) |
+| [Legacy layout evidence](superpowers/plans/0.8.1-layout-engine.md) | static findings from Avro, Kontho and Bongo |
 | [0.2.0 release notes](releases/0.2.0.md) | what shipped, measured results, limitations |
 | [Glossary](glossary.md) | project and Bengali terms |
 | [ADRs](adr/) | accepted and proposed architecture decisions |

@@ -1,4 +1,15 @@
-# Okkhor input pipeline (0.6 composition + suggestions)
+# Okkhor input pipeline (0.6 composition + suggestions, 0.9 fixed layouts)
+
+## 0.9 fixed-layout path
+
+When `settings.layout` is `national`, `probhat` or `bijoy`, the input worker
+takes the fixed path (ADR 0021): the hook swallows letter keydowns and their
+keyups, the worker reads Shift/AltGr, and the physical key is mapped to a
+Bangla code point. There is no roman buffer, no popup and no erase; one
+`SendInput` batch inserts the mapped text. Keys that can start a conjunct are
+held for at most 30 ms; a matching next key replaces them, a timeout flushes
+them, and focus changes, pause or mode changes clear the buffer. If injection
+fails, the original ASCII letter is re-emitted so no keystroke is lost.
 
 How a Phonetic keystroke becomes committed Bangla text, and what happens when
 each step fails. For the privacy contract behind every rule here, see

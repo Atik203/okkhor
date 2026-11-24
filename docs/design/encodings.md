@@ -144,10 +144,11 @@ reports the three expected files and their roles without logging paths.
 
 - `from_bijoy` is the ordered legacy inverse (see above); round-trips are
   exact for the eight render goldens but not guaranteed in general.
-- National and Probhat layouts are not implemented yet; only Avro-style
-  phonetic input plus the stored Kontho/Khipro and Phonetic layout data
-  (`assets/layouts/khipro-v1.json`, `phonetic-v1.json`, kept for a later
-  engine task) exist.
+- From 0.9 National and Probhat are real fixed physical-key layouts
+  (`fixed-national-v1.json`, `fixed-probhat-v1.json`) and Khipro/Phonetic are
+  compiled alternate phonetic tables (`khipro-v1.json`, `phonetic-v1.json`).
+  Bijoy remains an output encoding; as a layout it reuses the National key map.
+  See ADR 0021.
 - Table goldens are render-verified against SutonnyMJ for the eight core
   words; differential testing against the installed legacy reference is
   still pending.

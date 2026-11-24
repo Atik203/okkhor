@@ -302,9 +302,11 @@ Online:
 - Is per-app context worth the privacy cost?
 - Do trigrams improve top-1 enough to justify the storage?
 - Should transliteration pairs include the active layout in the key?
-  Decision (2026-11-23, gate G3, 0.4): No — `SuggestionRequest.layout` stays
-  metadata-only; the pair key stays `(language, normalized roman input, output)`.
-  Rationale: no per-layout data yet; revisit with real usage data.
+  Decision (2026-11-23, gate G3, 0.4): No — the pair key stays
+  `(language, normalized roman input, output)`. ADR 0021 (0.9) adds a real
+  layout engine, but fixed layouts still produce no roman pair and do not
+  feed learning; roman layouts share the same pair space. Revisit only with
+  measured cross-layout collisions.
 - Is a small logistic reranker better than hand-tuned weights after 30 days of
   replay data?
 - Should the UI explain “why this suggestion?” in a diagnostics panel?
