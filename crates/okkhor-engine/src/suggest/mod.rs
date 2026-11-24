@@ -165,6 +165,7 @@ impl SuggestionEngine {
             self.stage_curated(index, roman, &mut staged);
             self.stage_user_words(request.user_words, roman, &mut staged);
             self.stage_roman(index, roman, &mut staged);
+            self.stage_typo(index, roman, &mut staged);
             self.stage_autocorrect(index, roman, &mut staged);
         }
 
@@ -334,6 +335,36 @@ impl SuggestionEngine {
                     0.80,
                     CandidateSource::UserHistory,
                 );
+            }
+        }
+    }
+
+    /// Recover the common "typed two letters in the wrong order" case.
+    ///
+    /// Only adjacent swaps of a 3–11 character roman key are considered, and
+    /// the pool is capped so this can never dominate the list. A real exact
+    /// match still outranks it.
+    fn stage_typo(&self, index: &SuggestionIndex, roman: &str, staged: &mut Vec<Candidate>) {
+        let lowered = roman.to_ascii_lowercase();
+        let chars: Vec<char> = lowered.chars().collect();
+        if !(3..=11).contains(&chars.len()) {
+            return;
+        }
+        let mut added = 0usize;
+        for position in 0..chars.len() - 1 {
+            if chars[position] == chars[position + 1] {
+                continue;
+            }
+            let mut swapped = chars.clone();
+            swapped.swap(position, position + 1);
+            let variant: String = swapped.into_iter().collect();
+            for value in index.exact_roman_targets(&variant).into_iter().take(2) {
+                let base = if position == 0 { 0.88 } else { 0.92 };
+                push(staged, value, base, 0.55, CandidateSource::Dictionary);
+                added += 1;
+                if added >= 16 {
+                    return;
+                }
             }
         }
     }
@@ -714,6 +745,22 @@ mod tests {
             rows.iter()
                 .any(|row| row.source == okkhor_core::CandidateSource::Dictionary),
             "a one-letter prefix must offer a dictionary-backed Bangla row: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn adjacent_transposition_recovers_the_intended_word() {
+        let engine = engine();
+        let rows = engine.suggest(&SuggestRequest::new("amra", 10), &Smriti::new());
+        assert!(
+            rows.iter().any(|row| row.text == "আমার"),
+            "amra should offer amar through a transposition: {rows:?}"
+        );
+        // The exact word still ranks above the typo repair.
+        assert_eq!(
+            rows.first().map(|row| row.text.as_str()),
+            Some("আমরা"),
+            "the exact word must stay on top: {rows:?}"
         );
     }
 

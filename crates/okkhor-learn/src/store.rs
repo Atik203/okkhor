@@ -494,6 +494,33 @@ impl Smriti {
             .cloned()
     }
 
+    /// Most frequent words that followed `previous` for this user. The caller
+    /// uses this for the next-word strip; it returns an empty list when the
+    /// pair was never seen and never blocks the typing path.
+    pub fn next_words(
+        &self,
+        language: Language,
+        previous: &str,
+        limit: usize,
+    ) -> Vec<(String, u64)> {
+        let Some(previous_key) = WordKey::new(language, previous) else {
+            return Vec::new();
+        };
+        let inner = self
+            .inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut rows: Vec<(String, u64)> = inner
+            .bigrams
+            .iter()
+            .filter(|(key, _)| key.language == language && key.first == previous_key.text)
+            .map(|(key, stat)| (key.second.clone(), stat.count))
+            .collect();
+        rows.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+        rows.truncate(limit);
+        rows
+    }
+
     pub fn bigram_count(&self) -> usize {
         self.inner
             .read()
@@ -776,6 +803,31 @@ mod tests {
         );
 
         assert_eq!(ranked[0].text, "ভালো");
+    }
+
+    #[test]
+    fn next_words_returns_the_most_frequent_followers() {
+        let smriti = Smriti::new();
+        for _ in 0..3 {
+            smriti.observe(LearningEvent::WordCommitted {
+                word: "ভালো".to_owned(),
+                language: Language::Bangla,
+                previous_word: Some("আমি".to_owned()),
+                timestamp_ms: 1_000,
+                source: CommitSource::Typed,
+            });
+        }
+        smriti.observe(LearningEvent::WordCommitted {
+            word: "খারাপ".to_owned(),
+            language: Language::Bangla,
+            previous_word: Some("আমি".to_owned()),
+            timestamp_ms: 1_000,
+            source: CommitSource::Typed,
+        });
+        let rows = smriti.next_words(Language::Bangla, "আমি", 3);
+        assert_eq!(rows.first().map(|(word, _)| word.as_str()), Some("ভালো"));
+        assert!(rows.iter().any(|(word, _)| word == "খারাপ"));
+        assert!(smriti.next_words(Language::Bangla, "নেই", 3).is_empty());
     }
 
     #[test]

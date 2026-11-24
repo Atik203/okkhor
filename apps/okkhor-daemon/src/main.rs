@@ -859,6 +859,10 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         preedit_rendered: &'a mut String,
         /// Candidate words already counted as shown in this composition.
         shown_words: &'a mut HashSet<String>,
+        /// Last committed Bangla word and its timestamp, for correction detection.
+        last_commit: &'a mut Option<(String, u64)>,
+        /// Word that a recent Backspace removed, awaiting the replacement.
+        pending_correction: &'a mut Option<String>,
         encoding: crate::OutputEncoding,
         learning_enabled: bool,
         state: Option<&'a ProdState>,
@@ -1032,6 +1036,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             return;
         }
         emit_suggestion_accepted(ctx, &unicode_text, previous_word.clone());
+        emit_correction(ctx, &unicode_text);
+        *ctx.last_commit = Some((unicode_text.clone(), now_ms()));
         ctx.shown_words.clear();
         let event = LearningEvent::TransliterationCommitted {
             roman_input: roman,
@@ -1193,6 +1199,27 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    /// A Backspace soon after a commit records the removed word; the next
+    /// commit supplies the replacement. This is a weak signal and never
+    /// deletes anything from the learned store.
+    fn emit_correction(ctx: &mut CompositionCtx<'_>, to: &str) {
+        let Some(from) = ctx.pending_correction.take() else {
+            return;
+        };
+        if from == to || !has_bengali(&from) || !has_bengali(to) || !ctx.learning_enabled {
+            return;
+        }
+        let event = LearningEvent::Correction {
+            from,
+            to: to.to_owned(),
+            language: Language::Bangla,
+            timestamp_ms: now_ms(),
+        };
+        if ctx.learn_tx.try_send(event).is_err() {
+            ctx.learn_dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     fn now_ms() -> u64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
@@ -1289,6 +1316,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             return true;
         }
         emit_suggestion_accepted(ctx, &unicode_text, previous_word.clone());
+        emit_correction(ctx, &unicode_text);
+        *ctx.last_commit = Some((unicode_text.clone(), now_ms()));
         ctx.shown_words.clear();
         // Queue learning for the background thread. The channel is bounded and
         // `try_send` never blocks, so a stalled learn thread can never stall
@@ -1316,6 +1345,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // (Kontho behaviour); only the tracking state is dropped.
         ctx.preedit_rendered.clear();
         ctx.shown_words.clear();
+        *ctx.pending_correction = None;
         hide_popup(ctx.popup, ctx.state);
     }
 
@@ -1331,6 +1361,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             ctx.session.reset();
             ctx.preedit_rendered.clear();
             ctx.shown_words.clear();
+            *ctx.pending_correction = None;
             hide_popup(ctx.popup, ctx.state);
         }
         // A child-window swap inside the same application is not a focus
@@ -1469,6 +1500,14 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 // re-checks focus before touching `SendInput`.
                 track_focus(ctx);
                 if !ctx.session.is_composing() {
+                    // A Backspace within 3 s of a commit is treated as the
+                    // start of a correction; the next commit supplies the
+                    // replacement. The key still passes through untouched.
+                    if let Some((word, at)) = ctx.last_commit.take()
+                        && now_ms().saturating_sub(at) <= 3_000
+                    {
+                        *ctx.pending_correction = Some(word);
+                    }
                     return;
                 }
                 if ctx.session.backspace() != BackspaceOutcome::Empty {
@@ -1942,6 +1981,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut compose_pid = foreground_window_pid();
     let mut preedit_rendered = String::new();
     let mut shown_words: HashSet<String> = HashSet::new();
+    let mut last_commit: Option<(String, u64)> = None;
+    let mut pending_correction: Option<String> = None;
     let mut encoding = options.encoding;
     let mut mode = options.mode;
     let mut learning_enabled = true;
@@ -2486,6 +2527,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     compose_pid: &mut compose_pid,
                     preedit_rendered: &mut preedit_rendered,
                     shown_words: &mut shown_words,
+                    last_commit: &mut last_commit,
+                    pending_correction: &mut pending_correction,
                     encoding,
                     learning_enabled,
                     state: ipc_state.as_deref(),
@@ -2517,6 +2560,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 compose_pid: &mut compose_pid,
                 preedit_rendered: &mut preedit_rendered,
                 shown_words: &mut shown_words,
+                last_commit: &mut last_commit,
+                pending_correction: &mut pending_correction,
                 encoding,
                 learning_enabled,
                 state: ipc_state.as_deref(),
