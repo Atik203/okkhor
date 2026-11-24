@@ -1,7 +1,7 @@
 # AI text actions (0.7)
 
-Status: **design for 0.7**. The provider slice is implemented behind the
-non-default `http` Cargo feature; the worker, daemon, and IPC wiring are not.
+Status: **implemented for 0.7**. The provider, isolated worker, daemon proxy,
+IPC job protocol, and Settings panel are all present.
 Binding rules: `AGENTS.md` §2, ADR 0002 (AI off the hot path), ADR 0018
 (opt-in AI worker), `docs/security-privacy.md`.
 
@@ -46,7 +46,8 @@ The provider is a trait. OpenAI is the first live implementation behind the
 | `crates/okkhor-ai` core (policy, cache, breaker, single-flight, cancel) | implemented |
 | `MockProvider`, `DisabledProvider` | implemented, used by tests |
 | `OpenAiProvider` (`http` feature) | implemented, offline-tested against a local fake server |
-| `apps/okkhor-worker`, daemon IPC `ai.*` | not implemented |
+| `apps/okkhor-worker`, daemon IPC `ai.*` | implemented; worker smoke-tested live |
+| Settings **Try a rewrite** panel | implemented, 6 UI tests |
 
 - The `http` feature is **not** a default feature. The default build and CI
   stay offline; provider tests run with `cargo test -p okkhor-ai --features http`.
@@ -60,7 +61,11 @@ The provider is a trait. OpenAI is the first live implementation behind the
 - Plain HTTP is rejected for remote hosts; only `127.0.0.1` and `localhost` are
   allowed for the local fake server in tests.
 - The transport is `reqwest` 0.12 (blocking client, rustls TLS, no default
-  features; MIT or Apache-2.0), compiled only for the `http` feature.
+  features; MIT or Apache-2.0), compiled only for the `http` feature. The client
+  is constructed before the Tokio runtime starts, and each provider call runs on
+  a plain OS thread so `reqwest::blocking` is never inside a Tokio context.
+- `gpt-6-luna` is a reasoning model and accepts only the default temperature
+  `1.0`; Okkhor sends that. `gpt-6.1-terra` can use the same value.
 - Failures are typed and carry no key, prompt, or response text: 401/403 →
   `KeyMissing`, other non-success → `Provider { status }`, unparsable body or
   missing content → `InvalidResponse`, deadline → `Timeout`, other transport

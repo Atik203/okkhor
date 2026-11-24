@@ -1,18 +1,19 @@
 <#
 .SYNOPSIS
-  Build the Okkhor 0.6.x portable beta (daemon + Tauri UI + fonts).
+  Build the Okkhor 0.7.x portable beta (daemon + worker + Tauri UI + fonts).
 
 .DESCRIPTION
-  Builds okkhor-daemon and okkhor-ui in release, verifies the daemon version
-  identity, and stages dist/Okkhor-<Version>-win64/ plus a portable zip and
-  SHA256SUMS.txt. Fonts are copied from assets/fonts/ (stage them first with
-  scripts/fetch-fonts.ps1); a missing font warns, a missing binary fails.
+  Builds okkhor-daemon, okkhor-worker, and okkhor-ui in release, verifies the
+  daemon version identity, and stages dist/Okkhor-<Version>-win64/ plus a
+  portable zip and SHA256SUMS.txt. Fonts are copied from assets/fonts/ (stage
+  them first with scripts/fetch-fonts.ps1); a missing font warns, a missing
+  binary fails.
 
-  Run from anywhere:  .\scripts\build-beta.ps1 -Version 0.6.0
+  Run from anywhere:  .\scripts\build-beta.ps1 -Version 0.7.0
 #>
 [CmdletBinding()]
 param(
-  [string]$Version = '0.6.0',
+  [string]$Version = '0.7.0',
   [switch]$SkipFonts,
   [switch]$SkipUi
 )
@@ -50,6 +51,12 @@ Write-Host '==> daemon: self-check' -ForegroundColor Cyan
 & $DaemonExe self-check
 if ($LASTEXITCODE -ne 0) { throw "self-check failed (exit $LASTEXITCODE)." }
 
+Write-Host '==> worker: cargo build --release --locked -p okkhor-worker' -ForegroundColor Cyan
+& $cargo build --manifest-path (Join-Path $RepoRoot 'Cargo.toml') --release --locked -p okkhor-worker
+if ($LASTEXITCODE -ne 0) { throw "Worker release build failed (exit $LASTEXITCODE)." }
+$WorkerExe = Join-Path $RepoRoot 'target\release\okkhor-worker.exe'
+if (-not (Test-Path $WorkerExe)) { throw "Build reported success but $WorkerExe is missing." }
+
 $UiExe = $null
 if (-not $SkipUi) {
   $UiRoot = Join-Path $RepoRoot 'apps\okkhor-ui'
@@ -84,6 +91,7 @@ New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 $BinDir = Join-Path $StageDir 'bin'
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 Copy-Item $DaemonExe (Join-Path $BinDir 'okkhor-engine.exe') -Force
+Copy-Item $WorkerExe (Join-Path $BinDir 'okkhor-worker.exe') -Force
 if ($UiExe) { Copy-Item $UiExe (Join-Path $StageDir 'Okkhor.exe') -Force }
 
 $Icon = Join-Path $RepoRoot 'assets\branding\okkhor.ico'
@@ -125,6 +133,7 @@ $buildInfo = [ordered]@{
   rustc        = (& rustc --version)
   target       = $hostTriple
   daemon_sha256 = (Get-FileHash $DaemonExe -Algorithm SHA256).Hash
+  worker_sha256 = (Get-FileHash $WorkerExe -Algorithm SHA256).Hash
   ui_sha256    = $uiSha
 }
 $buildInfo | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $StageDir 'BUILD-INFO.json') -Encoding utf8

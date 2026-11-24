@@ -3,6 +3,50 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.7.0] - 2026-11-24
+
+### Added
+
+- **Opt-in AI rewrite.** Settings has an AI card with an explicit
+  **Try a rewrite** action. The provider call runs in an isolated
+  `okkhor-worker.exe` process with its own pipe/token; the daemon queues a job,
+  returns an id immediately, and the UI polls/cancels. Results are shown for
+  review and are never inserted automatically. Prompts and responses are
+  memory-only and never logged.
+- **OpenAI provider** behind the non-default `http` feature. Default model
+  `gpt-6-luna` (roughly $0.0002 per short rewrite); `gpt-6.1-terra` is the
+  quality option. The key comes from `OKKHOR_OPENAI_API_KEY` and is never
+  persisted.
+- **Shipped `okkhor-features` and `okkhor-model` crates.** One source of truth
+  for the v1 feature vector, plus a checksum-verified embedded Tier 1 logistic
+  reranker behind `--ranker hybrid`. The default remains `--ranker baseline`.
+- **Dataset manifest v1 and deterministic trainer.** Fail-closed license,
+  checksum, and row-count verification; the same seed and replay produce
+  byte-identical model JSON.
+- **Automated 0.7 QA gate and stress test.** `scripts/qa-0.7.ps1`,
+  `docs/qa/0.7-matrix.md`, `docs/qa/0.7-checklist.md`, and a 10,000-event
+  session stress test.
+
+### Changed
+
+- **Caret UI Automation runs on a dedicated latest-wins thread.** Typing no
+  longer waits on UIA; a visible popup follows a newer caret without repainting.
+- **English popup freshness.** The password flag is trusted only after a sample
+  newer than the latest request, so a previous field cannot leak a completion
+  into a password box.
+- **Worker shutdown is detach-safe.** A hung UIA call no longer blocks daemon
+  shutdown.
+
+### Known limits
+
+- The hybrid reranker is trained on the synthetic replay only and is default
+  off; it is an exact baseline identity there and makes no real-world quality
+  claim.
+- AI needs a key in the environment or a local `.env`; it is not bundled.
+- Installer, auto-update, and code signing remain 1.0 work.
+- Real-key Windows QA (caret, IME/RDP/elevated/DPI) remains the owner's manual
+  pass.
+
 ## [0.6.0] - 2026-11-24
 
 ### Added

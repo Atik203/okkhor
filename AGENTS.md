@@ -20,26 +20,33 @@ scope.
 
 ## Current state
 
-- This repository is **0.6 code-complete**, with the 0.7 model slice landed in
-  the `feat/0.7-model` worktree. The live typing path is the Win32 hook, the
-  resident daemon, the Avro phonetic table, and the embedded `OKS1` suggestion
-  engine (184k Bangla words, 114k roman pairs, curated corrections,
+- This repository is **0.7 code-complete**. The live typing path is the Win32
+  hook, the resident daemon, the Avro phonetic table, and the embedded `OKS1`
+  suggestion engine (184k Bangla words, 114k roman pairs, curated corrections,
   `wordfreq` popularity). English mode offers prefix completions (Tab/click,
   never auto-replace). The quick bar receives pushed mode/pause/encoding
-  state. Learning is persisted to an encrypted `data/learning.bin`.
+  state. Learning is persisted to an encrypted `data/learning.bin`. Caret and
+  password UI Automation run on a dedicated latest-wins thread.
 - 0.5 shipped the Tauri UI, named-pipe IPC, daemon-owned settings,
   DPAPI-encrypted word store, on-screen keyboard, quick bar, tray, autostart,
-  and the packaged `Okkhor.exe` + `bin\okkhor-engine.exe` layout. 0.6 adds the
+  and the packaged `Okkhor.exe` + `bin\okkhor-engine.exe` layout. 0.6 added the
   full local dictionary, eight rows, English completions, and instant state.
+  0.7 adds the caret thread, the Tier 1 reranker, the AI rewrite worker, and the
+  QA/hardening slices.
 - The **Tier 1 logistic reranker exists** in `okkhor-model` and is selectable
   with `okkhor daemon --ranker hybrid`; the **default is `--ranker baseline`**
   (deterministic Smriti) until an A/B on real or licensed data is accepted. On
   the frozen synthetic replay the hybrid is an exact baseline identity (no
   learning evidence) and does not claim a quality gain. A missing or invalid
   bundled model logs `model_load` and falls back to baseline; typing continues.
-- The AI worker, speech, installer, updater, and code signing are **not
-  implemented yet**. 0.6 is a personal/QA beta; 1.0 needs the installer and
-  signature. Do not claim those exist.
+- The **opt-in AI worker exists**: `apps/okkhor-worker` owns the OpenAI client,
+  the daemon proxies jobs, and Settings exposes an explicit rewrite action.
+  Prompts/responses are memory-only; the worker is spawned only when AI is
+  enabled and a key is present. Speech, the installer, updater, and code signing
+  are **not implemented yet**. 0.7 is a personal/QA beta; 1.0 needs the installer
+  and signature. Do not claim those exist.
+- Real-key Windows QA (caret, English Tab/password, IME/RDP/elevated/DPI) is
+  still the owner's manual pass; the hook intentionally ignores injected keys.
 - The legacy application is a read-only reference installation supplied by the
   owner. It is not part of this repository; see `docs/compatibility.md`.
 - The legacy application is a read-only reference installation supplied by the
@@ -155,6 +162,8 @@ not automatically acceptable.
 apps/okkhor-bench/       non-hook ranking/suggestion/injection benchmarks
 apps/okkhor-daemon/      resident daemon, tray/logging wiring, and demos
 apps/okkhor-ui/          Tauri settings + quick bar + on-screen keyboard
+apps/okkhor-worker/      isolated opt-in AI worker process
+crates/okkhor-ai/        provider boundary, cache, breaker, single-flight, policy
 crates/okkhor-core/      language, text, candidate, ranking primitives
 crates/okkhor-features/  shipped v1 feature vector and deterministic extraction
 crates/okkhor-ipc/       named-pipe protocol, settings, words
@@ -175,9 +184,8 @@ benchmarks/              harness notes and future corpora
 scripts/                 developer checks and importers
 ```
 
-Planned but not created yet: `okkhor-speech`, `okkhor-ai`, `okkhor-worker`,
-`okkhor-license`, `okkhor-update`. Create them only when the roadmap reaches
-them.
+Planned but not created yet: `okkhor-speech`, `okkhor-license`,
+`okkhor-update`. Create them only when the roadmap reaches them.
 
 ## Build and test
 
