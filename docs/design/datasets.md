@@ -105,7 +105,7 @@ Rules:
 2. Human-produced or clearly labeled synthetic; synthetic data is not used to
    claim real-world quality.
 3. Bangla script correct (NFC, conjuncts, ZWJ/ZWNJ) and Romanization scheme
-   documented (Avro/National/Banglish).
+   documented (Avro/National/Phonetic).
 4. Size proportionate to value: the Tier 1 reranker needs features, not a
    trillion tokens; start ≤ 2 GB for training and ≤ 500 MB for evaluation.
 5. Reproducible: stable revision/commit id, checksum, and a download command

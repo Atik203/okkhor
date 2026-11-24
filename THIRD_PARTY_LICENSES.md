@@ -68,7 +68,7 @@ encoding data is imported from owner-supplied JSON (see
   `Bangla to Bijoy layout`) is a **keyboard layout**, kept for reference
   only and never used as the output encoder.
 - `assets/layouts/khipro-v1.json` (288 rules) and
-  `assets/layouts/banglish-v1.json` (256 rules) carry per-file provenance
+  `assets/layouts/phonetic-v1.json` (256 rules) carry per-file provenance
   and the same license note.
 
 ## Runtime dependencies with license relevance

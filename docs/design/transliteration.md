@@ -82,9 +82,9 @@ invalid-pattern load failure, rule-count validation, bounds,
 determinism, 200 synthetic strings, `into_candidate()`, and a p99
 latency smoke (<1 ms for 32 chars on release).
 
-## Reuse for Khipro/Banglish
+## Reuse for Khipro/Phonetic
 
 `PhoneticTransliterator::from_patterns` / `::from_asset_json` accept any
-table in the same shape, so the Khipro (288 rules) and Banglish
+table in the same shape, so the Khipro (288 rules) and Phonetic
 (256 rules) dumps can load through the identical engine later; only the
 asset file changes.

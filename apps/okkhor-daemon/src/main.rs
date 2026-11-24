@@ -995,7 +995,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if !ctx.learning_enabled {
             return true;
         }
-        // A raw Latin fallback (unknown Banglish) is not a roman -> Bangla
+        // A raw Latin fallback (unknown phonetic word) is not a roman -> Bangla
         // pair. Recording it would poison the personal transliteration map.
         if !unicode_text
             .chars()
@@ -1627,7 +1627,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     if mode == crate::InputMode::English {
         println!("daemon: English mode: typing passes through (F9 toggles Bangla)");
     } else {
-        println!("daemon: type Banglish and press Space to commit Bangla");
+        println!("daemon: type phonetic English and press Space to commit Bangla");
     }
     println!("daemon: use the tray menu or pause hotkey to pause");
 

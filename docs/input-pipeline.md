@@ -1,6 +1,6 @@
 # Okkhor input pipeline (0.6 composition + suggestions)
 
-How a Banglish keystroke becomes committed Bangla text, and what happens when
+How a Phonetic keystroke becomes committed Bangla text, and what happens when
 each step fails. For the privacy contract behind every rule here, see
 [`security-privacy.md`](../security-privacy.md). The suggestion index and
 English completion rules are in ADR-0016.

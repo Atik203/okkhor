@@ -114,7 +114,7 @@ pub fn encode_layout(layout: Option<&str>) -> u8 {
         Some("bijoy") => 2,
         Some("national") => 3,
         Some("probhat") => 4,
-        Some("banglish") => 5,
+        Some("phonetic") | Some("banglish") => 5,
         Some("khipro") => 6,
         Some("unibijoy") => 7,
         Some(_) => 8,
@@ -367,6 +367,8 @@ mod tests {
         assert_eq!(encode_source(CandidateSource::RawInput), 6);
         assert_eq!(encode_layout(None), 0);
         assert_eq!(encode_layout(Some("avro")), 1);
+        assert_eq!(encode_layout(Some("phonetic")), 5);
+        assert_eq!(encode_layout(Some("banglish")), 5);
         assert_eq!(encode_layout(Some("AVRO")), 1);
         assert_eq!(encode_language(Language::English), 0);
         assert_eq!(encode_language(Language::Bangla), 1);

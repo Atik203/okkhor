@@ -48,7 +48,38 @@ pub const TOGGLE_HOTKEY_MAX_LEN: usize = 32;
 /// This crate does not depend on `okkhor-lang` (dependency budget, Task 1),
 /// so the known set is spelled out here. Any other value maps to
 /// [`ErrorCode::InvalidLayout`].
-pub const KNOWN_LAYOUTS: [&str; 6] = ["avro", "national", "probhat", "bijoy", "banglish", "khipro"];
+pub const KNOWN_LAYOUTS: [&str; 7] = [
+    "avro", "national", "probhat", "bijoy", "phonetic", "khipro", "banglish",
+];
+
+/// Canonical code for romanized Bangla phonetic input.
+pub const LAYOUT_PHONETIC: &str = "phonetic";
+/// Legacy code kept only so older settings files still load.
+pub const LAYOUT_LEGACY_BANGLISH: &str = "banglish";
+
+/// Map a legacy layout code to its canonical name. All other codes are
+/// returned unchanged; callers persist the canonical value.
+#[must_use]
+pub const fn canonical_layout(layout: &str) -> &str {
+    if is_legacy_banglish(layout) {
+        LAYOUT_PHONETIC
+    } else {
+        layout
+    }
+}
+
+const fn is_legacy_banglish(layout: &str) -> bool {
+    let bytes = layout.as_bytes();
+    bytes.len() == 8
+        && bytes[0] == b'b'
+        && bytes[1] == b'a'
+        && bytes[2] == b'n'
+        && bytes[3] == b'g'
+        && bytes[4] == b'l'
+        && bytes[5] == b'i'
+        && bytes[6] == b's'
+        && bytes[7] == b'h'
+}
 
 /// UI language.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -787,6 +818,13 @@ mod tests {
                 "schema {schema}"
             );
         }
+    }
+
+    #[test]
+    fn legacy_banglish_layout_code_normalizes_to_phonetic() {
+        assert_eq!(canonical_layout("banglish"), "phonetic");
+        assert_eq!(canonical_layout("phonetic"), "phonetic");
+        assert_eq!(canonical_layout("avro"), "avro");
     }
 
     #[test]

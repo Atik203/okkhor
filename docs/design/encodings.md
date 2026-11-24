@@ -130,7 +130,7 @@ reports the three expected files and their roles without logging paths.
 
 ## Official-work workflow
 
-1. Type in Banglish/Avro-phonetic or any Unicode layout → Unicode text.
+1. Type in Phonetic/Avro-phonetic or any Unicode layout → Unicode text.
 2. `to_bijoy` rewrites the Unicode text to SutonnyMJ bytes (8
    render-verified goldens plus conjunct, `ো`/`ৌ`, digit, and round-trip
    cases in `okkhor-lang::sutonnymj` tests; legacy differential testing
@@ -145,8 +145,8 @@ reports the three expected files and their roles without logging paths.
 - `from_bijoy` is the ordered legacy inverse (see above); round-trips are
   exact for the eight render goldens but not guaranteed in general.
 - National and Probhat layouts are not implemented yet; only Avro-style
-  phonetic input plus the stored Kontho/Khipro and Banglish layout data
-  (`assets/layouts/khipro-v1.json`, `banglish-v1.json`, kept for a later
+  phonetic input plus the stored Kontho/Khipro and Phonetic layout data
+  (`assets/layouts/khipro-v1.json`, `phonetic-v1.json`, kept for a later
   engine task) exist.
 - Table goldens are render-verified against SutonnyMJ for the eight core
   words; differential testing against the installed legacy reference is

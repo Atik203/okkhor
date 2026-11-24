@@ -1,13 +1,13 @@
 {
- "name": "banglish-v1",
+ "name": "phonetic-v1",
  "version": "1",
- "source": "Banglish",
+ "source": "Bangla phonetic input",
  "source_version": "1.43",
- "developer": "Md Nabil Mostofa",
- "developer_contact": "Like Avro Phonetic, this is also a phonetic layout, but it's highly optimized for Nms Kontho.",
+ "developer": "Okkhor (rule provenance: owner-provided reference data)",
+ "developer_contact": "Stored locally as optional layout data; no legacy runtime dependency.",
  "github_link": "https://github.com/nabil-bot/Layouts-and-Encodings-/raw/refs/heads/main/Banglish.nmsLayout",
- "license": "owner-supplied legacy data, publicly mirrored",
- "description": "Banglish phonetic layout data (optional store for a later engine task). Key order preserved.",
+ "license": "owner-supplied reference data, publicly mirrored",
+ "description": "Bangla phonetic layout data (optional store for a later engine task). Key order preserved.",
  "rule_count": 256,
  "rules": [
   {

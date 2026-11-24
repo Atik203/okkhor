@@ -20,7 +20,7 @@ Build a corpus covering:
 - independent vowels and vowel signs;
 - Bangla digits and number words;
 - English words, punctuation, emoji;
-- Avro, National, Probhat, Bijoy, Banglish, Khipro, and custom layouts;
+- Avro, National, Probhat, Bijoy, Phonetic, Khipro, and custom layouts;
 - transliteration variants and user-specific pairs;
 - sentence starts, punctuation, and corrections;
 - empty, whitespace, mixed-script, and very long inputs.

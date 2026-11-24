@@ -729,14 +729,17 @@ impl<P: Protector> DaemonState<P> {
     }
 }
 
-/// Contract §4 `layouts.list`: the four 0.5 layouts with display names.
+/// Contract §4 `layouts.list`: the 0.8 standard layouts with display names.
+/// The legacy `banglish` code is accepted on input but is not advertised.
 #[must_use]
 pub fn layout_list() -> Vec<LayoutInfo> {
     [
         ("avro", "Avro"),
         ("khipro", "Khipro"),
-        ("banglish", "Banglish"),
+        ("phonetic", "Phonetic"),
+        ("national", "Bangla (National)"),
         ("bijoy", "Bijoy"),
+        ("probhat", "Probhat"),
     ]
     .into_iter()
     .map(|(code, name)| LayoutInfo {
@@ -1232,14 +1235,14 @@ mod tests {
         assert!(status.learning_enabled);
         assert!(!status.autostart);
 
-        // layouts.list carries the four 0.5 layouts with display names.
+        // layouts.list advertises canonical 0.8 codes, not the legacy alias.
         let layouts = layout_list();
         assert_eq!(
             layouts
                 .iter()
                 .map(|entry| entry.code.as_str())
                 .collect::<Vec<_>>(),
-            vec!["avro", "khipro", "banglish", "bijoy"]
+            vec!["avro", "khipro", "phonetic", "national", "bijoy", "probhat"]
         );
         assert!(layouts.iter().all(|entry| !entry.name.is_empty()));
 

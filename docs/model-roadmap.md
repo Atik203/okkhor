@@ -128,7 +128,7 @@ raw-input 6. Raw-input is an additive code for the always-selectable Latin
 fallback (ADR 0020); the shipped synthetic model was trained without it and
 the default baseline ranker does not depend on it.
 `language`: English 0, Bangla 1; `layout`: none 0, avro 1, bijoy 2, national
-3, probhat 4, banglish 5, khipro 6, unibijoy 7, other 8; `context_language`:
+3, probhat 4, phonetic 5, khipro 6, unibijoy 7, other 8; `context_language`:
 none 0, English 1, Bangla 2, mixed 3). Extraction is
 `extract_features(&SuggestionRequest, &Candidate, &LearningSnapshot)` with no
 I/O. The frozen synthetic replay set and the engine/Smriti baselines are

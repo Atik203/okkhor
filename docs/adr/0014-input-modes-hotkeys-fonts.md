@@ -25,8 +25,8 @@ configurable.
   Default after install: `bangla`.
 - `output_encoding`: `unicode` (default) or `bijoy` (legacy ANSI bytes rendered
   with Kalpurush ANSI / SutonnyMJ).
-- Input mode and output encoding are independent: Banglish → Unicode and
-  Banglish → Bijoy are both first-class.
+- Input mode and output encoding are independent: Phonetic → Unicode and
+  Phonetic → Bijoy are both first-class.
 - The last mode and encoding persist across restarts. Composition state never
   persists.
 

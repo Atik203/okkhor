@@ -410,7 +410,7 @@ executable were involved.
 | Scenario | Corpus |
 | --- | --- |
 | English burst | 1,000 common English words with corrections |
-| Bangla burst | 1,000 Banglish -> Bangla commits across layouts |
+| Bangla burst | 1,000 Phonetic -> Bangla commits across layouts |
 | Mixed | 30-second English/Bangla switches |
 | Long word | 64-character prefix, fuzzy candidates |
 | Noisy context | large bigram history, many user words |

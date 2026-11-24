@@ -3,7 +3,7 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
-## [Unreleased]
+## [0.8.0] - 2026-11-24
 
 ### Fixed
 
@@ -28,9 +28,26 @@ Versioning once it reaches 1.0.
 
 - **Raw Latin fallback.** Bangla mode keeps the typed Latin token as the last
   row, and adds a few English prefix completions when no dictionary-backed
-  Bangla candidate exists. This keeps unknown Banglish such as `also`
+  Bangla candidate exists. This keeps unknown phonetic words such as `also`
   selectable instead of forcing a rule-guessed Bangla word. Latin commits are
   not learned as Bangla pairs. See ADR 0020.
+- **Legacy import report and parity matrix.** `scripts/import-legacy.ps1`
+  inspects the owner-provided Kontho install read-only, records counts and
+  SHA256s, and reports unsupported formats. `settings.pkl` and other pickle
+  data are never deserialized. `WTR1`/`STRI` dictionaries and pickle-based
+  layouts/encodings are recognized but not imported in 0.8.
+- **National/Jatiya standard layout.** `crates/okkhor-lang/assets/layouts/national-v1.json`
+  holds 77 mappings for the public BCC National keyboard. It is Okkhor's
+  independent implementation, exposed as `Bangla (National)` in the layout
+  selector; the layout asset is stored data, not a runtime dependency on any
+  other keyboard product.
+- **Professional layout naming.** The internal `banglish` code is now
+  `phonetic`, with `banglish` accepted as a legacy alias and migrated in
+  `settings.json`. The UI shows `Phonetic` / `Bangla (National)`.
+- **MSVC release build and signing hook.** The portable build uses
+  `x86_64-pc-windows-msvc`; `scripts/build-beta.ps1` can sign and timestamp the
+  three executables when a trusted certificate is supplied. Unsigned builds
+  still trigger SmartScreen; see `docs/release.md`.
 
 ## [0.7.0] - 2026-11-24
 

@@ -1,16 +1,19 @@
-Okkhor 0.7.0 beta - Windows 11 x64 portable
+Okkhor 0.8.0 beta - Windows 11 x64 portable
 ===========================================
 
-This is an UNSIGNED beta. It has no installer and no auto-update. It is not
-yet 1.0: signing, the installer, and the updater are later milestones.
-Everything runs per-user; no admin is required.
+This is an UNSIGNED beta unless the release owner signed it with a trusted
+Authenticode certificate. It has no installer and no auto-update. It is not
+yet 1.0: the installer, updater, and a signed release are later milestones.
+Everything runs per-user; no admin is required. The build uses the MSVC
+toolchain, the production Windows toolchain, and links the C runtime
+statically: no separate Microsoft Visual C++ Redistributable is needed.
 
 1. EXTRACT
 ----------
 Unzip the folder anywhere you can write, e.g. Desktop or Documents. Keep the
 folder layout:
 
-  Okkhor-0.7.0-win64/
+  Okkhor-0.8.0-win64/
     Okkhor.exe          THE APP - double-click this one
     bin/
       okkhor-engine.exe resident input engine (started by Okkhor.exe)
@@ -25,20 +28,34 @@ Okkhor.exe is the only thing you need to run. It starts the typing engine in
 the background (no console window) and then shows Settings. If the engine is
 already running it simply reconnects.
 
-2. WINDOWS SMARTSCREEN
-----------------------
-Because this beta is not code-signed yet, Windows may show "Windows protected
-your PC" the first time you run it:
+2. WINDOWS SMARTSCREEN AND SIGNATURE
+------------------------------------
+This build is code-signed only if the release owner attached a trusted
+Authenticode certificate. An unsigned build makes Windows show "Windows
+protected your PC" the first time you run it:
 
   More info  ->  Run anyway
 
-That warning is expected for unsigned software and disappears once 1.0 ships
-with an Authenticode signature. If you prefer to verify the download first,
-compare the zip hash with SHA256SUMS.txt:
+That warning is about the missing signature and download reputation, not a
+detected bug in Okkhor, and it disappears only for a build signed with a
+trusted code-signing certificate. A self-signed certificate does not help on
+other machines.
 
-  Get-FileHash .\Okkhor-0.7.0-win64-portable.zip -Algorithm SHA256
+Before running it, verify the download. Compare the zip hash with
+SHA256SUMS.txt:
 
-The value must match SHA256SUMS.txt exactly. Only trust a zip that matches.
+  Get-FileHash .\Okkhor-0.8.0-win64-portable.zip -Algorithm SHA256
+
+The value must match SHA256SUMS.txt exactly, character for character. Only
+trust a zip that matches.
+
+If this is a signed build, also check the signature:
+
+  Get-AuthenticodeSignature .\Okkhor.exe | Format-List Status, SignerCertificate
+
+Status must be Valid and the signer must be the expected publisher. An
+"Insecure" or "NotSigned" result means the file was modified or this is an
+unsigned beta.
 
 3. INSTALL FONTS (per-user, no admin)
 -------------------------------------
@@ -67,7 +84,7 @@ The engine creates a per-user IPC token under
 
 5. USE
 ------
-- Type Banglish and press Space to commit Bangla. The caret list shows eight
+- Type phonetic English and press Space to commit Bangla. The caret list shows eight
   rows by default (up to ten); digits 1-9 and 0 select a row, arrows move,
   Backspace edits, Esc keeps the roman text.
 - In English mode, three letters open a quiet completion list. Tab accepts the
@@ -102,8 +119,21 @@ of 1.0; Okkhor sends that. `gpt-6.1-terra` is the quality option. The panel show
 whether a key is set; it never displays the key. Prompts and responses are
 memory-only and are never logged or inserted automatically.
 
-7. WHAT IS IN 0.7.0
+7. WHAT IS IN 0.8.0
 -------------------
+- Stable suggestion popup: updated in place instead of re-shown, painted
+  through a memory DC, coalesced to one visible update per 30 ms, and latched
+  through a transient caret-sample miss.
+- Recency is frozen for one composition, a bounded prefix cache restores the
+  exact rows after backspace-and-retype, and arrow selection follows the same
+  row across later keystrokes.
+- Raw Latin fallback: Bangla mode keeps the typed Latin token as the last row,
+  so unknown phonetic words such as `also` are selectable without a rule guess.
+- Standard layouts: the selector offers Avro, Khipro, Phonetic, Bangla
+  (National/Jatiya), Bijoy and Probhat. The old `banglish` setting is migrated
+  to `phonetic` automatically.
+
+0.7 features remain:
 - Dedicated latest-wins caret thread: typing no longer waits on UI Automation;
   the popup follows a newer caret without repainting.
 - English popup waits for a fresh caret/password sample before showing, so a
@@ -116,7 +146,7 @@ memory-only and are never logged or inserted automatically.
 - Dataset manifest v1 + fail-closed verifier + deterministic logistic trainer.
 - 10,000-event session stress test and the `scripts/qa-0.7.ps1` gate.
 - 0.6 features remain: full local dictionary, eight rows, English completions,
-  instant quick-bar state, encrypted learning, Avro/Khipro/Banglish layouts,
+  instant quick-bar state, encrypted learning, Avro/Khipro/Phonetic layouts,
   Unicode/Bijoy output, settings, on-screen keyboard, tray, and quick bar.
 
 Bijoy note: Bijoy output is ANSI text meant for documents that use the
@@ -125,7 +155,9 @@ letters; use Unicode there.
 
 8. KNOWN LIMITS (read before filing bugs)
 -----------------------------------------
-- UNSIGNED: SmartScreen will warn. Do not distribute outside the test group.
+- UNSIGNED unless the owner signed this build: SmartScreen will warn; a trusted
+  Authenticode certificate is required to remove it. Do not distribute outside
+  the test group.
 - No installer/uninstaller; delete the folder to remove the app.
 - The hybrid reranker is trained on a synthetic replay only and is default-off;
   it makes no real-world quality claim. Real-corpus A/B is owner-gated.
@@ -136,7 +168,7 @@ letters; use Unicode there.
 
 9. VERSION IDENTITY
 -------------------
-`.\bin\okkhor-engine.exe --version` must print `okkhor 0.7.0`, matching
+`.\bin\okkhor-engine.exe --version` must print `okkhor 0.8.0`, matching
 BUILD-INFO.json and the folder name. If it does not, stop and rebuild from the
 tag.
 

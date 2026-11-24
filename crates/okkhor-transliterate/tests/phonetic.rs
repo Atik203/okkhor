@@ -1,7 +1,7 @@
 //! Tests for the ordered Avro regex pipeline (`PhoneticTransliterator`).
 //!
 //! Expectations are the legacy table's own outputs (the table wins over
-//! Banglish intuition where they differ); see
+//! phonetic intuition where they differ); see
 //! `docs/design/transliteration.md`. The legacy table itself is data
 //! extracted read-only from the owner's licensed installation.
 

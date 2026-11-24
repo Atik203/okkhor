@@ -249,7 +249,7 @@ timeout, 5 s per-request deadline.
      `autostart` (full field list is pinned by the IPC `Status` shape).
    - `settings.get` / `settings.update` (partial patch; the daemon validates,
      clamps, persists atomically, and live-applies what it can — see below).
-   - `layouts.list` → Avro/Khipro/Banglish/Bijoy with display names.
+   - `layouts.list` → Avro/Khipro/Phonetic/Bijoy with display names.
    - `words.list` (search + `offset`/`limit`, limit clamped to 200),
      `words.add` (duplicate triple rejected), `words.remove`,
      `words.import` (CSV `roman,output,language` or JSON, 5,000 rows max),
@@ -270,7 +270,7 @@ UI's own rendering; the native popup keeps the engine's 5-candidate cap.
 
 ## On-screen keyboard (`#/keyboard`)
 
-- Layout selector sourced from `ipc_list_layouts` (Avro, Khipro, Banglish,
+- Layout selector sourced from `ipc_list_layouts` (Avro, Khipro, Phonetic,
   Bijoy, …), falling back to a bundled code list when the daemon is
   unreachable. The selector is display-only and does not persist: the hardware
   layout is owned by daemon settings and switched in Settings. The table below

@@ -7,8 +7,9 @@ export const KNOWN_LAYOUTS = [
   "national",
   "probhat",
   "bijoy",
-  "banglish",
+  "phonetic",
   "khipro",
+  "banglish",
 ] as const;
 
 const FUNCTION_KEY = /^[Ff]([1-9]|1[0-9]|2[0-4])$/;

@@ -208,9 +208,9 @@ export function pushRecent(recents: string[], key: string, max: number = MAX_REC
 export const FALLBACK_LAYOUTS: { code: string; name: string }[] = [
   { code: "avro", name: "Avro" },
   { code: "khipro", name: "Khipro" },
-  { code: "banglish", name: "Banglish" },
+  { code: "phonetic", name: "Phonetic" },
+  { code: "national", name: "Bangla (National)" },
   { code: "bijoy", name: "Bijoy" },
-  { code: "national", name: "National" },
   { code: "probhat", name: "Probhat" },
 ];
 

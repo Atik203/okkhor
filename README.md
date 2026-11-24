@@ -5,13 +5,13 @@ utility. The goal is a fast, local-first typing experience: immediate
 transliteration and suggestions, personalization that learns on the device, and
 AI features that never sit in the keystroke path.
 
-> Status: **0.2.0 code-complete**. The workspace, learning core, storage, Win32
-> hook, Unicode injector with guarded clipboard fallback and native-control
-> `WM_CHAR` fast path, single-instance guard, capture pause state, pause hotkey,
-> caret-aware non-activating popup scaffold, per-user autostart, redacted daemon
-> logging, a minimal tray icon, and a non-hook benchmark harness exist. Manual
-> Windows QA is pending in issue #8; full suggestion rendering, UI, speech, and
-> AI workers are later milestones.
+> Status: **0.8.0 code-complete**. The workspace has the full local dictionary,
+> English completions, a caret-following suggestion popup, Smriti
+> personalization, the Tier 1 reranker (default-off), an opt-in isolated AI
+> rewrite worker, and the 0.8 popup-stability/raw-fallback work. The portable
+> Windows build uses MSVC and has a code-signing hook. The installer, updater,
+> code signing certificate, speech, and inline preedit remain later milestones;
+> real-key QA is the owner's pass in `docs/qa/0.8-checklist.md`.
 
 ## Why Rust
 
@@ -71,7 +71,7 @@ Or:
 
 The daemon (`okkhor daemon`) now types Bangla end to end on Windows:
 
-- Type Banglish letters (`bhalo`) — a non-activating popup near the caret shows
+- Type phonetic English letters (`bhalo`) - a non-activating popup near the caret shows
   the Bangla candidate from the real embedded Avro phonetic table, refreshed
   per keystroke (up to 5 numbered candidates; the deterministic table yields
   one). Lowercase `o` after a consonant is the inherent vowel (`bhalo` →

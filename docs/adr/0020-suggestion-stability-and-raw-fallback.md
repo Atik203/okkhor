@@ -7,7 +7,7 @@ Date: 2026-11-24
 
 After the 0.7.0 beta the owner reported four user-visible problems: the popup
 flickers and jumps while typing, suggestions reorder on almost every keystroke,
-the popup can stay hidden after a Space, and an unknown Banglish word has no
+the popup can stay hidden after a Space, and an unknown phonetic word has no
 usable row (for example `also` only produces a rule-guessed Bangla word).
 
 Static inspection of the two reference keyboards clarified the useful parts:

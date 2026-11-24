@@ -11,7 +11,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use okkhor_ipc::error::ErrorCode;
-use okkhor_ipc::settings::{Settings, SettingsError, SettingsPatch};
+use okkhor_ipc::settings::{Settings, SettingsError, SettingsPatch, canonical_layout};
 use thiserror::Error;
 
 /// Settings load/update failures. Messages are static; they never include
@@ -129,9 +129,16 @@ impl SettingsStore {
         let legacy = std::str::from_utf8(&bytes)
             .ok()
             .is_some_and(|text| !text.contains("\"english_suggestions\""));
-        let migrated = legacy && parsed.popup_max_items == 5;
+        let mut migrated = legacy && parsed.popup_max_items == 5;
         if migrated {
             parsed.popup_max_items = 8;
+        }
+        // 0.8 terminology: `banglish` was renamed to the canonical `phonetic`
+        // layout code. Accept the old value and persist the new one on load.
+        let canonical = canonical_layout(&parsed.layout).to_owned();
+        if canonical != parsed.layout {
+            parsed.layout = canonical;
+            migrated = true;
         }
         let clamped = parsed.clamped();
         clamped.validate()?;
@@ -277,6 +284,21 @@ mod tests {
         let raw = std::fs::read_to_string(&path).expect("read back");
         assert!(raw.contains("\"english_suggestions\""));
         assert!(raw.contains("\"popup_max_items\": 8"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_banglish_layout_migrates_to_phonetic() {
+        let dir = temp_dir("layout-migrate");
+        let path = dir.join("settings.json");
+        let mut doc = serde_json::to_value(Settings::default()).expect("value");
+        doc["layout"] = serde_json::json!("banglish");
+        std::fs::write(&path, serde_json::to_vec_pretty(&doc).expect("json")).expect("write");
+
+        let store = SettingsStore::load(&path).expect("loads legacy layout");
+        assert_eq!(store.settings().layout, "phonetic");
+        let raw = std::fs::read_to_string(&path).expect("read back");
+        assert!(raw.contains("\"layout\": \"phonetic\""));
         std::fs::remove_dir_all(&dir).ok();
     }
 

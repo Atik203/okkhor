@@ -46,7 +46,7 @@ Bijoy-compatible font such as SutonnyMJ selected in the document):
   .\okkhor.exe daemon --encoding bijoy
 
 While it runs:
-  - Type Banglish (roman letters) and press Space to commit Bangla.
+  - Type phonetic English (roman letters) and press Space to commit Bangla.
   - Keys 1-5 pick a numbered candidate; arrows move; Esc keeps the
     roman text; Backspace edits the roman buffer.
   - F9 toggles Bangla/English (falls back to Ctrl+Space if F9 is taken;

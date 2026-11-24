@@ -129,7 +129,7 @@ Exit criteria:
 Deliverables:
 
 - legacy dictionary/layout importer;
-- Avro, National, Probhat, Bijoy, Banglish, and other supported layouts;
+- Avro, National, Probhat, Bijoy, Phonetic, and other supported layouts;
 - Unicode normalization and Bengali grapheme/cursor rules;
 - transliteration candidate generation;
 - prefix, fuzzy, phonetic, and context candidate sources;
@@ -262,7 +262,7 @@ Deliverables:
 - migration report and rollback rehearsal;
 - suggestion stability: coalesced popup painting, frozen per-word ranking, and
   a bounded prefix cache;
-- raw Latin fallback for unknown Banglish when the local list has no
+- raw Latin fallback for unknown phonetic words when the local list has no
   dictionary-backed match.
 
 Exit criteria:
@@ -273,6 +273,11 @@ Exit criteria:
 - typing a long word at speed produces no visible flicker, no one-character
   caret jump, and no reordering on backspace;
 - an unknown ASCII token remains selectable without leaving Bangla mode.
+
+0.8.0 ships the stability slice and the read-only import/parity report. Full
+`WTR1`/`STRI` parsing and pickle-layout export remain open; every gap is named
+in `docs/parity/0.8-matrix.md`, so the matrix has no silent gaps but the
+migration is not complete. Do not call 0.8 a full-parity release.
 
 ## Phase 8 — Voice typing (0.9)
 

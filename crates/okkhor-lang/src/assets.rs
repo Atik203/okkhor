@@ -61,6 +61,9 @@ impl LayoutId {
     pub const NATIONAL: &'static str = "national";
     pub const PROBHAT: &'static str = "probhat";
     pub const BIJOY: &'static str = "bijoy";
+    /// Canonical code for romanized Bangla phonetic input.
+    pub const PHONETIC: &'static str = "phonetic";
+    /// Legacy alias; accepted on input but never emitted as canonical.
     pub const BANGLISH: &'static str = "banglish";
     pub const KHIPRO: &'static str = "khipro";
 
@@ -82,6 +85,7 @@ impl LayoutId {
                 | Self::NATIONAL
                 | Self::PROBHAT
                 | Self::BIJOY
+                | Self::PHONETIC
                 | Self::BANGLISH
                 | Self::KHIPRO
         )

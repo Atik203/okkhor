@@ -20,7 +20,7 @@ scope.
 
 ## Current state
 
-- This repository is **0.7 code-complete**. The live typing path is the Win32
+- This repository is **0.8 code-complete**. The live typing path is the Win32
   hook, the resident daemon, the Avro phonetic table, and the embedded `OKS1`
   suggestion engine (184k Bangla words, 114k roman pairs, curated corrections,
   `wordfreq` popularity). English mode offers prefix completions (Tab/click,
@@ -32,7 +32,11 @@ scope.
   and the packaged `Okkhor.exe` + `bin\okkhor-engine.exe` layout. 0.6 added the
   full local dictionary, eight rows, English completions, and instant state.
   0.7 adds the caret thread, the Tier 1 reranker, the AI rewrite worker, and the
-  QA/hardening slices.
+  QA/hardening slices. 0.8 adds the coalesced/in-place suggestion card, frozen
+  per-word ranking with a prefix cache, sticky selection, the raw Latin
+  fallback, the read-only legacy import report/parity matrix, the MSVC release
+  build, and the code-signing hook. Inline preedit, punctuation commit, and
+  accepted/correction learning remain later work.
 - The **Tier 1 logistic reranker exists** in `okkhor-model` and is selectable
   with `okkhor daemon --ranker hybrid`; the **default is `--ranker baseline`**
   (deterministic Smriti) until an A/B on real or licensed data is accepted. On

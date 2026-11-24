@@ -14,13 +14,13 @@ Okkhor must produce text that works in two worlds:
    where the text is ASCII bytes rendered by a legacy-layout font such as
    SutonnyMJ.
 
-Banglish input must feed both. Users should not have to convert text by hand
+Phonetic input must feed both. Users should not have to convert text by hand
 or choose fonts on first run.
 
 The owner supplied the legacy installation and approved read-only use of its
 layout/encoding data. The `.nmsLayout`/`.nmsEnco` files are Python pickles; they
 were parsed with a restricted, data-only unpickler (no globals, no code
-execution) and converted to JSON. The Avro, Khipro, Banglish, and ANSI
+execution) and converted to JSON. The Avro, Khipro, Phonetic, and ANSI
 font-encoding rule tables are publicly mirrored by the original author.
 
 ## Decision
@@ -56,7 +56,7 @@ keys -> layout engine -> Unicode Bangla
 
 - Default phonetic: **Avro** (250 ordered rules, from the legacy table).
 - Second phonetic: **Khipro/Kontho** (288 rules), same engine.
-- **Banglish** (256 rules) as a variant.
+- **Phonetic** (256 rules) as a variant.
 - **Bijoy** positional layout (124 rules) for users who type by key position.
 - The rule engine is table-driven; adding a layout is data, not code.
 - Provenance: Avro rules originate from OmicronLab's Avro Phonetic (Mehdi Hasan
@@ -115,7 +115,7 @@ keys -> layout engine -> Unicode Bangla
 
 Positive:
 
-- Banglish → Bijoy works out of the box for official forms.
+- Phonetic → Bijoy works out of the box for official forms.
 - Unicode remains the default for modern apps.
 - No proprietary font is required by default.
 - Layouts and encodings are data, making corrections and additions cheap.

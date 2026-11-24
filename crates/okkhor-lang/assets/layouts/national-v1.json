@@ -1,0 +1,322 @@
+{
+ "name": "national-v1",
+ "version": "1",
+ "source": "Bangla National (Jatiya) standard",
+ "source_version": "1.1",
+ "developer": "Okkhor",
+ "developer_contact": "Independent implementation of the public BCC National/Jatiya layout; mapping verified statically from owner-provided reference installs. No legacy code is used.",
+ "github_link": "",
+ "license": "Okkhor project; layout facts follow the published national standard",
+ "description": "National/Jatiya fixed-layout Bangla mapping for standard keyboard support. Key order preserved; stored for the layout engine and UI.",
+ "rule_count": 77,
+ "rules": [
+  {
+   "key": "0",
+   "output": "০"
+  },
+  {
+   "key": "1",
+   "output": "১"
+  },
+  {
+   "key": "2",
+   "output": "২"
+  },
+  {
+   "key": "3",
+   "output": "৩"
+  },
+  {
+   "key": "4",
+   "output": "৪"
+  },
+  {
+   "key": "5",
+   "output": "৫"
+  },
+  {
+   "key": "6",
+   "output": "৬"
+  },
+  {
+   "key": "7",
+   "output": "৭"
+  },
+  {
+   "key": "8",
+   "output": "৮"
+  },
+  {
+   "key": "9",
+   "output": "৯"
+  },
+  {
+   "key": "A",
+   "output": "ৗ"
+  },
+  {
+   "key": "B",
+   "output": "ণ"
+  },
+  {
+   "key": "C",
+   "output": "ৈ"
+  },
+  {
+   "key": "D",
+   "output": "ী"
+  },
+  {
+   "key": "E",
+   "output": "ঢ"
+  },
+  {
+   "key": "F",
+   "output": "ভ"
+  },
+  {
+   "key": "G",
+   "output": "।"
+  },
+  {
+   "key": "H",
+   "output": "অ"
+  },
+  {
+   "key": "I",
+   "output": "ঞ"
+  },
+  {
+   "key": "J",
+   "output": "খ"
+  },
+  {
+   "key": "K",
+   "output": "থ"
+  },
+  {
+   "key": "L",
+   "output": "ধ"
+  },
+  {
+   "key": "M",
+   "output": "শ"
+  },
+  {
+   "key": "N",
+   "output": "ষ"
+  },
+  {
+   "key": "O",
+   "output": "ঘ"
+  },
+  {
+   "key": "P",
+   "output": "ঢ়"
+  },
+  {
+   "key": "Q",
+   "output": "ং"
+  },
+  {
+   "key": "R",
+   "output": "ফ"
+  },
+  {
+   "key": "S",
+   "output": "ূ"
+  },
+  {
+   "key": "T",
+   "output": "ঠ"
+  },
+  {
+   "key": "U",
+   "output": "ঝ"
+  },
+  {
+   "key": "V",
+   "output": "ল"
+  },
+  {
+   "key": "W",
+   "output": "য়"
+  },
+  {
+   "key": "X",
+   "output": "ৌ"
+  },
+  {
+   "key": "Y",
+   "output": "ছ"
+  },
+  {
+   "key": "Z",
+   "output": "ঃ"
+  },
+  {
+   "key": "\\$",
+   "output": "৳"
+  },
+  {
+   "key": "\\^",
+   "output": "ৎ"
+  },
+  {
+   "key": "`",
+   "output": "‌"
+  },
+  {
+   "key": "a",
+   "output": "ৃ"
+  },
+  {
+   "key": "b",
+   "output": "ন"
+  },
+  {
+   "key": "c",
+   "output": "ে"
+  },
+  {
+   "key": "d",
+   "output": "ি"
+  },
+  {
+   "key": "e",
+   "output": "ড"
+  },
+  {
+   "key": "f",
+   "output": "ব"
+  },
+  {
+   "key": "g",
+   "output": "্"
+  },
+  {
+   "key": "gC",
+   "output": "ঐ"
+  },
+  {
+   "key": "gD",
+   "output": "ঈ"
+  },
+  {
+   "key": "gS",
+   "output": "ঊ"
+  },
+  {
+   "key": "gX",
+   "output": "ঔ"
+  },
+  {
+   "key": "g\\.",
+   "output": "."
+  },
+  {
+   "key": "ga",
+   "output": "ঋ"
+  },
+  {
+   "key": "gc",
+   "output": "এ"
+  },
+  {
+   "key": "gd",
+   "output": "ই"
+  },
+  {
+   "key": "gh",
+   "output": "আ"
+  },
+  {
+   "key": "gs",
+   "output": "উ"
+  },
+  {
+   "key": "gx",
+   "output": "ও"
+  },
+  {
+   "key": "h",
+   "output": "া"
+  },
+  {
+   "key": "i",
+   "output": "হ"
+  },
+  {
+   "key": "j",
+   "output": "ক"
+  },
+  {
+   "key": "k",
+   "output": "ত"
+  },
+  {
+   "key": "l",
+   "output": "দ"
+  },
+  {
+   "key": "m",
+   "output": "ম"
+  },
+  {
+   "key": "n",
+   "output": "স"
+  },
+  {
+   "key": "o",
+   "output": "গ"
+  },
+  {
+   "key": "p",
+   "output": "ড়"
+  },
+  {
+   "key": "q",
+   "output": "ঙ"
+  },
+  {
+   "key": "r",
+   "output": "প"
+  },
+  {
+   "key": "s",
+   "output": "ু"
+  },
+  {
+   "key": "t",
+   "output": "ট"
+  },
+  {
+   "key": "u",
+   "output": "জ"
+  },
+  {
+   "key": "v",
+   "output": "র"
+  },
+  {
+   "key": "w",
+   "output": "য"
+  },
+  {
+   "key": "x",
+   "output": "ো"
+  },
+  {
+   "key": "y",
+   "output": "চ"
+  },
+  {
+   "key": "z",
+   "output": "ঁ"
+  },
+  {
+   "key": "~",
+   "output": "‍"
+  }
+ ]
+}

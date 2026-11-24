@@ -13,8 +13,12 @@
 | [QA process](qa/README.md) | manual QA setup, evidence rules, privacy constraints |
 | [0.2 Windows matrix](qa/0.2-matrix.md) | pass/fail matrix, release gate, defect template |
 | [0.7 hardening matrix](qa/0.7-matrix.md) | IME/RDP/DPI/stress/accessibility/AI rows |
+| [0.8 checklist](qa/0.8-checklist.md) | popup stability, raw fallback, import and signing gates |
+| [0.8 parity matrix](parity/0.8-matrix.md) | legacy capability coverage and explicit gaps |
 | [Compatibility](compatibility.md) | legacy assets, FFI reuse, migration |
 | [Release](release.md) | versioning, signing, update and rollback |
+| [0.8.0 release notes](releases/0.8.0.md) | what shipped, verification, limitations |
+| [0.9 learning plan](superpowers/plans/0.9-learning-and-next-word.md) | local user learning and next-word suggestions |
 | [0.2.0 release notes](releases/0.2.0.md) | what shipped, measured results, limitations |
 | [Glossary](glossary.md) | project and Bengali terms |
 | [ADRs](adr/) | accepted and proposed architecture decisions |

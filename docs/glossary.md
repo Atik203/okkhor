@@ -7,7 +7,7 @@
 | **Smriti** | The local personalization/learning engine. |
 | **Legacy application** | The previous product, used only as a behavioral oracle during migration. |
 | **Legacy build** | The owner-provided installation kept side-by-side during migration. |
-| **Banglish** | Romanized Bengali used for phonetic input (`bhalo`, `kemon`). |
+| **Phonetic input** | Romanized Bengali typed with Latin letters (`bhalo`, `kemon`). Older documents called this "Banglish"; the UI uses "Phonetic" or "Bangla (Phonetic)". |
 | **Avro** | A popular Bengali phonetic keyboard layout. |
 | **National / Jatiya** | A Bengali keyboard layout. |
 | **Probhat** | A Bengali keyboard layout. |

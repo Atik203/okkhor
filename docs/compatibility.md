@@ -39,6 +39,23 @@ Never run the legacy executable or installer as part of normal development.
 | `SentenceHistory.bin` | Optional | only after format analysis + tests |
 | Native DLLs | Temporary FFI | replace one at a time |
 
+## 0.8 importer and parity matrix
+
+`scripts/import-legacy.ps1` runs the read-only inspection described above. With
+`-Apply` it writes `import/legacy-import-report.json` and
+`import/legacy-import-report.md` under the Okkhor data home, after snapshotting
+the existing data home under `backups\legacy-<timestamp>`. The report records
+counts, sizes, SHA256s, and container magic; it does not deserialize pickle
+(`settings.pkl`, `*.nmsLayout`, `*.nmsEnco`, `SentenceHistory.pkl`), does not
+parse `WTR1`/`STRI` payloads, and never prints custom-word text.
+`scripts/rollback-legacy-import.ps1` lists those backups and restores one with
+confirmation.
+
+Capability-by-capability coverage, including every unsupported format and its
+next owner action, is in [docs/parity/0.8-matrix.md](parity/0.8-matrix.md). That
+matrix is the source of truth for what 0.8 does and does not reuse; this page
+remains the contract for how legacy reuse works.
+
 ## FFI plan
 
 Create a `legacy-compat` crate only when phase 2 starts:
