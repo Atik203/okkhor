@@ -5,8 +5,8 @@
  * inserts Unicode text through `text.insert` and does NOT replay any layout's
  * roman keystrokes. Per-layout roman mappings are intentionally not bundled
  * (no invented mappings). The layout list mirrors the daemon's
- * `layouts.list`; the active layout only names which daemon layout handles
- * hardware typing.
+ * `layouts.list`, which currently offers only the Avro table that actually
+ * handles hardware typing.
  *
  * Privacy: `localStorage` holds only non-sensitive UI state (group order,
  * pinned single-character favorites) under versioned keys. Recents are
@@ -204,14 +204,14 @@ export function pushRecent(recents: string[], key: string, max: number = MAX_REC
   return [key, ...recents.filter((item) => item !== key)].slice(0, max);
 }
 
-/** Fallback layout list when the daemon is unreachable (codes only). */
+/**
+ * Fallback layout list when the daemon is unreachable.
+ * Only the Avro table is wired to the transliteration engine. Other layout
+ * codes are still accepted in saved settings for compatibility, but they are
+ * not offered here because selecting them would not change typing behavior.
+ */
 export const FALLBACK_LAYOUTS: { code: string; name: string }[] = [
-  { code: "avro", name: "Avro" },
-  { code: "khipro", name: "Khipro" },
-  { code: "phonetic", name: "Phonetic" },
-  { code: "national", name: "Bangla (National)" },
-  { code: "bijoy", name: "Bijoy" },
-  { code: "probhat", name: "Probhat" },
+  { code: "avro", name: "Avro (Phonetic)" },
 ];
 
 export interface EmojiEntry {

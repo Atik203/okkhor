@@ -187,7 +187,7 @@ impl SuggestionEngine {
                 0.30,
                 CandidateSource::RawInput,
             );
-            if !has_dictionary && roman.chars().count() >= 2 {
+            if !has_dictionary && !roman.is_empty() {
                 for (position, text) in self.suggest_english(roman, 3).into_iter().enumerate() {
                     keep_room(&mut staged, &text);
                     let base = 0.50 - (position as f32 * 0.02);
@@ -245,7 +245,10 @@ impl SuggestionEngine {
             return Vec::new();
         };
         let prefix = prefix.trim().to_ascii_lowercase();
-        if prefix.chars().count() < 2 {
+        // One letter is enough; an empty prefix would scan the whole English
+        // index, so keep that case empty. The scan and hit caps below bound a
+        // one-letter lookup to the same budget as a longer prefix.
+        if prefix.is_empty() {
             return Vec::new();
         }
         let limit = limit.clamp(1, MAX_LIMIT);
@@ -326,9 +329,9 @@ impl SuggestionEngine {
             };
             push(staged, value, base, 0.85, CandidateSource::Dictionary);
         }
-        if lowered.chars().count() < 2 {
-            return;
-        }
+        // Include the first letter. `prefix_roman` is bounded by 240 hits and
+        // a 2000-entry scan, so a one-letter prefix stays inside the latency
+        // budget while giving the owner dictionary rows immediately.
         let mut hits = index.prefix_roman(&lowered, 240, PREFIX_SCAN);
         hits.retain(|(key, _)| *key != lowered);
         let mut scored: Vec<(u16, usize, &str)> = hits
@@ -380,7 +383,7 @@ impl SuggestionEngine {
     fn stage_rule(
         &self,
         index: &SuggestionIndex,
-        roman: &str,
+        _roman: &str,
         outputs: &[TransliterationOutput],
         staged: &mut Vec<Candidate>,
     ) {
@@ -398,7 +401,7 @@ impl SuggestionEngine {
                 CandidateSource::Transliteration,
             );
 
-            if position >= EXPAND_OUTPUTS || roman.chars().count() < 2 {
+            if position >= EXPAND_OUTPUTS {
                 continue;
             }
             let mut hits = index.prefix_bangla(&output.text, PREFIX_HITS * 6, PREFIX_SCAN);
@@ -664,7 +667,24 @@ mod tests {
         let rows = engine.suggest_english("hel", 8);
         assert!(rows.iter().any(|row| row == "hello"), "{rows:?}");
         assert!(rows.iter().any(|row| row == "help"), "{rows:?}");
-        assert!(engine.suggest_english("a", 8).is_empty());
+        assert!(
+            !engine.suggest_english("a", 8).is_empty(),
+            "one-letter prefixes must offer completions"
+        );
+        assert!(engine.suggest_english("", 8).is_empty());
+    }
+
+    #[test]
+    fn single_char_prefix_has_dictionary_rows() {
+        let engine = engine();
+        let smriti = Smriti::new();
+        let rows = engine.suggest(&SuggestRequest::new("k", 8), &smriti);
+        assert!(!rows.is_empty(), "the first letter must produce rows");
+        assert!(
+            rows.iter()
+                .any(|row| row.source == okkhor_core::CandidateSource::Dictionary),
+            "a one-letter prefix must offer a dictionary-backed Bangla row: {rows:?}"
+        );
     }
 
     #[test]

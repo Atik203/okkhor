@@ -729,24 +729,20 @@ impl<P: Protector> DaemonState<P> {
     }
 }
 
-/// Contract §4 `layouts.list`: the 0.8 standard layouts with display names.
-/// The legacy `banglish` code is accepted on input but is not advertised.
+/// Contract §4 `layouts.list`: the one input layout that is actually wired to
+/// the transliteration engine. The other codes in `KNOWN_LAYOUTS` remain valid
+/// stored values for backward compatibility, but none of them select a
+/// different engine: advertising them would promise behavior Okkhor does not
+/// have. "Bijoy" is a separate, working *output encoding*, not an input layout.
 #[must_use]
 pub fn layout_list() -> Vec<LayoutInfo> {
-    [
-        ("avro", "Avro"),
-        ("khipro", "Khipro"),
-        ("phonetic", "Phonetic"),
-        ("national", "Bangla (National)"),
-        ("bijoy", "Bijoy"),
-        ("probhat", "Probhat"),
-    ]
-    .into_iter()
-    .map(|(code, name)| LayoutInfo {
-        code: code.to_owned(),
-        name: name.to_owned(),
-    })
-    .collect()
+    [("avro", "Avro (Phonetic)")]
+        .into_iter()
+        .map(|(code, name)| LayoutInfo {
+            code: code.to_owned(),
+            name: name.to_owned(),
+        })
+        .collect()
 }
 
 #[cfg(windows)]
@@ -1235,14 +1231,14 @@ mod tests {
         assert!(status.learning_enabled);
         assert!(!status.autostart);
 
-        // layouts.list advertises canonical 0.8 codes, not the legacy alias.
+        // layouts.list advertises only the layout wired to the engine.
         let layouts = layout_list();
         assert_eq!(
             layouts
                 .iter()
                 .map(|entry| entry.code.as_str())
                 .collect::<Vec<_>>(),
-            vec!["avro", "khipro", "phonetic", "national", "bijoy", "probhat"]
+            vec!["avro"]
         );
         assert!(layouts.iter().all(|entry| !entry.name.is_empty()));
 

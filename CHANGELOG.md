@@ -3,6 +3,38 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.8.1] - 2026-11-24
+
+### Fixed
+
+- **Suggestions from the first character.** The English session no longer
+  hides until three characters, and the engine no longer skips dictionary
+  prefix stages below two characters. One-letter prefixes now offer real
+  Bangla rows and English completions, with the existing scan/hit caps keeping
+  the hot path bounded.
+- **Backspace keeps the list alive.** Returning to a shorter prefix restores
+  the cached rows in both Bangla and English instead of hiding the popup. The
+  old tests that asserted a hidden list after Backspace were replaced with
+  tests that assert visible completions.
+- **Popup does no redundant work.** A visible card whose rows, selection and
+  anchor are unchanged now skips the row clone, GDI text measurement, window
+  move and repaint. Repeated row widths come from a font-scoped cache. Real
+  content changes still repaint once, coalesced to 30 ms.
+- **Blank replacement guard.** A commit whose encoded text is empty or made
+  only of whitespace/zero-width characters is rejected before injection, so a
+  word is never erased and replaced by a blank. A sequential-commit regression
+  test covers four words in one session.
+
+### Changed
+
+- The layout selector now advertises only **Avro (Phonetic)**, the single
+  table wired to the transliteration engine. Khipro, Phonetic, National,
+  Probhat and Bijoy were advertised in 0.8.0 but all produced identical Avro
+  output; Probhat and Bijoy-as-input-layout had no mapping data at all. The
+  old codes remain valid stored values so existing settings still load, and
+  Bijoy remains available as a separate *output encoding*. See
+  `docs/parity/0.8-matrix.md`.
+
 ## [0.8.0] - 2026-11-24
 
 ### Fixed

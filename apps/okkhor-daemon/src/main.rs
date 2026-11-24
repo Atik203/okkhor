@@ -673,6 +673,23 @@ fn parse_autostart_action(_argument: Option<&str>) -> Option<()> {
     None
 }
 
+/// A commit whose replacement is empty or all whitespace must never reach
+/// `inject_commit`: that would erase the roman word and leave a blank. The
+/// daemon abandons the composition and logs an allowlisted code instead.
+#[cfg(windows)]
+fn injectable_text(text: &str) -> bool {
+    // `str::trim` does not remove zero-width joiners/non-joiners. A string of
+    // only those characters paints as nothing but would still erase the roman
+    // word, so treat them as invisible too.
+    text.chars().any(|ch| {
+        !ch.is_whitespace()
+            && !matches!(
+                ch,
+                '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
+            )
+    })
+}
+
 #[cfg(windows)]
 fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -969,6 +986,17 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
             },
         };
+        // Defense in depth for the owner's "spaces instead of Bangla" report:
+        // never erase a word when the replacement carries no visible text.
+        // The normal source (engine candidate text) is non-empty and the
+        // whitespace-only case would otherwise look like a blank insertion.
+        if !injectable_text(&inject_text) {
+            ctx.logger
+                .error(logging::Scope::Daemon, "empty_commit", None);
+            ctx.session.reset();
+            hide_popup(ctx.popup, ctx.state);
+            return false;
+        }
         // The injection lock serializes this erase+inject batch against
         // explicit UI inserts: the commit always wins (blocking wait of at
         // most one UI `SendInput`), so the two can never interleave.
@@ -2623,8 +2651,19 @@ fn fresh_temp_dir() -> std::path::PathBuf {
 mod tests {
     use super::{
         DaemonOptions, FontsAction, InputMode, OutputEncoding, RankerChoice, apply_encoding,
-        parse_daemon_args, parse_fonts_args, resolve_uninstall_target, select_fonts_dir,
+        injectable_text, parse_daemon_args, parse_fonts_args, resolve_uninstall_target,
+        select_fonts_dir,
     };
+
+    #[cfg(windows)]
+    #[test]
+    fn blank_replacements_are_never_injected() {
+        assert!(injectable_text("আমার"));
+        assert!(injectable_text(" also"));
+        assert!(!injectable_text(""));
+        assert!(!injectable_text("   "));
+        assert!(!injectable_text("\u{200b}\u{200c}"));
+    }
 
     #[test]
     fn self_check_passes() {

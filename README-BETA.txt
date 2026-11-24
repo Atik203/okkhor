@@ -1,4 +1,4 @@
-Okkhor 0.8.0 beta - Windows 11 x64 portable
+Okkhor 0.8.1 beta - Windows 11 x64 portable
 ===========================================
 
 This is an UNSIGNED beta unless the release owner signed it with a trusted
@@ -13,7 +13,7 @@ statically: no separate Microsoft Visual C++ Redistributable is needed.
 Unzip the folder anywhere you can write, e.g. Desktop or Documents. Keep the
 folder layout:
 
-  Okkhor-0.8.0-win64/
+  Okkhor-0.8.1-win64/
     Okkhor.exe          THE APP - double-click this one
     bin/
       okkhor-engine.exe resident input engine (started by Okkhor.exe)
@@ -44,7 +44,7 @@ other machines.
 Before running it, verify the download. Compare the zip hash with
 SHA256SUMS.txt:
 
-  Get-FileHash .\Okkhor-0.8.0-win64-portable.zip -Algorithm SHA256
+  Get-FileHash .\Okkhor-0.8.1-win64-portable.zip -Algorithm SHA256
 
 The value must match SHA256SUMS.txt exactly, character for character. Only
 trust a zip that matches.
@@ -119,8 +119,25 @@ of 1.0; Okkhor sends that. `gpt-6.1-terra` is the quality option. The panel show
 whether a key is set; it never displays the key. Prompts and responses are
 memory-only and are never logged or inserted automatically.
 
-7. WHAT IS IN 0.8.0
+7. WHAT IS IN 0.8.1
 -------------------
+- Suggestions appear from the FIRST character. Dictionary-backed rows are no
+  longer skipped for one-letter prefixes, and English completions no longer
+  wait for a three-letter token.
+- Backspace keeps the list alive. Returning to a shorter prefix restores the
+  exact same rows from the bounded prefix cache, forwards and backwards.
+- The popup stays put and does less work. Identical rows and selection cause
+  no clone, no text measurement, no window move and no repaint; repeated row
+  widths are cached. A real change still repaints once, coalesced to 30 ms.
+- A blank word can never replace a typed word: a commit whose text is empty or
+  only invisible characters is rejected instead of erasing the roman buffer.
+- The layout selector now offers only Avro (Phonetic), the one input table that
+  is actually wired to the engine. The old `banglish`, `phonetic`, `national`,
+  `khipro`, `probhat` and `bijoy` settings still load; they simply did not
+  change typing output, so they are no longer advertised. Bijoy remains as a
+  separate *output encoding*.
+
+0.8.0 features remain:
 - Stable suggestion popup: updated in place instead of re-shown, painted
   through a memory DC, coalesced to one visible update per 30 ms, and latched
   through a transient caret-sample miss.
@@ -129,9 +146,6 @@ memory-only and are never logged or inserted automatically.
   row across later keystrokes.
 - Raw Latin fallback: Bangla mode keeps the typed Latin token as the last row,
   so unknown phonetic words such as `also` are selectable without a rule guess.
-- Standard layouts: the selector offers Avro, Khipro, Phonetic, Bangla
-  (National/Jatiya), Bijoy and Probhat. The old `banglish` setting is migrated
-  to `phonetic` automatically.
 
 0.7 features remain:
 - Dedicated latest-wins caret thread: typing no longer waits on UI Automation;
@@ -168,7 +182,7 @@ letters; use Unicode there.
 
 9. VERSION IDENTITY
 -------------------
-`.\bin\okkhor-engine.exe --version` must print `okkhor 0.8.0`, matching
+`.\bin\okkhor-engine.exe --version` must print `okkhor 0.8.1`, matching
 BUILD-INFO.json and the folder name. If it does not, stop and rebuild from the
 tag.
 

@@ -163,6 +163,13 @@ to sign never silently produces an unsigned artifact.
 
 1. Obtain a trusted Authenticode code-signing certificate (OV or EV) in the
    publisher's legal name. A free or self-signed certificate is not enough.
+   Okkhor is public and MIT-licensed, so the **SignPath Foundation's free OSS
+   program** is the lowest-cost route: see
+   <https://signpath.org/terms.html> and
+   <https://about.signpath.io/product/open-source>. It signs through a managed
+   pipeline with an OV certificate and requires a fully automated, verifiable
+   build from source (this repo already has CI on `main`). An OV certificate
+   still has to accumulate download reputation; EV reputation starts higher.
 2. Install it on the release machine (token/HSM preferred, or an offline PFX)
    and keep the thumbprint or PFX path outside the repository.
 3. Build with MSVC and the signing options:
@@ -179,6 +186,24 @@ to sign never silently produces an unsigned artifact.
    reputation accumulates. Switching certificates resets it.
 8. If Defender still flags the build, submit it using the section below rather
    than assuming the signature fixes everything.
+
+### Tester convenience: Mark-of-the-Web
+
+A zip downloaded from GitHub carries Mark-of-the-Web, which is what triggers
+the SmartScreen screen before the executable even starts. A tester who built or
+downloaded the artifact from this project's official release can remove that
+marker locally:
+
+```powershell
+Get-ChildItem -LiteralPath <unpacked-folder> -Recurse -File |
+  Unblock-File
+```
+
+This is **not signing**: it removes the "came from the internet" marker only on
+that machine, does not prove authenticity, and does not build publisher
+reputation. Use it only for an artifact whose SHA-256 matches the release
+notes. It is a convenience for known testers, not a fix to publish as a
+workaround to users.
 
 ### Self-signed certificates
 

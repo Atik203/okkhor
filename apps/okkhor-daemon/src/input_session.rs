@@ -748,6 +748,45 @@ mod tests {
     }
 
     #[test]
+    fn backspace_to_one_letter_keeps_real_rows() {
+        let mut live = session();
+        type_text(&mut live, "bhalo");
+        for expected in ["bhal", "bha", "bh", "b"] {
+            assert_eq!(live.backspace(), BackspaceOutcome::StillComposing);
+            assert!(
+                !live.candidates().is_empty(),
+                "prefix {expected} lost its suggestions"
+            );
+        }
+    }
+
+    #[test]
+    fn two_words_commit_in_sequence() {
+        // Owner report: the first word commits, then a later word shows in the
+        // list but Space injects only whitespace. If `commit()` ever returns
+        // None for the second word, the daemon takes the bare-Space arm.
+        let mut live = session();
+        for (roman, expected) in [
+            ("amar", "আমার"),
+            ("kotha", "কথা"),
+            ("bhalo", "ভালো"),
+            ("tumi", "তুমি"),
+        ] {
+            type_text(&mut live, roman);
+            assert!(
+                !live.candidates().is_empty(),
+                "{roman} produced no rows before commit"
+            );
+            let commit = live
+                .commit(true)
+                .unwrap_or_else(|| panic!("{roman} returned no Commit"));
+            assert_eq!(commit.text, expected, "roman {roman:?}");
+            assert_eq!(commit.erase_chars, roman.len());
+            assert!(!commit.text.chars().all(char::is_whitespace));
+        }
+    }
+
+    #[test]
     fn live_table_partial_prefix_top_candidate() {
         let mut live = session();
         type_text(&mut live, "bhal");

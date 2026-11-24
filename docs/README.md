@@ -18,7 +18,9 @@
 | [Compatibility](compatibility.md) | legacy assets, FFI reuse, migration |
 | [Release](release.md) | versioning, signing, update and rollback |
 | [0.8.0 release notes](releases/0.8.0.md) | what shipped, verification, limitations |
+| [0.8.1 release notes](releases/0.8.1.md) | forward/backward suggestions, popup fast path, blank-commit guard |
 | [0.9 learning plan](superpowers/plans/0.9-learning-and-next-word.md) | local user learning and next-word suggestions |
+| [Layout engine plan](superpowers/plans/0.8.1-layout-engine.md) | why non-Avro layouts were unwired and what a real engine needs |
 | [0.2.0 release notes](releases/0.2.0.md) | what shipped, measured results, limitations |
 | [Glossary](glossary.md) | project and Bengali terms |
 | [ADRs](adr/) | accepted and proposed architecture decisions |

@@ -7,8 +7,10 @@
 
 /// Maximum token length tracked (the engine accepts at most 32).
 pub const MAX_TOKEN_LEN: usize = 32;
-/// Shortest token that offers completions.
-pub const MIN_TOKEN_LEN: usize = 3;
+/// Shortest token that offers completions. A single letter is enough: the
+/// engine bounds one-letter prefix scans, and hiding until three letters made
+/// Backspace look broken to the owner.
+pub const MIN_TOKEN_LEN: usize = 1;
 
 /// A committed English completion: erase the token, inject `text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,11 +177,13 @@ mod tests {
     }
 
     #[test]
-    fn short_tokens_do_not_open_a_popup() {
+    fn single_letter_token_opens_a_popup() {
         let mut session = EnglishSession::new();
         assert!(session.push_letter(b'h', 8, 1, fake(&["hello"])));
+        assert!(session.is_visible());
+        assert_eq!(session.suggestions(), ["hello"]);
         assert!(session.push_letter(b'e', 8, 1, fake(&["hello"])));
-        assert!(!session.is_visible());
+        assert!(session.is_visible());
         assert!(session.push_letter(b'l', 8, 1, fake(&["hello", "help"])));
         assert!(session.is_visible());
         assert_eq!(session.suggestions(), ["hello", "help"]);
@@ -216,15 +220,15 @@ mod tests {
     }
 
     #[test]
-    fn backspace_reopens_or_hides() {
+    fn backspace_keeps_completions_until_the_token_is_empty() {
         let mut session = EnglishSession::new();
         for letter in *b"hel" {
             session.push_letter(letter, 8, 1, fake(&["hello"]));
         }
         session.backspace(8, fake(&["hello"]));
-        assert!(!session.is_visible());
+        assert!(session.is_visible(), "he should still offer completions");
         session.backspace(8, fake(&["hello"]));
-        assert!(!session.is_visible());
+        assert!(session.is_visible(), "h should still offer completions");
         session.backspace(8, fake(&["hello"]));
         assert!(!session.is_visible());
         assert!(session.token().is_empty());

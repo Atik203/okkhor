@@ -14,7 +14,7 @@
 //! Privacy: this module never logs. Candidate words live in memory only for
 //! painting and are dropped on hide.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -263,6 +263,25 @@ enum PopupContent {
     List { items: Vec<String>, selected: usize },
 }
 
+impl PopupContent {
+    /// Compare painted rows with a caller's slice without allocating. Used by
+    /// the no-op fast path in `show_candidates`: when the rows and highlight
+    /// are unchanged there is nothing to repaint.
+    fn same_list(&self, items: &[String], selected: usize) -> bool {
+        match self {
+            Self::List {
+                items: painted,
+                selected: painted_selected,
+            } => {
+                *painted_selected == selected
+                    && painted.len() == items.len()
+                    && painted.iter().zip(items.iter()).all(|(a, b)| a == b)
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Heap state behind the popup window.
 ///
 /// The window procedure stores a pointer to this in `GWLP_USERDATA`. It must
@@ -294,6 +313,10 @@ struct PopupInner {
     /// and shrinks by a few pixels on every key is a visible flicker.
     sticky_width: i32,
     last_placement: Option<PopupPlacement>,
+    /// Measured row width by text, valid for the current font/DPI. Cleared on
+    /// font recreation. Avoids a GetDC/GetTextExtentPoint32W pair per row on
+    /// every keystroke when the same word is painted again.
+    width_cache: HashMap<String, i32>,
 }
 
 impl PopupInner {
@@ -421,6 +444,7 @@ impl SuggestionPopup {
                 pending_placement: None,
                 sticky_width: 0,
                 last_placement: None,
+                width_cache: HashMap::new(),
             }),
         };
         // SAFETY: the Box contents have a stable heap address for the
@@ -473,8 +497,27 @@ impl SuggestionPopup {
             inner.recreate_fonts(dpi);
             inner.theme = theme;
         }
-        let visible: Vec<String> = items.iter().take(rows).cloned().collect();
         let selected = selected.min(rows - 1);
+        // No-op fast path: a visible card whose rows, highlight and anchor are
+        // unchanged needs no clone, no GDI text measurement, no SetWindowPos
+        // and no repaint. The candidate list itself is recomputed by the
+        // engine on every key; this only removes redundant *popup* work.
+        if inner.shown
+            && !inner.pending_paint
+            && inner.anchor == Some(*anchor)
+            && inner.content.same_list(&items[..rows], selected)
+        {
+            let placement = place_popup(anchor, inner.layout.width, inner.layout.height);
+            return Ok(PopupMetrics {
+                placement,
+                rows,
+                width: inner.layout.width,
+                height: inner.layout.height,
+                row_height: inner.layout.row_height,
+                theme,
+            });
+        }
+        let visible: Vec<String> = items.iter().take(rows).cloned().collect();
         let max_text = inner.max_text_width(&visible);
         let mut layout = layout_for_items(rows, dpi, max_text);
         // Keep the card width stable for the lifetime of one visible list.
@@ -678,12 +721,14 @@ impl PopupInner {
         self.font = regular;
         self.font_bold = bold;
         self.font_dpi = dpi;
+        // Every cached extent was measured with the old font and DPI.
+        self.width_cache.clear();
     }
 
     /// Widest row in physical pixels with the live regular font. Returns 0
     /// when no device context is available, which collapses to the minimum
     /// card width instead of failing the whole show.
-    fn max_text_width(&self, items: &[String]) -> i32 {
+    fn max_text_width(&mut self, items: &[String]) -> i32 {
         // SAFETY: GetDC/ReleaseDC are paired on every path; the font is a
         // live HFONT owned by this popup and the previous font is restored.
         unsafe {
@@ -694,14 +739,22 @@ impl PopupInner {
             let previous = SelectObject(hdc, self.font.into());
             let mut widest = 0i32;
             for item in items {
-                let units: Vec<u16> = item.encode_utf16().collect();
-                if units.is_empty() {
-                    continue;
-                }
-                let mut size = SIZE::default();
-                if GetTextExtentPoint32W(hdc, &units, &mut size).as_bool() {
-                    widest = widest.max(size.cx);
-                }
+                let width = if let Some(cached) = self.width_cache.get(item) {
+                    *cached
+                } else {
+                    let units: Vec<u16> = item.encode_utf16().collect();
+                    let mut size = SIZE::default();
+                    let measured = if units.is_empty() {
+                        0
+                    } else if GetTextExtentPoint32W(hdc, &units, &mut size).as_bool() {
+                        size.cx.max(0)
+                    } else {
+                        0
+                    };
+                    self.width_cache.insert(item.clone(), measured);
+                    measured
+                };
+                widest = widest.max(width);
             }
             let _ = SelectObject(hdc, previous);
             let _ = ReleaseDC(Some(self.window), hdc);
@@ -1197,10 +1250,26 @@ unsafe extern "system" fn popup_wnd_proc(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::{
-        MAX_ITEMS, PopupTheme, badge_label, layout_for_items, row_at_point, scale_for_dpi,
-        theme_colors, theme_from_apps_use_light_theme,
+        MAX_ITEMS, PopupContent, PopupTheme, badge_label, layout_for_items, row_at_point,
+        scale_for_dpi, theme_colors, theme_from_apps_use_light_theme,
     };
+
+    #[test]
+    fn identical_rows_are_a_no_op() {
+        let painted = PopupContent::List {
+            items: vec!["আমার".to_owned(), "আমি".to_owned()],
+            selected: 0,
+        };
+        assert!(painted.same_list(&["আমার".to_owned(), "আমি".to_owned()], 0));
+        // A highlight change is still a paint: the teal row must move.
+        assert!(!painted.same_list(&["আমার".to_owned(), "আমি".to_owned()], 1));
+        // A new word is a real change; freezing the old rows would be stale.
+        assert!(!painted.same_list(&["আমার".to_owned(), "তুমি".to_owned()], 0));
+        assert!(!PopupContent::Hidden.same_list(&[], 0));
+    }
 
     #[test]
     fn rows_clamp_to_ten() {
@@ -1320,6 +1389,7 @@ mod tests {
                 pending_placement: None,
                 sticky_width: 0,
                 last_placement: None,
+                width_cache: HashMap::new(),
             }),
         };
         let anchor = CaretAnchor {

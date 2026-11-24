@@ -5,7 +5,7 @@ utility. The goal is a fast, local-first typing experience: immediate
 transliteration and suggestions, personalization that learns on the device, and
 AI features that never sit in the keystroke path.
 
-> Status: **0.8.0 code-complete**. The workspace has the full local dictionary,
+> Status: **0.8.1 code-complete**. The workspace has the full local dictionary,
 > English completions, a caret-following suggestion popup, Smriti
 > personalization, the Tier 1 reranker (default-off), an opt-in isolated AI
 > rewrite worker, and the 0.8 popup-stability/raw-fallback work. The portable
