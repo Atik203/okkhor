@@ -276,7 +276,7 @@ async fn ipc_ai_complete(prompt: String) -> Result<u64, UiError> {
             system: None,
             model: None,
             max_tokens: Some(512),
-            temperature: Some(0.3),
+            temperature: Some(1.0),
             timeout_ms: Some(15_000),
         };
         let mut client = connect().await?;
