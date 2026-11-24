@@ -21,6 +21,11 @@ Versioning once it reaches 1.0.
   per composition, and `SuggestionAccepted` only when the committed word was
   actually shown. This makes Smriti's acceptance signal real instead of
   permanently zero.
+- **Next-word ghost hint.** After a Bangla word is committed, the top local
+  bigram follower appears as a grey, non-activating hint after the caret.
+  Up/Down cycles up to three candidates; Tab inserts the selected word; typing
+  dismisses it. It never edits the document by itself. English is wired after
+  its learning events and model.
 - **Full WTR1 index v2.** The importer now reads the documented dictionary
   format exactly, keeps every target, preserves preferred rank, applies nukta
   then NFC, and ships 135,409 aliases / 151,110 pairs (13,192 multi-target

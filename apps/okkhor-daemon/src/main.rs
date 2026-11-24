@@ -803,6 +803,22 @@ fn same_target(pid: u32, hwnd: isize, current_pid: u32, current_hwnd: isize) -> 
     }
 }
 
+/// One grey next-word hint after a commit.
+#[derive(Debug, Default)]
+struct GhostState {
+    words: Vec<String>,
+    selected: usize,
+    visible: bool,
+}
+
+impl GhostState {
+    fn hide(&mut self) {
+        self.words.clear();
+        self.selected = 0;
+        self.visible = false;
+    }
+}
+
 #[cfg(windows)]
 fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::collections::HashSet;
@@ -1220,6 +1236,47 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    fn show_ghost(ctx: &mut CompositionCtx<'_>, ghost: &mut GhostState) {
+        if ghost.words.is_empty() {
+            return;
+        }
+        let Some(window) = ctx.popup.as_mut() else {
+            return;
+        };
+        let anchor = caret_for_popup(ctx.caret, ctx.caret_generation).or_else(|| window.anchor());
+        let Some(anchor) = anchor else {
+            return;
+        };
+        let word = ghost.words[ghost.selected].clone();
+        if window.show_ghost(&word, &anchor).is_ok() {
+            ghost.visible = true;
+        }
+    }
+
+    fn hide_ghost(ctx: &mut CompositionCtx<'_>, ghost: &mut GhostState) {
+        ghost.hide();
+        if let Some(window) = ctx.popup.as_mut() {
+            window.hide();
+        }
+        if let Some(state) = ctx.state {
+            state.set_popup_visible(false);
+        }
+    }
+
+    fn accept_ghost(ctx: &mut CompositionCtx<'_>, ghost: &mut GhostState) {
+        let Some(word) = ghost.words.get(ghost.selected).cloned() else {
+            hide_ghost(ctx, ghost);
+            return;
+        };
+        let text = format!("{word} ");
+        if let Err(error) = okkhor_win::inject_commit(0, &text, false) {
+            ctx.logger
+                .error(logging::Scope::Daemon, "ghost_inject", inject_code(&error));
+        }
+        ghost.hide();
+        hide_popup(ctx.popup, ctx.state);
+    }
+
     fn now_ms() -> u64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
@@ -1381,7 +1438,37 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         fixed_composition: &mut FixedComposition,
         fixed_enabled: bool,
         inline_enabled: bool,
+        ghost: &mut GhostState,
     ) {
+        if ghost.visible {
+            match vk {
+                VK_TAB => {
+                    accept_ghost(ctx, ghost);
+                    return;
+                }
+                VK_UP => {
+                    let len = ghost.words.len() as i32;
+                    if len > 0 {
+                        ghost.selected = (ghost.selected as i32 - 1).rem_euclid(len) as usize;
+                        show_ghost(ctx, ghost);
+                    }
+                    return;
+                }
+                VK_DOWN => {
+                    let len = ghost.words.len() as i32;
+                    if len > 0 {
+                        ghost.selected = (ghost.selected as i32 + 1).rem_euclid(len) as usize;
+                        show_ghost(ctx, ghost);
+                    }
+                    return;
+                }
+                VK_ESCAPE => {
+                    hide_ghost(ctx, ghost);
+                    return;
+                }
+                _ => hide_ghost(ctx, ghost),
+            }
+        }
         if fixed_enabled {
             if let Some(layout) = fixed {
                 // AltGr is a layout modifier here, not a shortcut chord.
@@ -1983,6 +2070,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut shown_words: HashSet<String> = HashSet::new();
     let mut last_commit: Option<(String, u64)> = None;
     let mut pending_correction: Option<String> = None;
+    let mut ghost = GhostState::default();
+    let mut ghost_prev: Option<String> = None;
     let mut encoding = options.encoding;
     let mut mode = options.mode;
     let mut learning_enabled = true;
@@ -2475,6 +2564,49 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if !session.is_composing() {
             shown_words.clear();
         }
+        // Next-word ghost: only after a commit, only while idle, and only for
+        // Bangla until the English learning events are wired.
+        if session.is_composing() || fixed_enabled || !mode.allows_composition() {
+            if ghost.visible || !ghost.words.is_empty() {
+                ghost.hide();
+                if let Some(window) = popup.as_mut() {
+                    window.hide();
+                }
+            }
+            ghost_prev = None;
+        } else {
+            let previous = session.previous_word().map(str::to_owned);
+            if previous != ghost_prev {
+                ghost_prev = previous.clone();
+                ghost.words = previous
+                    .as_deref()
+                    .map(|word| {
+                        smriti
+                            .next_words(Language::Bangla, word, 3)
+                            .into_iter()
+                            .map(|(word, _)| word)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                ghost.selected = 0;
+            }
+            if !ghost.words.is_empty() && !ghost.visible {
+                let anchor = caret_tracker
+                    .as_ref()
+                    .and_then(CaretTracker::latest)
+                    .map(|sample| sample.anchor)
+                    .or_else(|| popup.as_ref().and_then(SuggestionPopup::anchor));
+                if let (Some(anchor), Some(window)) = (anchor, popup.as_mut()) {
+                    if window
+                        .show_ghost(&ghost.words[ghost.selected], &anchor)
+                        .is_ok()
+                    {
+                        ghost.visible = true;
+                    }
+                }
+            }
+        }
+        okkhor_win::set_ghost_popup(ghost.visible);
         if fixed_enabled
             && !same_target(
                 compose_pid,
@@ -2576,6 +2708,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 &mut fixed_composition,
                 fixed_layout.is_some() && mode.allows_composition() && hook.capture_enabled(),
                 inline_enabled,
+                &mut ghost,
             );
         }
 

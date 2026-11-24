@@ -213,6 +213,21 @@ pub const fn should_swallow_inline_letters(
         && matches!(vk, 0x41..=0x5A)
 }
 
+/// Whether the ghost next-word hint should take Tab and the Up/Down keys.
+pub const fn should_swallow_ghost(
+    capture_enabled: bool,
+    ghost_visible: bool,
+    chord_pressed: bool,
+    injected: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && ghost_visible
+        && !chord_pressed
+        && !injected
+        && matches!(vk, 0x09 | 0x26 | 0x28)
+}
+
 /// Whether the English completion list should take the Up/Down arrows.
 ///
 /// Without this the arrow reaches the target, moves the caret, and Okkhor also
@@ -266,8 +281,8 @@ mod tests {
     use super::{
         KeyEvent, KeyPhase, LLKHF_INJECTED, VK_OEM_PERIOD, VK_TAB_KEY, is_composition_key,
         is_injected_event, should_enqueue, should_swallow, should_swallow_danda,
-        should_swallow_english_arrows, should_swallow_inline_letters, should_swallow_letters,
-        should_swallow_numeral, should_swallow_tab,
+        should_swallow_english_arrows, should_swallow_ghost, should_swallow_inline_letters,
+        should_swallow_letters, should_swallow_numeral, should_swallow_tab,
     };
 
     #[test]
@@ -518,6 +533,19 @@ mod tests {
         assert!(!should_swallow_numeral(
             true, true, true, false, false, false, 0x41
         ));
+    }
+
+    #[test]
+    fn ghost_hint_owns_tab_and_arrows_only_when_visible() {
+        for vk in [0x09, 0x26, 0x28] {
+            assert!(should_swallow_ghost(true, true, false, false, vk));
+            assert!(!should_swallow_ghost(true, false, false, false, vk));
+        }
+        for vk in [0x41, 0x20, 0x25, 0x27] {
+            assert!(!should_swallow_ghost(true, true, false, false, vk));
+        }
+        assert!(!should_swallow_ghost(true, true, true, false, 0x09));
+        assert!(!should_swallow_ghost(true, true, false, true, 0x09));
     }
 
     #[test]

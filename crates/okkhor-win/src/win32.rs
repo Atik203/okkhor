@@ -72,6 +72,9 @@ static SWALLOWED_DOWN: [AtomicBool; 256] = [const { AtomicBool::new(false) }; 25
 /// document; the daemon renders the Bangla form itself.
 static INLINE_PREEDIT: AtomicBool = AtomicBool::new(false);
 
+/// A ghost next-word hint is visible and owns Tab/Up/Down.
+static GHOST_POPUP: AtomicBool = AtomicBool::new(false);
+
 /// Whether fixed-layout mode is active. The hook drops ASCII letter keydowns
 /// (and their matching keyups via `LAST_SWALLOWED_VK`) so the daemon can inject
 /// the mapped Bangla character instead of letting an IME compose the raw ASCII.
@@ -87,6 +90,11 @@ pub fn set_swallow_letters(enabled: bool) {
 /// daemon injects the rendered Bangla form.
 pub fn set_swallow_inline(enabled: bool) {
     INLINE_PREEDIT.store(enabled, Ordering::Release);
+}
+
+/// Publish ghost next-word visibility for the hook.
+pub fn set_ghost_popup(visible: bool) {
+    GHOST_POPUP.store(visible, Ordering::Release);
 }
 
 /// Publish the composition state the hook needs to decide swallowing.
@@ -353,6 +361,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     let english_popup = ENGLISH_POPUP.load(Ordering::Relaxed);
                     let fixed = SWALLOW_LETTERS.load(Ordering::Relaxed);
                     let inline = INLINE_PREEDIT.load(Ordering::Relaxed);
+                    let ghost = GHOST_POPUP.load(Ordering::Relaxed);
                     // AltGr is a layout modifier, not a shortcut chord. Only
                     // the fixed-layout letter predicate uses this relaxed test;
                     // the phonetic predicates keep the original chord rule.
@@ -376,6 +385,12 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                             capture,
                             bangla,
                             inline,
+                            chord,
+                            false,
+                            virtual_key,
+                        ) || crate::input::should_swallow_ghost(
+                            capture,
+                            ghost,
                             chord,
                             false,
                             virtual_key,

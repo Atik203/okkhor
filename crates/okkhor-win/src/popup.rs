@@ -260,7 +260,13 @@ pub struct PopupMetrics {
 enum PopupContent {
     Hidden,
     Toast(String),
-    List { items: Vec<String>, selected: usize },
+    /// One grey next-word suggestion after the caret. Tab accepts it; typing
+    /// dismisses it. It never edits the document by itself.
+    Ghost(String),
+    List {
+        items: Vec<String>,
+        selected: usize,
+    },
 }
 
 impl PopupContent {
@@ -559,6 +565,49 @@ impl SuggestionPopup {
         Ok(PopupMetrics {
             placement,
             rows,
+            width: layout.width,
+            height: layout.height,
+            row_height: layout.row_height,
+            theme,
+        })
+    }
+
+    /// Show one grey next-word ghost after the caret. The card does not
+    /// activate and never edits the document; Tab is handled by the daemon.
+    pub fn show_ghost(
+        &mut self,
+        text: &str,
+        anchor: &CaretAnchor,
+    ) -> Result<PopupMetrics, PopupError> {
+        let inner = &mut *self.inner;
+        let dpi = if anchor.dpi == 0 { 96 } else { anchor.dpi };
+        let theme = current_theme();
+        if theme != inner.theme || dpi != inner.font_dpi {
+            inner.recreate_fonts(dpi);
+            inner.theme = theme;
+        }
+        let items = [text.to_owned()];
+        let max_text = inner.max_text_width(&items);
+        let layout = layout_for_items(1, dpi, max_text);
+        let placement = place_popup(anchor, layout.width, layout.height);
+        inner.content = PopupContent::Ghost(text.to_owned());
+        inner.layout = layout;
+        inner.client_w = layout.width;
+        inner.client_h = layout.height;
+        inner.rows = 0;
+        inner.anchor = Some(*anchor);
+        inner.pending_clicks.clear();
+        inner.sticky_width = layout.width;
+        let first_show = !inner.shown;
+        inner.apply_placement(placement, first_show)?;
+        inner.invalidate();
+        inner.shown = true;
+        inner.pending_paint = false;
+        inner.pending_placement = None;
+        inner.last_paint = Instant::now();
+        Ok(PopupMetrics {
+            placement,
+            rows: 1,
             width: layout.width,
             height: layout.height,
             row_height: layout.row_height,
@@ -868,6 +917,10 @@ impl PopupInner {
             PopupContent::Hidden => {}
             PopupContent::Toast(text) => {
                 paint_centered_text(hdc, self, text, colors.text, self.font);
+            }
+            PopupContent::Ghost(text) => {
+                // Muted grey: a hint, not a committed word.
+                paint_centered_text(hdc, self, text, 0x0080_8080, self.font);
             }
             PopupContent::List { items, selected } => {
                 for (index, item) in items.iter().enumerate() {
