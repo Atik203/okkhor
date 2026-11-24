@@ -418,6 +418,17 @@ executable were involved.
 | Storage pressure | 50k words, 100k pairs, 200k bigrams |
 | AI contention | Gemini request in flight while typing |
 
+## 0.7 AI live smoke (2026-11-24)
+
+One live `gpt-6-luna` rewrite on the reference machine through the worker pipe:
+
+- Prompt: "Say hello in one short sentence." (13 input tokens, 7 output tokens)
+- Worker result: `state=done`, `latency_ms=1246`
+- No prompt, response, model text, or key was logged.
+
+This is a single integration smoke test, not a latency benchmark. AI is opt-in
+and off the typing path; no keystroke budget includes this call.
+
 ## Release gates
 
 - No release if p99 keydown -> injection regresses by more than 10% without an
