@@ -332,6 +332,10 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     let unicode = BANGLA_UNICODE.load(Ordering::Relaxed);
                     let english_popup = ENGLISH_POPUP.load(Ordering::Relaxed);
                     let fixed = SWALLOW_LETTERS.load(Ordering::Relaxed);
+                    // AltGr is a layout modifier, not a shortcut chord. Only
+                    // the fixed-layout letter predicate uses this relaxed test;
+                    // the phonetic predicates keep the original chord rule.
+                    let fixed_chord = chord && !altgr_pressed();
                     let decision = !injected
                         && (crate::input::should_swallow(
                             capture,
@@ -344,7 +348,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                             capture,
                             bangla,
                             fixed,
-                            chord,
+                            fixed_chord,
                             false,
                             virtual_key,
                         ) || crate::input::should_swallow_danda(
@@ -656,9 +660,19 @@ pub fn modifier_state() -> ModifierFlags {
     unsafe {
         ModifierFlags {
             shift: GetAsyncKeyState(i32::from(VK_SHIFT.0)) < 0,
-            altgr: GetAsyncKeyState(i32::from(VK_RMENU.0)) < 0
-                || GetAsyncKeyState(i32::from(VK_LMENU.0)) < 0,
+            altgr: altgr_pressed(),
         }
+    }
+}
+
+/// Whether the AltGr modifier is held. Ctrl+Alt on Windows is reported as
+/// both keys down, so a general "chord" test would wrongly treat an AltGr
+/// letter as a shortcut and let it reach the target unmodified.
+pub fn altgr_pressed() -> bool {
+    // SAFETY: GetAsyncKeyState with a virtual-key code has no pointer
+    // preconditions; a negative return means the key is currently down.
+    unsafe {
+        GetAsyncKeyState(i32::from(VK_RMENU.0)) < 0 || GetAsyncKeyState(i32::from(VK_LMENU.0)) < 0
     }
 }
 
