@@ -16,17 +16,19 @@
 
 use std::collections::VecDeque;
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{
     COLORREF, ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontIndirectW, CreatePen,
-    CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT,
-    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE,
-    FW_BOLD, FW_NORMAL, GetDC, GetTextExtentPoint32W, HDC, HFONT, InvalidateRect, LOGFONTW,
-    OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, ReleaseDC, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, TRANSPARENT,
+    BeginPaint, BitBlt, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap,
+    CreateCompatibleDC, CreateFontIndirectW, CreatePen, CreateSolidBrush, DEFAULT_CHARSET,
+    DEFAULT_PITCH, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
+    DeleteDC, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FW_BOLD, FW_NORMAL, GetDC,
+    GetTextExtentPoint32W, HDC, HFONT, InvalidateRect, LOGFONTW, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
+    PS_SOLID, ReleaseDC, RoundRect, SRCCOPY, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    UpdateWindow,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{
@@ -34,12 +36,12 @@ use windows::Win32::System::Registry::{
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DROPSHADOW, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow,
-    DispatchMessageW, GWLP_USERDATA, GetWindowLongPtrW, IDC_ARROW, LoadCursorW, MA_NOACTIVATE, MSG,
+    CS_DROPSHADOW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA,
+    GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST, IDC_ARROW, LoadCursorW, MA_NOACTIVATE, MSG,
     PM_REMOVE, PeekMessageW, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_LBUTTONDOWN, WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, TranslateMessage, WM_DPICHANGED, WM_ERASEBKGND, WM_LBUTTONDOWN, WM_MOUSEACTIVATE,
+    WM_PAINT, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -71,6 +73,11 @@ const SELECT_RADIUS_96: i32 = 4;
 const FONT_POINT_SIZE: i32 = 15;
 /// Click queue bound: bursts collapse to the latest few taps.
 const MAX_QUEUED_CLICKS: usize = 8;
+
+/// Minimum time between painted list updates. The daemon still recomputes the
+/// current candidates on every key (so Space/digits always commit the current
+/// row); only the visible card is coalesced, which keeps fast typing calm.
+const PAINT_COALESCE: Duration = Duration::from_millis(30);
 
 const POPUP_CLASS: PCWSTR = w!("OkkhorSuggestPopup.v1");
 const PERSONALIZE_SUBKEY: PCWSTR =
@@ -249,7 +256,7 @@ pub struct PopupMetrics {
     pub theme: PopupTheme,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum PopupContent {
     Hidden,
     Toast(String),
@@ -274,6 +281,87 @@ struct PopupInner {
     rows: usize,
     anchor: Option<CaretAnchor>,
     pending_clicks: VecDeque<usize>,
+    /// Whether the Win32 window is actually shown. This is separate from
+    /// `content`: a list can be current while the window is hidden (for
+    /// example while waiting for a fresh caret sample).
+    shown: bool,
+    /// Last time a visible update was painted. Used to coalesce fast typing.
+    last_paint: Instant,
+    /// Content/placement changed but the coalescing window has not elapsed.
+    pending_paint: bool,
+    pending_placement: Option<PopupPlacement>,
+    /// Width does not shrink while the card stays visible. A list that grows
+    /// and shrinks by a few pixels on every key is a visible flicker.
+    sticky_width: i32,
+    last_placement: Option<PopupPlacement>,
+}
+
+impl PopupInner {
+    /// Paint the current content. `WM_ERASEBKGND` already suppresses the
+    /// background erase; `UpdateWindow` makes the paint happen now instead of
+    /// waiting for an unrelated message.
+    fn invalidate(&self) {
+        // SAFETY: window is live and owned by this popup.
+        unsafe {
+            let _ = InvalidateRect(Some(self.window), None, false);
+            let _ = UpdateWindow(self.window);
+        }
+    }
+
+    /// Move and optionally show the window, but only when the target rectangle
+    /// actually differs. This mirrors the legacy apps' "move only if changed"
+    /// rule and avoids the visible jitter of a redundant `SetWindowPos`.
+    fn apply_placement(&mut self, placement: PopupPlacement, show: bool) -> Result<(), PopupError> {
+        let mut rect = RECT::default();
+        // SAFETY: window is live and owned by this popup.
+        let have_rect = unsafe { GetWindowRect(self.window, &mut rect) }.is_ok();
+        let same_pos = have_rect && rect.left == placement.x && rect.top == placement.y;
+        let same_size = have_rect
+            && rect.right - rect.left == placement.width
+            && rect.bottom - rect.top == placement.height;
+        let mut flags = SWP_NOACTIVATE;
+        if same_pos {
+            flags |= SWP_NOMOVE;
+        }
+        if same_size {
+            flags |= SWP_NOSIZE;
+        }
+        if show {
+            // Match the reference HUDs: insert into the topmost band on the
+            // first show. A move-only update leaves the z-order alone.
+            flags |= SWP_SHOWWINDOW;
+        } else {
+            flags |= SWP_NOZORDER;
+        }
+        if show || !(same_pos && same_size) {
+            let insert_after = if show { Some(HWND_TOPMOST) } else { None };
+            // SAFETY: window is live and owned by this popup; the placement is
+            // in physical pixels and no activation is requested.
+            unsafe {
+                SetWindowPos(
+                    self.window,
+                    insert_after,
+                    placement.x,
+                    placement.y,
+                    placement.width,
+                    placement.height,
+                    flags,
+                )
+            }
+            .map_err(|error| PopupError::Win32 {
+                operation: "SetWindowPos",
+                code: error.code().0,
+            })?;
+        }
+        if show {
+            // SAFETY: window is live; SW_SHOWNOACTIVATE never steals focus.
+            unsafe {
+                let _ = ShowWindow(self.window, SW_SHOWNOACTIVATE);
+            }
+        }
+        self.last_placement = Some(placement);
+        Ok(())
+    }
 }
 
 /// A top-level, non-activating suggestion window near the caret.
@@ -327,6 +415,12 @@ impl SuggestionPopup {
                 rows: 0,
                 anchor: None,
                 pending_clicks: VecDeque::new(),
+                shown: false,
+                last_paint: Instant::now(),
+                pending_paint: false,
+                pending_placement: None,
+                sticky_width: 0,
+                last_placement: None,
             }),
         };
         // SAFETY: the Box contents have a stable heap address for the
@@ -347,6 +441,12 @@ impl SuggestionPopup {
     /// DPI, places it below the caret (flipping above when it would leave the
     /// monitor work area), and shows it without activating. An empty list
     /// hides the window. Returns geometry only — never text.
+    ///
+    /// A visible card is updated in place: it is never re-shown and it only
+    /// moves when the computed placement actually changes. Fast updates are
+    /// coalesced to [`PAINT_COALESCE`] and flushed by [`Self::tick`]; the
+    /// daemon's composition state (and therefore Space/digit commits) is
+    /// always current even while the paint is deferred.
     pub fn show_candidates(
         &mut self,
         items: &[String],
@@ -376,41 +476,42 @@ impl SuggestionPopup {
         let visible: Vec<String> = items.iter().take(rows).cloned().collect();
         let selected = selected.min(rows - 1);
         let max_text = inner.max_text_width(&visible);
-        let layout = layout_for_items(rows, dpi, max_text);
+        let mut layout = layout_for_items(rows, dpi, max_text);
+        // Keep the card width stable for the lifetime of one visible list.
+        // Shrinking and growing by a few pixels on every key is visible.
+        if inner.shown {
+            inner.sticky_width = inner.sticky_width.max(layout.width);
+            layout.width = layout.width.max(inner.sticky_width);
+        } else {
+            inner.sticky_width = layout.width;
+        }
         let placement = place_popup(anchor, layout.width, layout.height);
-        inner.content = PopupContent::List {
+        let new_content = PopupContent::List {
             items: visible,
             selected,
         };
+        let content_changed = inner.content != new_content;
+        inner.content = new_content;
         inner.layout = layout;
         inner.client_w = layout.width;
         inner.client_h = layout.height;
         inner.rows = rows;
         inner.anchor = Some(*anchor);
-        inner.pending_clicks.clear();
-        // SAFETY: window is live and owned by this popup; the placement is in
-        // physical pixels and no activation is requested.
-        unsafe {
-            SetWindowPos(
-                inner.window,
-                None,
-                placement.x,
-                placement.y,
-                placement.width,
-                placement.height,
-                SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
-            )
-        }
-        .map_err(|error| PopupError::Win32 {
-            operation: "SetWindowPos",
-            code: error.code().0,
-        })?;
-        // SWP_SHOWWINDOW already shows it; this explicit path documents the
-        // no-activate intent and covers shell quirks.
-        // SAFETY: window is live.
-        unsafe {
-            let _ = ShowWindow(inner.window, SW_SHOWNOACTIVATE);
-            let _ = InvalidateRect(Some(inner.window), None, true);
+
+        let first_show = !inner.shown;
+        let now = Instant::now();
+        if first_show || now.duration_since(inner.last_paint) >= PAINT_COALESCE {
+            inner.pending_paint = false;
+            inner.pending_placement = None;
+            inner.apply_placement(placement, first_show)?;
+            if content_changed {
+                inner.invalidate();
+            }
+            inner.shown = true;
+            inner.last_paint = now;
+        } else {
+            inner.pending_paint = true;
+            inner.pending_placement = Some(placement);
         }
         Ok(PopupMetrics {
             placement,
@@ -440,78 +541,93 @@ impl SuggestionPopup {
         inner.rows = 0;
         inner.anchor = None;
         inner.pending_clicks.clear();
-        // SAFETY: window is live and owned by this popup; the placement is in
-        // physical pixels and no activation is requested.
-        unsafe {
-            SetWindowPos(
-                inner.window,
-                None,
-                placement.x,
-                placement.y,
-                placement.width,
-                placement.height,
-                SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
-            )
+        inner.sticky_width = 0;
+        let first_show = !inner.shown;
+        inner.apply_placement(placement, first_show)?;
+        inner.invalidate();
+        inner.shown = true;
+        inner.pending_paint = false;
+        inner.pending_placement = None;
+        inner.last_paint = Instant::now();
+        Ok(())
+    }
+
+    /// Flush a paint that was coalesced by [`Self::show_candidates`].
+    ///
+    /// Called from the daemon loop (one poll every few milliseconds); a
+    /// no-op when nothing is pending. Returns a typed Win32 error only when
+    /// the window actually needs to move or repaint.
+    pub fn tick(&mut self) -> Result<(), PopupError> {
+        let inner = &mut *self.inner;
+        if !inner.shown || !inner.pending_paint {
+            return Ok(());
         }
-        .map_err(|error| PopupError::Win32 {
-            operation: "SetWindowPos",
-            code: error.code().0,
-        })?;
-        // SAFETY: window is live.
-        unsafe {
-            let _ = ShowWindow(inner.window, SW_SHOWNOACTIVATE);
-            let _ = InvalidateRect(Some(inner.window), None, true);
+        if inner.last_paint.elapsed() < PAINT_COALESCE {
+            return Ok(());
         }
+        if let Some(placement) = inner.pending_placement.take() {
+            inner.apply_placement(placement, false)?;
+        }
+        inner.invalidate();
+        inner.pending_paint = false;
+        inner.last_paint = Instant::now();
         Ok(())
     }
 
     /// Hide the window and drop queued clicks and painted words.
     pub fn hide(&mut self) {
         let inner = &mut *self.inner;
+        let was_shown = inner.shown;
         inner.content = PopupContent::Hidden;
         inner.rows = 0;
         inner.pending_clicks.clear();
-        // SAFETY: window is live until Drop.
-        unsafe {
-            let _ = ShowWindow(inner.window, SW_HIDE);
+        inner.shown = false;
+        inner.pending_paint = false;
+        inner.pending_placement = None;
+        inner.sticky_width = 0;
+        inner.last_placement = None;
+        if was_shown {
+            // SAFETY: window is live until Drop.
+            unsafe {
+                let _ = ShowWindow(inner.window, SW_HIDE);
+            }
         }
     }
 
-    /// Whether the popup currently paints anything (list or toast).
+    /// Whether the popup window is actually shown.
     pub fn is_visible(&self) -> bool {
-        !matches!(self.inner.content, PopupContent::Hidden)
+        self.inner.shown
+    }
+
+    /// Last caret anchor used or stored, including while hidden. The daemon
+    /// uses it as a fallback when a transient UI Automation probe fails, so a
+    /// single failed probe cannot hide the card for the rest of a word.
+    pub fn anchor(&self) -> Option<CaretAnchor> {
+        self.inner.anchor
     }
 
     /// Follow a newer caret without repainting content.
     ///
     /// The anchor is always stored. A visible popup is moved with the same
     /// clamping used by [`show_candidates`], but without a show/repaint: only
-    /// `SetWindowPos` runs, preserving focus and the painted rows. A hidden
-    /// popup only records the anchor for the next show or DPI change.
+    /// `SetWindowPos` runs when the placement actually changed, preserving
+    /// focus and the painted rows. A hidden popup only records the anchor for
+    /// the next show or DPI change.
     pub fn update_anchor(&mut self, anchor: &CaretAnchor) -> Result<(), PopupError> {
         let inner = &mut *self.inner;
         inner.anchor = Some(*anchor);
-        if matches!(inner.content, PopupContent::Hidden) {
+        if !inner.shown {
             return Ok(());
         }
         let placement = place_popup(anchor, inner.client_w, inner.client_h);
-        // SAFETY: window is live and owned by this popup; the placement is in
-        // physical pixels and no activation, show, or repaint is requested.
-        unsafe {
-            SetWindowPos(
-                inner.window,
-                None,
-                placement.x,
-                placement.y,
-                placement.width,
-                placement.height,
-                SWP_NOACTIVATE | SWP_NOZORDER,
-            )
+        if inner.last_placement == Some(placement) {
+            return Ok(());
         }
-        .map_err(|error| PopupError::Win32 {
-            operation: "SetWindowPos",
-            code: error.code().0,
-        })
+        inner.apply_placement(placement, false)?;
+        if inner.pending_paint {
+            inner.pending_placement = Some(placement);
+        }
+        Ok(())
     }
 
     /// Drain one queued row click, if any. Pumps this window's messages first
@@ -656,14 +772,32 @@ impl PopupInner {
 
     fn paint(&self) {
         // SAFETY: called from our own WM_PAINT with a live window; `ps` is
-        // valid local storage for the paint pair.
+        // valid local storage for the paint pair. Drawing into a memory DC
+        // and blitting once removes the row-by-row flicker of direct GDI.
         unsafe {
             let mut ps = PAINTSTRUCT::default();
             let hdc = BeginPaint(self.window, &mut ps);
             if hdc.is_invalid() {
                 return;
             }
-            self.paint_dc(hdc);
+            let width = self.client_w.max(1);
+            let height = self.client_h.max(1);
+            let memory = CreateCompatibleDC(Some(hdc));
+            if memory.is_invalid() {
+                self.paint_dc(hdc);
+            } else {
+                let bitmap = CreateCompatibleBitmap(hdc, width, height);
+                if bitmap.is_invalid() {
+                    self.paint_dc(hdc);
+                } else {
+                    let previous = SelectObject(memory, bitmap.into());
+                    self.paint_dc(memory);
+                    let _ = BitBlt(hdc, 0, 0, width, height, Some(memory), 0, 0, SRCCOPY);
+                    SelectObject(memory, previous);
+                    let _ = DeleteObject(bitmap.into());
+                }
+                let _ = DeleteDC(memory);
+            }
             let _ = EndPaint(self.window, &ps);
         }
     }
@@ -878,7 +1012,7 @@ fn ensure_class_registered() -> Result<(), PopupError> {
         code: error.code().0,
     })?;
     let class = WNDCLASSW {
-        style: CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW,
+        style: CS_DROPSHADOW,
         lpfnWndProc: Some(popup_wnd_proc),
         hInstance: HINSTANCE(module.0),
         hCursor: cursor,
@@ -1180,6 +1314,12 @@ mod tests {
                 rows: 0,
                 anchor: None,
                 pending_clicks: VecDeque::new(),
+                shown: false,
+                last_paint: std::time::Instant::now(),
+                pending_paint: false,
+                pending_placement: None,
+                sticky_width: 0,
+                last_placement: None,
             }),
         };
         let anchor = CaretAnchor {
@@ -1202,6 +1342,63 @@ mod tests {
             .expect("a hidden popup only stores the anchor");
         assert_eq!(popup.inner.anchor, Some(anchor));
         assert!(!popup.is_visible());
+    }
+
+    /// Manual smoke test: paints five Bengali rows at a fixed screen anchor
+    /// for eight seconds. This does not depend on a live caret, so it is the
+    /// reliable visual check for the card, selection, and double buffering.
+    #[test]
+    #[ignore = "manual: opens a real popup window"]
+    fn manual_smoke_paints_five_rows_at_a_fixed_anchor() {
+        use super::SuggestionPopup;
+        use crate::caret::CaretAnchor;
+        use std::time::{Duration, Instant};
+        use windows::Win32::Foundation::RECT;
+
+        let anchor = CaretAnchor {
+            rect: RECT {
+                left: 400,
+                top: 200,
+                right: 401,
+                bottom: 220,
+            },
+            dpi: 96,
+            work_area: RECT {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+        };
+        let items: Vec<String> = ["আমার", "বাংলা", "তুমি", "কেমন", "ধন্যবাদ"]
+            .iter()
+            .map(|word| word.to_string())
+            .collect();
+        let mut popup = SuggestionPopup::new().expect("popup creates");
+        let metrics = popup
+            .show_candidates(&items, 1, &anchor)
+            .expect("popup shows");
+        assert_eq!(metrics.rows, 5);
+        let mut rect = RECT::default();
+        let _ = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetWindowRect(popup.inner.window, &mut rect)
+        };
+        println!(
+            "popup hwnd={:?} visible={} rect=({}, {})-({}, {})",
+            popup.inner.window,
+            popup.is_visible(),
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom
+        );
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(8) {
+            popup.tick().expect("popup ticks");
+            let _ = popup.try_next_click();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        popup.hide();
     }
 
     /// Manual smoke test: paints five Bengali rows near the caret for five

@@ -259,13 +259,20 @@ Deliverables:
 - real dictionary and layout import (validated formats, no guessing);
 - legacy custom-word and settings import where the format is known;
 - feature parity matrix against the legacy app;
-- migration report and rollback rehearsal.
+- migration report and rollback rehearsal;
+- suggestion stability: coalesced popup painting, frozen per-word ranking, and
+  a bounded prefix cache;
+- raw Latin fallback for unknown Banglish when the local list has no
+  dictionary-backed match.
 
 Exit criteria:
 
 - parity matrix has no silent gaps;
 - import is reproducible and documented;
-- unsupported legacy data is reported, not silently dropped.
+- unsupported legacy data is reported, not silently dropped;
+- typing a long word at speed produces no visible flicker, no one-character
+  caret jump, and no reordering on backspace;
+- an unknown ASCII token remains selectable without leaving Bangla mode.
 
 ## Phase 8 — Voice typing (0.9)
 

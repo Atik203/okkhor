@@ -438,7 +438,16 @@ where
         };
         let (anchor, password) = resolver();
         let mut state = lock_state(&shared);
-        if state.running && state.generation == generation {
+        // Publish a completed resolve even if a newer one is already queued.
+        // The popup would rather use the previous field's caret for one frame
+        // than lose the anchor entirely and hide; the newer sample replaces it
+        // as soon as it lands.
+        if state.running
+            && state
+                .latest
+                .as_ref()
+                .is_none_or(|sample| sample.generation < generation)
+        {
             state.latest = Some(CaretSample {
                 anchor,
                 password,
@@ -700,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_result_is_not_published() {
+    fn superseded_result_still_publishes_an_anchor() {
         let mut harness = gated_tracker();
         let _ = harness.tracker.request();
         harness
@@ -713,9 +722,11 @@ mod tests {
             .started
             .recv_timeout(TIMEOUT)
             .expect("newer resolve starts");
-        // The first resolve finished after generation 2 was requested, so its
-        // result must have been dropped instead of published.
-        assert!(harness.tracker.latest().is_none());
+        // The first resolve finished after generation 2 was requested. Its
+        // anchor is still a better fallback than no anchor at all; the newer
+        // sample replaces it when it lands.
+        let stale = harness.tracker.latest().expect("stale anchor published");
+        assert_eq!(stale.generation, 1);
         harness.release.send(()).expect("release newer resolve");
         let sample = wait_for_generation(&harness.tracker, 2);
         assert_eq!(sample.generation, 2);

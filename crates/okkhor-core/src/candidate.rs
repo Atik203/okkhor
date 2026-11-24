@@ -11,6 +11,10 @@ pub enum CandidateSource {
     Recent,
     Context,
     Ai,
+    /// The Latin token exactly as typed, kept as a fallback when no local
+    /// Bangla candidate is a real dictionary word. This is what lets an
+    /// unknown Banglish word (for example `also`) remain selectable.
+    RawInput,
 }
 
 /// Precomputed hints supplied by a candidate generator.

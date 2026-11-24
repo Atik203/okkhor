@@ -21,6 +21,7 @@
 | [0017](0017-feature-runtime-and-hybrid-blend.md) | Feature runtime crate and hybrid reranker blend | Proposed |
 | [0018](0018-opt-in-ai-worker.md) | Opt-in AI worker process boundary | Proposed |
 | [0019](0019-ranker-injection-and-bounded-work.md) | Ranker injection and bounded hybrid work | Proposed |
+| [0020](0020-suggestion-stability-and-raw-fallback.md) | Suggestion stability and raw Latin fallback | Accepted |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.

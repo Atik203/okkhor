@@ -163,6 +163,46 @@ impl SuggestionEngine {
             self.stage_rule_only(&outputs, &mut staged);
         }
 
+        // Keep the Latin token selectable, like the legacy keyboard apps. A
+        // dictionary-backed Bangla list ranks it low; when the only Bangla
+        // output is a rule guess, the raw token (and a few English prefixes)
+        // becomes the honest fallback instead of a nonsense word.
+        if roman.is_ascii() {
+            let has_dictionary = staged.iter().any(|candidate| {
+                matches!(
+                    candidate.source,
+                    CandidateSource::Dictionary | CandidateSource::UserHistory
+                )
+            });
+            // Keep it low: the Bangla/rule rows stay the primary product and
+            // the raw token is the always-available escape hatch (promoted to
+            // the last row after ranking if truncation would drop it).
+            let raw_base = 0.45;
+            keep_room(&mut staged, roman);
+            push_lang(
+                &mut staged,
+                roman,
+                Language::English,
+                raw_base,
+                0.30,
+                CandidateSource::RawInput,
+            );
+            if !has_dictionary && roman.chars().count() >= 2 {
+                for (position, text) in self.suggest_english(roman, 3).into_iter().enumerate() {
+                    keep_room(&mut staged, &text);
+                    let base = 0.50 - (position as f32 * 0.02);
+                    push_lang(
+                        &mut staged,
+                        &text,
+                        Language::English,
+                        base,
+                        0.25,
+                        CandidateSource::RawInput,
+                    );
+                }
+            }
+        }
+
         if staged.is_empty() {
             return Vec::new();
         }
@@ -173,7 +213,29 @@ impl SuggestionEngine {
             suggestion_request = suggestion_request.with_context([previous]);
         }
         suggestion_request = suggestion_request.with_roman_input(roman);
-        ranker.rank(&suggestion_request, staged)
+        let mut ranked = ranker.rank(&suggestion_request, staged);
+        // Last-resort escape hatch: keep the Latin token on the last row even
+        // when a full Bangla list outranks it. Kontho and Bongo both keep the
+        // typed word selectable; it costs one row and never changes the top.
+        if roman.is_ascii()
+            && limit >= 2
+            && !ranked.iter().any(|suggestion| suggestion.text == roman)
+        {
+            let raw = Suggestion {
+                text: roman.to_owned(),
+                language: Language::English,
+                score: 0.0,
+                source: CandidateSource::RawInput,
+            };
+            if ranked.len() >= limit {
+                if let Some(last) = ranked.last_mut() {
+                    *last = raw;
+                }
+            } else {
+                ranked.push(raw);
+            }
+        }
+        ranked
     }
 
     /// English prefix completions, lowercase. The caller preserves the token's
@@ -429,6 +491,26 @@ fn push(
     phonetic: f32,
     source: CandidateSource,
 ) {
+    push_lang(staged, text, Language::Bangla, base, phonetic, source);
+}
+
+/// Make room for the raw-input fallback when every stage has filled the
+/// bounded pool. The row that would otherwise be truncated is the lowest
+/// value one; the fallback is the user's escape hatch.
+fn keep_room(staged: &mut Vec<Candidate>, text: &str) {
+    if staged.len() >= MAX_STAGED && !staged.iter().any(|candidate| candidate.text == text) {
+        staged.pop();
+    }
+}
+
+fn push_lang(
+    staged: &mut Vec<Candidate>,
+    text: &str,
+    language: Language,
+    base: f32,
+    phonetic: f32,
+    source: CandidateSource,
+) {
     if text.is_empty() || text.len() > MAX_TEXT_BYTES {
         return;
     }
@@ -439,13 +521,14 @@ fn push(
             existing.features.base_score = base;
             existing.features.phonetic_score = phonetic;
             existing.source = source;
+            existing.language = language;
         }
         return;
     }
     if staged.len() >= MAX_STAGED {
         return;
     }
-    let mut candidate = Candidate::new(text, Language::Bangla, source);
+    let mut candidate = Candidate::new(text, language, source);
     candidate.features.base_score = base;
     candidate.features.phonetic_score = phonetic;
     staged.push(candidate);
@@ -519,6 +602,24 @@ mod tests {
                 "{roman} -> {rows:?}"
             );
         }
+    }
+
+    #[test]
+    fn unknown_ascii_word_keeps_the_raw_token_selectable() {
+        let engine = engine();
+        let smriti = Smriti::new();
+        let ranked = engine.suggest(&SuggestRequest::new("also", 10), &smriti);
+        let rows = texts(&ranked);
+        assert!(rows.contains(&"also"), "raw token missing from {rows:?}");
+    }
+
+    #[test]
+    fn known_bangla_word_keeps_a_bangla_top_row() {
+        let engine = engine();
+        let smriti = Smriti::new();
+        let ranked = engine.suggest(&SuggestRequest::new("amar", 10), &smriti);
+        let rows = texts(&ranked);
+        assert_eq!(rows.first().copied(), Some("আমার"), "{rows:?}");
     }
 
     #[test]

@@ -3,6 +3,33 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [Unreleased]
+
+### Fixed
+
+- **Suggestion popup stability.** A visible card is updated in place instead of
+  being re-shown on every key, only moves when the caret placement actually
+  changes, keeps a stable width for the current list, and paints through a
+  memory DC. Fast typing is coalesced to at most one visible update per 30 ms;
+  the engine and commit state remain per-key. This removes the flicker and the
+  one-character jump seen on the 0.7.0 beta.
+- **Popup latching.** The caret worker now publishes a completed sample even
+  when a newer request is queued, the daemon falls back to the last successful
+  anchor, and a late caret sample re-shows the popup without waiting for the
+  next keystroke. A transient UI Automation miss no longer hides the list for
+  the rest of a word.
+- **Stable ranking.** Recency time is frozen for the duration of one
+  composition and a bounded prefix cache returns the exact rows previously
+  shown when the user backspaces and retypes.
+
+### Added
+
+- **Raw Latin fallback.** Bangla mode keeps the typed Latin token as the last
+  row, and adds a few English prefix completions when no dictionary-backed
+  Bangla candidate exists. This keeps unknown Banglish such as `also`
+  selectable instead of forcing a rule-guessed Bangla word. Latin commits are
+  not learned as Bangla pairs. See ADR 0020.
+
 ## [0.7.0] - 2026-11-24
 
 ### Added
