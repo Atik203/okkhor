@@ -48,6 +48,10 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable
 
+# Some licensed corpora carry long article fields; the default 128 KiB CSV
+# limit is too small and produced a misleading parse failure on the first run.
+csv.field_size_limit(16 * 1024 * 1024)
+
 TOOL = "prepare-datasets"
 TOOL_VERSION = 1
 MANIFEST_SCHEMA = 1
