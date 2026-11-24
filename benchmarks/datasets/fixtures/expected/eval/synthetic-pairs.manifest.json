@@ -1,0 +1,15 @@
+{
+  "languages": [
+    "roman",
+    "bn"
+  ],
+  "license": "CC0-1.0",
+  "name": "synthetic-pairs.eval",
+  "notes": "kind=pairs; split=eval; role=hash; rule=sha256(case_id)[0:8] mod 100 < 25; notes=Tiny roman-to-Bangla pairs; no real corpus text.; duplicates=0; cross_source_duplicates=0; dropped_pii=0; attribution=not required (CC0-1.0); tool=prepare-datasets/1",
+  "rows": 1,
+  "schema": 1,
+  "sha256": "c759d15ebe47a711a454dd2c874920e29f827f34589f64555f7ef96330320d78",
+  "source": "synthetic romanisation authored for Okkhor tests",
+  "split": "eval",
+  "version": "1.0.0"
+}

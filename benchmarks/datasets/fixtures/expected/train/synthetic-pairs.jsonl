@@ -1,0 +1,11 @@
+{"case_id":"syn-001","input":"bangla","language":"bn","target":"বাংলা"}
+{"case_id":"syn-002","input":"bhasha","language":"bn","target":"ভাষা"}
+{"case_id":"syn-003","input":"ami","language":"bn","target":"আমি"}
+{"case_id":"syn-004","input":"tumi","language":"bn","target":"তুমি"}
+{"case_id":"syn-005","input":"boi","language":"bn","target":"বই"}
+{"case_id":"syn-006","input":"pani","language":"bn","target":"পানি"}
+{"case_id":"syn-007","input":"school","language":"bn","target":"স্কুল"}
+{"case_id":"syn-008","input":"ghor","language":"bn","target":"ঘর"}
+{"case_id":"syn-009","input":"bhalo","language":"bn","target":"ভালো"}
+{"case_id":"syn-010","input":"dhonnobad","language":"bn","target":"ধন্যবাদ"}
+{"case_id":"syn-012","input":"shokal","language":"bn","target":"সকাল"}

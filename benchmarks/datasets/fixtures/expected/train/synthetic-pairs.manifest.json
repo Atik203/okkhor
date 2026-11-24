@@ -1,0 +1,15 @@
+{
+  "languages": [
+    "roman",
+    "bn"
+  ],
+  "license": "CC0-1.0",
+  "name": "synthetic-pairs.train",
+  "notes": "kind=pairs; split=train; role=hash; rule=sha256(case_id)[0:8] mod 100 < 25; notes=Tiny roman-to-Bangla pairs; no real corpus text.; duplicates=0; cross_source_duplicates=0; dropped_pii=0; attribution=not required (CC0-1.0); tool=prepare-datasets/1",
+  "rows": 11,
+  "schema": 1,
+  "sha256": "6695c973fa3fd4bd96a8748dedac0018a8ecdc9cbb787d7bdf4f5820c7d3ba8d",
+  "source": "synthetic romanisation authored for Okkhor tests",
+  "split": "train",
+  "version": "1.0.0"
+}

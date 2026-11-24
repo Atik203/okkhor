@@ -1,0 +1,14 @@
+{
+  "languages": [
+    "bn"
+  ],
+  "license": "CC0-1.0",
+  "name": "bn-tokens",
+  "notes": "derived Bangla token counts from the train split only; per-million and zipf buckets; no raw corpus text; min_count=1; top_tokens=0; source=synthetic Bangla fixture text authored for Okkhor tests; attribution=not required (CC0-1.0); tool=prepare-datasets/1",
+  "rows": 27,
+  "schema": 1,
+  "sha256": "15bfbdf32b1b5a486d8bc874b2eca2b5d34df3624601e02501d3143d376eb352",
+  "source": "synthetic Bangla fixture text authored for Okkhor tests",
+  "split": "train",
+  "version": "1.0.0"
+}

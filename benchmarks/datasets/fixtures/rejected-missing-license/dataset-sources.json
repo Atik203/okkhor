@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "name": "fixture-rejected",
+  "version": "1.0.0",
+  "files": [
+    {
+      "path": "pairs.tsv",
+      "name": "no-license",
+      "kind": "pairs",
+      "role": "hash",
+      "source": "synthetic fixture that intentionally omits its licence",
+      "languages": ["roman", "bn"]
+    },
+    {
+      "path": "pairs-2.tsv",
+      "name": "no-attribution",
+      "kind": "pairs",
+      "role": "eval",
+      "license": "CC-BY-SA-4.0",
+      "source": "synthetic fixture that intentionally omits attribution",
+      "languages": ["roman", "bn"]
+    }
+  ]
+}

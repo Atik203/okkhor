@@ -1,0 +1,14 @@
+{
+  "languages": [
+    "bn"
+  ],
+  "license": "CC0-1.0",
+  "name": "synthetic-holdout.eval",
+  "notes": "kind=sentences; split=eval; role=eval; rule=sha256(case_id)[0:8] mod 100 < 25; notes=Forced evaluation rows; never used for the frequency prior.; duplicates=0; cross_source_duplicates=0; dropped_pii=0; attribution=not required (CC0-1.0); tool=prepare-datasets/1",
+  "rows": 2,
+  "schema": 1,
+  "sha256": "954c1cbee888146768a2b7f9139539d28ae29e3af526eed5ef6620bea5d0a74c",
+  "source": "synthetic frozen holdout authored for Okkhor tests",
+  "split": "eval",
+  "version": "1.0.0"
+}

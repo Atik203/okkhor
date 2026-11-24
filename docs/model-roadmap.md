@@ -226,6 +226,117 @@ The 0.7 runtime verifies the SHA-256 checksum before loading; signing is a 1.0
 feature. On failure, stay on the deterministic baseline and report a
 non-blocking error.
 
+## Training record and model package (0.10)
+
+The 0.10 plan permits GPU training on `uiu-h200` for a Tier 2 candidate with a
+licensed holdout. It does not relax the default: **`--ranker baseline` stays
+until a frozen licensed A/B wins.** Dataset preparation is defined in
+`docs/design/datasets.md`; the operator runbook is
+`docs/superpowers/analysis/0.10-dataset-pipeline.md`.
+
+### Inputs to a run
+
+A run consumes exactly one prepared collection, never raw corpora:
+
+- `collection.json` and every schema-1 manifest it lists;
+- `train/**/*.jsonl` and `freq/bn-tokens.tsv` (derive priors from train only);
+- `eval/**/*.jsonl`, frozen before tuning and never used for training, early
+  stopping, or feature selection;
+- a training config JSON (feature schema, model type, seed, learning rate,
+  epochs, regularisation, quantisation, candidate pool);
+- the git commit of the training code.
+
+Run on the H200 MIG `1g.18gb` slice with CUDA 13.5, a project-local virtual
+environment, and `tmux`; keep the project space under the 200 GB cap and do not
+change system CUDA, drivers, mounts, or packages outside the venv.
+
+### Outputs of a run
+
+```text
+<run-dir>/
+  model.onnx | coefficients.json     candidate artifact
+  model.manifest.json                package manifest (below)
+  training-config.json               exact hyperparameters + seed
+  metrics.json                       golden + holdout + latency segments
+  eval.log                           counters only; no corpus text
+```
+
+### Package manifest
+
+Extends the model manifest with the dataset chain:
+
+```json
+{
+  "schema": 1,
+  "name": "okkhor-reranker",
+  "version": "0.10.0",
+  "feature_schema": "v2",
+  "runtime": "onnx",
+  "file": "reranker.onnx",
+  "sha256": "<sha256>",
+  "size_bytes": 0,
+  "datasets": [
+    {
+      "name": "phase5-licensed",
+      "collection_sha256": "<sha256 of collection.json>",
+      "manifest": "train/banglatlit.manifest.json",
+      "manifest_sha256": "<sha256>",
+      "data_sha256": "<sha256>",
+      "split": "train",
+      "rows": 0,
+      "license": "MIT"
+    }
+  ],
+  "split_sha256": "<sha256 over sorted case_id<TAB>split lines of the frozen eval set>",
+  "training": {
+    "git_commit": "<40 hex>",
+    "config_sha256": "<sha256 of training-config.json>",
+    "seed": 0,
+    "hyperparameters": {},
+    "environment": {
+      "gpu": "H200 1g.18gb",
+      "driver": "580.178.04",
+      "cuda": "13.5",
+      "python": "3.x",
+      "torch": "x.y.z"
+    }
+  },
+  "metrics": {
+    "golden_top1": 0.0,
+    "golden_top5": 0.0,
+    "holdout_top1": 0.0,
+    "holdout_top5": 0.0,
+    "mrr": 0.0,
+    "p50_ms": 0.0,
+    "p95_ms": 0.0,
+    "p99_ms": 0.0
+  },
+  "trained_at": "2026-11-24T00:00:00Z"
+}
+```
+
+`trained_at` is the only timestamp, and it lives in the model package, never in a
+dataset manifest. Record every dataset manifest hash, the frozen-split hash, the
+seed, the git commit, the hyperparameters, and the measured metrics. Never record
+hostnames, usernames, tokens, or absolute paths.
+
+### Ship gate
+
+Ship a model only when all of these hold on the frozen licensed holdout:
+
+| Gate | Requirement |
+| --- | --- |
+| Licensed holdout top-1 | ≥ baseline + 1.0 percentage point |
+| Licensed holdout top-5 | no regression |
+| Golden top-1 | ≥ 94.0 % |
+| Golden top-5 | 100 % |
+| Ranking p99 (Tier 1) | ≤ 2 ms |
+| Quantised inference p99 (Tier 2) | ≤ 3 ms |
+| Rollback | previous model restores top-1 and latency |
+
+Otherwise ship no model change and keep the baseline. Synthetic-only gains do not
+count.
+
 ## Rust integration
 
 Status (0.7 model slice): `okkhor-features` and `okkhor-model` exist. The
@@ -298,6 +409,7 @@ Online:
 | 0.4 | Smriti v1 counts/linear; stable feature schema; replay harness |
 | 0.6 | suggestion dictionary and English completions; feature schema and replay landed (reranker deferred) |
 | 0.7 | dataset manifests/trainer; Tier 1 local logistic reranker implemented behind `--ranker hybrid`, default `baseline`; synthetic-only A/B |
+| 0.10 | licensed/synthetic dataset pipeline, frozen licensed holdout; GPU Tier 2 candidate only under the go/no-go gate |
 | 1.0 | Global prior from public corpora; local adapter; signed model packages |
 | 1.x | Optional Tier 2 GBDT/MLP for next-word; cache and deadline tuning |
 | 2.0 | Federated/DP pilot; Tier 3 transformer for idle suggestions |

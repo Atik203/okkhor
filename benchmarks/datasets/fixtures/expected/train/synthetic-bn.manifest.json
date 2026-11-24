@@ -1,0 +1,14 @@
+{
+  "languages": [
+    "bn"
+  ],
+  "license": "CC0-1.0",
+  "name": "synthetic-bn.train",
+  "notes": "kind=sentences; split=train; role=hash; rule=sha256(case_id)[0:8] mod 100 < 25; notes=Exercises duplicate, blank and PII dropping.; duplicates=1; cross_source_duplicates=0; dropped_pii=1; attribution=not required (CC0-1.0); tool=prepare-datasets/1",
+  "rows": 5,
+  "schema": 1,
+  "sha256": "f30686b31ba1a6ae69c0a2b4e94befb72f88f7b5602e8de2a534db53dff9fe29",
+  "source": "synthetic Bangla sentences authored for Okkhor tests",
+  "split": "train",
+  "version": "1.0.0"
+}

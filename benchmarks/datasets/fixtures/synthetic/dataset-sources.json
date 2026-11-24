@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "name": "fixture-synthetic",
+  "version": "1.0.0",
+  "eval_percent": 25,
+  "eval_required": true,
+  "frequency": {
+    "license": "CC0-1.0",
+    "source": "synthetic Bangla fixture text authored for Okkhor tests",
+    "attribution": ""
+  },
+  "files": [
+    {
+      "path": "synthetic-pairs.tsv",
+      "name": "synthetic-pairs",
+      "kind": "pairs",
+      "role": "hash",
+      "license": "CC0-1.0",
+      "source": "synthetic romanisation authored for Okkhor tests",
+      "attribution": "",
+      "languages": ["roman", "bn"],
+      "notes": "Tiny roman-to-Bangla pairs; no real corpus text."
+    },
+    {
+      "path": "synthetic-bn.txt",
+      "name": "synthetic-bn",
+      "kind": "sentences",
+      "role": "hash",
+      "license": "CC0-1.0",
+      "source": "synthetic Bangla sentences authored for Okkhor tests",
+      "attribution": "",
+      "languages": ["bn"],
+      "notes": "Exercises duplicate, blank and PII dropping."
+    },
+    {
+      "path": "synthetic-holdout.txt",
+      "name": "synthetic-holdout",
+      "kind": "sentences",
+      "role": "eval",
+      "license": "CC0-1.0",
+      "source": "synthetic frozen holdout authored for Okkhor tests",
+      "attribution": "",
+      "languages": ["bn"],
+      "notes": "Forced evaluation rows; never used for the frequency prior."
+    }
+  ]
+}
