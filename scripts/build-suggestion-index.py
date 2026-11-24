@@ -8,9 +8,14 @@ Sources
 - Avro `autodict.dct`: roman autocorrect pairs.
 - The curated starter list shipped with the daemon.
 - `wordfreq`: Bengali popularity and a small English completion list.
+- Nms Kontho 8.002 `bangla_dict.bin` (`WTR1`): the full roman→Bangla value
+  table, every target of every alias, ordered by preferred rank.
 
 The output is deterministic: no timestamps, sorted sections, and a manifest
 with source SHA256s. Do not commit source paths; only basenames are recorded.
+The `WTR1` container is parsed with the documented layout (header, filter,
+value, main, suffix, recent, unknown) and must be consumed exactly to the last
+byte. A SHA-256 drift in the Nms dictionary fails the build.
 
 Usage
 -----
@@ -35,7 +40,16 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 
 MAGIC = b"OKS1"
-VERSION = 1
+VERSION = 2
+ROMAN_RECORD_BYTES = 13
+WTR1_MAGIC = b"WTR1"
+WTR1_RECENT_MAGIC = 0x31524652
+MAX_ROMAN_TARGETS = 16
+ROMAN_KEY_RE = re.compile(r"[a-z]{1,24}")
+
+# Pinned SHA-256 of the owner-provided Nms `bangla_dict.bin`. Drift fails the
+# build instead of silently importing a different dictionary.
+NMS_BANGLA_SHA256 = "554949a455e0cb50b5d60b412b4c02a01d3ad69cfac8b0dd91292d6105b2af79"
 
 SECTION_POOL = 1
 SECTION_CURATED = 2
@@ -160,45 +174,196 @@ def read_starter(path: Path) -> list[tuple[str, str]]:
     return sorted(pairs.items(), key=lambda item: item[0])
 
 
-def read_nms_roman(path: Path) -> list[tuple[str, str]]:
-    """Extract leaf pairs from the Nms `WTR1` phonetic dictionary.
+class Wtr1Reader:
+    """Bounds-checked little-endian reader for the documented `WTR1` layout.
 
-    The file is a serialized trie; this importer walks the byte stream and
-    accepts only complete leaf records (`u16 key_len`, ASCII key, `u32 freq`,
-    `u16 value_len`, Bengali value). It does not reconstruct the trie. The
-    known-mapping validation below fails the build if the layout drifts.
+    Every access checks the remaining length and reports the absolute offset,
+    so a format drift fails loudly instead of being scanned byte by byte.
+    """
+
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.pos = 0
+
+    def take(self, count: int, what: str) -> bytes:
+        end = self.pos + count
+        if end > len(self.data):
+            raise SystemExit(
+                f"WTR1 bounds check failed: {what} at offset {self.pos} "
+                f"needs {count} bytes, file has {len(self.data)}"
+            )
+        chunk = self.data[self.pos : end]
+        self.pos = end
+        return chunk
+
+    def u8(self, what: str) -> int:
+        return self.take(1, what)[0]
+
+    def u16(self, what: str) -> int:
+        return struct.unpack("<H", self.take(2, what))[0]
+
+    def u32(self, what: str) -> int:
+        return struct.unpack("<I", self.take(4, what))[0]
+
+    def peek_u32(self, what: str) -> int | None:
+        if self.pos + 4 > len(self.data):
+            return None
+        return struct.unpack_from("<I", self.data, self.pos)[0]
+
+    def pstr(self, what: str) -> str:
+        start = self.pos
+        length = self.u16(f"{what} length")
+        raw = self.take(length, f"{what} bytes")
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise SystemExit(
+                f"WTR1 invalid UTF-8 in {what} at offset {start + 2}: {error}"
+            ) from None
+
+
+def parse_wtr1(path: Path) -> dict:
+    """Parse the whole documented WTR1 container, exactly to the last byte."""
+    data = path.read_bytes()
+    reader = Wtr1Reader(data)
+    if reader.take(4, "magic") != WTR1_MAGIC:
+        raise SystemExit(f"WTR1 magic is missing in {path.name}")
+    phonetic = reader.u8("phonetic flag")
+    header = [reader.pstr(f"header[{index}]") for index in range(6)]
+
+    filters = []
+    for index in range(reader.u32("filter count")):
+        filters.append(
+            (
+                reader.pstr(f"filter[{index}].key"),
+                reader.pstr(f"filter[{index}].value"),
+            )
+        )
+
+    aliases: list[tuple[str, list[str]]] = []
+    for index in range(reader.u32("value count")):
+        alias = reader.pstr(f"value[{index}].alias")
+        count = reader.u32(f"value[{index}].target count")
+        if count > MAX_ROMAN_TARGETS:
+            raise SystemExit(
+                f"WTR1 value[{index}] declares {count} targets, "
+                f"above the {MAX_ROMAN_TARGETS} cap"
+            )
+        aliases.append(
+            (alias, [reader.pstr(f"value[{index}].target[{slot}]") for slot in range(count)])
+        )
+
+    main_words = [
+        reader.pstr(f"main[{index}]") for index in range(reader.u32("main count"))
+    ]
+
+    suffix_is_dict = reader.u8("suffix kind")
+    if suffix_is_dict == 1:
+        suffixes = [
+            (
+                reader.pstr(f"suffix[{index}].key"),
+                reader.pstr(f"suffix[{index}].value"),
+            )
+            for index in range(reader.u32("suffix count"))
+        ]
+    elif suffix_is_dict == 0:
+        suffixes = [
+            reader.pstr(f"suffix[{index}]") for index in range(reader.u32("suffix count"))
+        ]
+    else:
+        raise SystemExit(
+            f"WTR1 suffix kind at offset {reader.pos - 1} is {suffix_is_dict}, expected 0 or 1"
+        )
+
+    recent_marker = reader.peek_u32("recent marker")
+    if recent_marker == WTR1_RECENT_MAGIC:
+        reader.u32("recent marker")
+        recent_known = [
+            reader.u32(f"recent[{index}]") for index in range(reader.u32("recent count"))
+        ]
+    else:
+        recent_known = [
+            reader.pstr(f"recent_old[{index}]")
+            for index in range(reader.u32("recent count"))
+        ]
+
+    recent_unknown = [
+        reader.pstr(f"unknown[{index}]") for index in range(reader.u32("unknown count"))
+    ]
+
+    if reader.pos != len(data):
+        raise SystemExit(
+            f"WTR1 trailing data: {len(data) - reader.pos} bytes left at offset {reader.pos}"
+        )
+
+    return {
+        "phonetic": phonetic,
+        "header": header,
+        "filters": filters,
+        "aliases": aliases,
+        "main_words": main_words,
+        "suffixes": suffixes,
+        "recent_known": recent_known,
+        "recent_unknown": recent_unknown,
+    }
+
+
+def filter_nfc(text: str, filters: list[tuple[str, str]]) -> str:
+    """Apply the dictionary's nukta table, then NFC."""
+    for old, new in filters:
+        text = text.replace(old, new)
+    return unicodedata.normalize("NFC", text).strip()
+
+
+def read_nms_roman(path: Path) -> tuple[list[tuple[str, int, str]], dict]:
+    """Import every target of the Nms `WTR1` phonetic dictionary.
+
+    `value_dic` is `alias -> ordered targets`; order is the preferred rank.
+    The four nukta mappings in `filter_dic` are applied before NFC so the
+    decomposed targets (`য + ়`, `ড + ়`, `ঢ + ়`, `ব + ়`) become the
+    precomposed words the rest of the index uses. Every target is kept, not
+    just the first one. Keys outside `[a-z]{1,24}` are rejected and recorded.
+    Recents are personal data: only their counts are kept.
     """
     data = path.read_bytes()
-    pairs: dict[tuple[str, str], None] = {}
-    position = 0
-    limit = len(data) - 10
-    while position < limit:
-        key_len = struct.unpack_from("<H", data, position)[0]
-        if 1 <= key_len <= 24 and position + 2 + key_len + 6 <= len(data):
-            key_bytes = data[position + 2 : position + 2 + key_len]
-            if all(97 <= byte <= 122 for byte in key_bytes):
-                frequency = struct.unpack_from("<I", data, position + 2 + key_len)[0]
-                value_len = struct.unpack_from("<H", data, position + 2 + key_len + 4)[0]
-                value_start = position + 2 + key_len + 6
-                if (
-                    1 <= frequency < 10_000_000
-                    and 3 <= value_len <= 300
-                    and value_start + value_len <= len(data)
-                ):
-                    try:
-                        value = data[value_start : value_start + value_len].decode("utf-8")
-                    except UnicodeDecodeError:
-                        value = ""
-                    normalized = normalize_bangla(value)
-                    if normalized == value:
-                        pairs[(key_bytes.decode("ascii"), value)] = None
-                        position = value_start + value_len
-                        continue
-        position += 1
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != NMS_BANGLA_SHA256:
+        raise SystemExit(
+            f"Nms dictionary SHA-256 drift: expected {NMS_BANGLA_SHA256}, got {digest}"
+        )
+    parsed = parse_wtr1(path)
+    if parsed["phonetic"] != 1:
+        raise SystemExit("Nms Bangla dictionary is not marked phonetic")
+    if parsed["main_words"]:
+        raise SystemExit("Nms phonetic dictionary unexpectedly has main words")
+    if not any(entry == ("ড়", "ড়") for entry in parsed["filters"]):
+        raise SystemExit("Nms filter_dic does not contain the expected nukta table")
 
-    rows = sorted(pairs, key=lambda item: (item[0].encode(), item[1].encode()))
+    rows: list[tuple[str, int, str]] = []
+    rejected_keys: list[str] = []
+    raw_targets = 0
+    for alias_index, (alias, targets) in enumerate(parsed["aliases"]):
+        raw_targets += len(targets)
+        if not ROMAN_KEY_RE.fullmatch(alias):
+            rejected_keys.append(alias)
+            continue
+        for rank, target in enumerate(targets):
+            value = filter_nfc(target, parsed["filters"])
+            if not value:
+                raise SystemExit(
+                    f"Nms target for value[{alias_index}] is empty after normalization"
+                )
+            if len(value.encode("utf-8")) > MAX_WORD_BYTES:
+                raise SystemExit(
+                    f"Nms target for value[{alias_index}] exceeds "
+                    f"{MAX_WORD_BYTES} UTF-8 bytes"
+                )
+            rows.append((alias, rank, value))
+
+    rows.sort(key=lambda row: (row[0].encode("ascii"), row[1]))
+
     by_key: dict[str, set[str]] = {}
-    for key, value in rows:
+    for key, _rank, value in rows:
         by_key.setdefault(key, set()).add(value)
     expected = {
         "dhonnobad": "ধন্যবাদ",
@@ -217,9 +382,32 @@ def read_nms_roman(path: Path) -> list[tuple[str, str]]:
             raise SystemExit(
                 f"Nms dictionary validation failed: {key!r} does not map to {value!r}"
             )
-    if not (100_000 <= len(rows) <= 160_000):
-        raise SystemExit(f"Nms dictionary pair count is implausible: {len(rows)}")
-    return rows
+
+    keys = {key for key, _rank, _value in rows}
+    row_counts: dict[str, int] = {}
+    for key, _rank, _value in rows:
+        row_counts[key] = row_counts.get(key, 0) + 1
+    multi = sum(1 for count in row_counts.values() if count >= 2)
+    if len(keys) < 135_400:
+        raise SystemExit(f"Nms key count is implausible: {len(keys)}")
+    # 151,126 stored targets − 16 targets owned by rejected keys = 151,110.
+    # The 0.10 plan's "151,120" allowance did not subtract all rejected keys.
+    if len(rows) < 151_100:
+        raise SystemExit(f"Nms pair count is implausible: {len(rows)}")
+    if multi != 13_192:
+        raise SystemExit(f"Nms multi-target alias count drifted: {multi}")
+
+    info = {
+        "aliases": len(parsed["aliases"]),
+        "targets": raw_targets,
+        "keys": len(keys),
+        "pairs": len(rows),
+        "multi_target_aliases": multi,
+        "rejected_keys": sorted(rejected_keys),
+        "recent_known": len(parsed["recent_known"]),
+        "recent_unknown": len(parsed["recent_unknown"]),
+    }
+    return rows, info
 
 
 def popularity(text: str, language: str) -> int:
@@ -275,7 +463,7 @@ def write_index(
     output: Path,
     manifest_path: Path,
     curated: list[tuple[str, str]],
-    roman: list[tuple[str, str]],
+    roman: list[tuple[str, int, str]],
     bangla: list[tuple[str, int]],
     english: list[tuple[str, int]],
     autocorrect: list[tuple[str, str]],
@@ -298,11 +486,18 @@ def write_index(
     en_entries, en_pop = pack_text_entries(pool, english)
 
     roman_entries = bytearray()
-    for key, value in roman:
+    for key, rank, value in roman:
         key_offset, key_length = pool.add(key)
         value_offset, value_length = pool.add(value)
         roman_entries.extend(
-            struct.pack("<IHIH", key_offset, key_length, value_offset, value_length)
+            struct.pack(
+                "<IHBHI",
+                key_offset,
+                key_length,
+                rank,
+                value_length,
+                value_offset,
+            )
         )
 
     autoc_entries = bytearray()
@@ -390,7 +585,7 @@ def main() -> int:
         type=Path,
         default=root.parent
         / "Nms Kontho x64 8.002/Dictionaries/Langs/Bangla/Dics/bangla_dict.bin",
-        help="Nms Kontho WTR1 phonetic dictionary (leaf records only)",
+        help="Nms Kontho WTR1 phonetic dictionary (full value table)",
     )
     parser.add_argument(
         "--output",
@@ -419,7 +614,7 @@ def main() -> int:
     suffixes = read_suffixes(db_path)
     autocorrect = read_autocorrect(auto_path)
     curated = read_starter(args.starter)
-    roman = read_nms_roman(args.nms_dict)
+    roman, nms_info = read_nms_roman(args.nms_dict)
 
     bangla_words: set[str] = set()
     for word in avro_words:
@@ -451,7 +646,9 @@ def main() -> int:
     english = [(word, popularity(word, "en")) for word in sorted(english_words)]
 
     meta = {
-        "schema": 1,
+        "schema": 2,
+        "index_version": VERSION,
+        "roman_record_bytes": ROMAN_RECORD_BYTES,
         "generator": "build-suggestion-index.py",
         "wordfreq": wf_version,
         "counts": {
@@ -462,16 +659,29 @@ def main() -> int:
             "curated": len(curated),
             "autocorrect": len(autocorrect),
             "suffix": len(suffixes),
-            "roman_pairs": len(roman),
-            "roman_keys": len({key for key, _ in roman}),
+            "roman_pairs": nms_info["pairs"],
+            "roman_keys": nms_info["keys"],
+            "roman_aliases": nms_info["aliases"],
+            "roman_multi_target_aliases": nms_info["multi_target_aliases"],
+            "roman_targets_raw": nms_info["targets"],
+            "rejected_keys": len(nms_info["rejected_keys"]),
+            "recent_known": nms_info["recent_known"],
+            "recent_unknown": nms_info["recent_unknown"],
         },
+        "rejected_keys": nms_info["rejected_keys"],
         "sources": {
             "avro_database": {"name": db_path.name, "sha256": sha256(db_path)},
             "avro_autocorrect": {"name": auto_path.name, "sha256": sha256(auto_path)},
             "starter": {"name": args.starter.name, "sha256": sha256(args.starter)},
-            "nms_phonetic": {"name": args.nms_dict.name, "sha256": sha256(args.nms_dict)},
+            "nms_phonetic": {
+                "name": args.nms_dict.name,
+                "sha256": NMS_BANGLA_SHA256,
+            },
         },
-        "notes": "Bangla words are single-word NFC; ASCII/Latin entries are rejected.",
+        "notes": (
+            "Bangla words are single-word NFC. ROMAN rows keep every WTR1 target "
+            "in preferred-rank order; recents are counted, never imported."
+        ),
     }
 
     write_index(

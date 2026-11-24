@@ -76,3 +76,32 @@ fn golden_top1_and_top5_rates() {
         top5_rate * 100.0
     );
 }
+
+#[test]
+fn dictionary_multi_target_rows_are_imported_and_preferred_stays_first() {
+    let engine = SuggestionEngine::from_embedded().expect("engine");
+    let index = engine.index().expect("index");
+    let bari_rows = index.exact_roman_targets("bari");
+    assert!(bari_rows.len() >= 4, "bari rows {bari_rows:?}");
+    assert_eq!(bari_rows.first().copied(), Some("বাড়ি"));
+    assert_eq!(index.exact_roman_targets("cha").first().copied(), Some("ছা"));
+    assert_eq!(
+        index.exact_roman_targets("bon").first().copied(),
+        Some("বন")
+    );
+    assert_eq!(index.exact_roman("bari"), vec!["বাড়ি"]);
+
+    let smriti = Smriti::new();
+    let bari = engine.suggest(&SuggestRequest::new("bari", 8), &smriti);
+    let bari_texts: Vec<&str> = bari.iter().map(|row| row.text.as_str()).collect();
+    assert!(bari_texts.len() >= 4, "bari suggestions {bari_texts:?}");
+    assert_eq!(bari_texts.first().copied(), Some("বাড়ি"));
+
+    let bon = engine.suggest(&SuggestRequest::new("bon", 8), &smriti);
+    assert_eq!(
+        bon.first().map(|row| row.text.as_str()),
+        Some("বোন"),
+        "bon suggestions {:?}",
+        bon.iter().map(|row| row.text.as_str()).collect::<Vec<_>>()
+    );
+}

@@ -8,13 +8,16 @@ use std::str;
 
 const RAW: &[u8] = include_bytes!("../../assets/suggest/suggest-v1.bin");
 const MAGIC: &[u8; 4] = b"OKS1";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const SECTION_COUNT: usize = 10;
 const HEADER_LEN: usize = 12;
 const TABLE_ENTRY: usize = 16;
 const BN_RECORD: usize = 8;
 const PAIR_RECORD: usize = 12;
+const ROMAN_RECORD: usize = 13;
 const POP_RECORD: usize = 4;
+/// Every target of one alias is its own row; the importer caps a group at 16.
+const MAX_ROMAN_RANK_ROWS: usize = 16;
 
 const SECTION_POOL: usize = 1;
 const SECTION_CURATED: usize = 2;
@@ -35,7 +38,7 @@ pub enum IndexError {
     Truncated,
     #[error("suggestion index magic is unsupported")]
     BadMagic,
-    #[error("suggestion index version is unsupported")]
+    #[error("suggestion index version is unsupported (this build reads OKS1 v2)")]
     BadVersion,
     #[error("suggestion index section table is invalid")]
     BadSection,
@@ -150,7 +153,7 @@ impl SuggestionIndex {
         expect_len(curated, counts.curated, PAIR_RECORD)?;
         expect_len(autoc, counts.autocorrect, PAIR_RECORD)?;
         expect_len(suffix, counts.suffix, PAIR_RECORD)?;
-        expect_len(roman, counts.roman, PAIR_RECORD)?;
+        expect_len(roman, counts.roman, ROMAN_RECORD)?;
         if table[SECTION_META - 1].count != 1 {
             return Err(IndexError::BadSection);
         }
@@ -194,7 +197,10 @@ impl SuggestionIndex {
             self.suffix_pair(index)?;
         }
         for index in 0..self.counts.roman {
-            self.roman_pair(index)?;
+            let (key, rank, _value) = self.roman_row(index)?;
+            if !valid_roman_key(key) || usize::from(rank) >= MAX_ROMAN_RANK_ROWS {
+                return Err(IndexError::BadSection);
+            }
         }
         for index in 0..self.counts.bangla {
             self.bn_text(index)?;
@@ -216,15 +222,21 @@ impl SuggestionIndex {
             }
             previous = Some(text);
         }
-        let mut previous: Option<&str> = None;
+        let mut previous: Option<(&str, u8)> = None;
         for index in 0..self.counts.roman {
-            let (key, _value) = self.roman_pair(index)?;
-            if let Some(previous) = previous {
-                if previous.as_bytes() >= key.as_bytes() {
+            let (key, rank, _value) = self.roman_row(index)?;
+            if let Some((previous_key, previous_rank)) = previous {
+                let key_order = previous_key.as_bytes().cmp(key.as_bytes());
+                let ordered = match key_order {
+                    std::cmp::Ordering::Less => true,
+                    std::cmp::Ordering::Equal => previous_rank < rank,
+                    std::cmp::Ordering::Greater => false,
+                };
+                if !ordered {
                     return Err(IndexError::BadOrder);
                 }
             }
-            previous = Some(key);
+            previous = Some((key, rank));
         }
         let mut previous: Option<&str> = None;
         for index in 0..self.counts.english {
@@ -431,13 +443,26 @@ impl SuggestionIndex {
         best.map(|(_, value)| value)
     }
 
-    /// Exact roman key from the imported Nms phonetic dictionary.
+    /// Preferred roman→Bangla target (rank 0) from the imported Nms
+    /// phonetic dictionary.
+    ///
+    /// Live staging keeps its 0.9 ordering until Phase 3 adds the bounded
+    /// preferred-rank signal; [`Self::exact_roman_targets`] exposes every
+    /// target of the v2 index now.
     pub fn exact_roman(&self, key: &str) -> Vec<&str> {
+        let mut targets = self.exact_roman_targets(key);
+        targets.truncate(1);
+        targets
+    }
+
+    /// Every target of an exact roman key, in preferred-rank order (rank 0
+    /// first). A multi-target alias contributes one row per target.
+    pub fn exact_roman_targets(&self, key: &str) -> Vec<&str> {
         let mut low = 0usize;
         let mut high = self.counts.roman;
         while low < high {
             let middle = low + (high - low) / 2;
-            let Some((candidate, _)) = self.roman_pair(middle).ok() else {
+            let Some((candidate, _, _)) = self.roman_row(middle).ok() else {
                 break;
             };
             if candidate.as_bytes() < key.as_bytes() {
@@ -447,8 +472,8 @@ impl SuggestionIndex {
             }
         }
         let mut out = Vec::new();
-        while low < self.counts.roman && out.len() < 8 {
-            let Ok((candidate, value)) = self.roman_pair(low) else {
+        while low < self.counts.roman && out.len() < MAX_ROMAN_RANK_ROWS {
+            let Ok((candidate, _rank, value)) = self.roman_row(low) else {
                 break;
             };
             if candidate != key {
@@ -460,13 +485,14 @@ impl SuggestionIndex {
         out
     }
 
-    /// Roman prefix completions from the imported phonetic dictionary.
+    /// Roman prefix completions from the imported phonetic dictionary, in
+    /// (key bytes, rank) order.
     pub fn prefix_roman(&self, key: &str, max: usize, scan_budget: usize) -> Vec<(&str, &str)> {
         let mut low = 0usize;
         let mut high = self.counts.roman;
         while low < high {
             let middle = low + (high - low) / 2;
-            let Some((candidate, _)) = self.roman_pair(middle).ok() else {
+            let Some((candidate, _, _)) = self.roman_row(middle).ok() else {
                 break;
             };
             if candidate.as_bytes() < key.as_bytes() {
@@ -478,7 +504,7 @@ impl SuggestionIndex {
         let mut out = Vec::new();
         let mut scanned = 0usize;
         while low < self.counts.roman && out.len() < max && scanned < scan_budget {
-            let Ok((candidate, value)) = self.roman_pair(low) else {
+            let Ok((candidate, _rank, value)) = self.roman_row(low) else {
                 break;
             };
             if !candidate.starts_with(key) {
@@ -539,14 +565,16 @@ impl SuggestionIndex {
         ))
     }
 
-    fn roman_pair(&self, index: usize) -> Result<(&str, &str), IndexError> {
-        let base = index * PAIR_RECORD;
+    fn roman_row(&self, index: usize) -> Result<(&str, u8, &str), IndexError> {
+        let base = index * ROMAN_RECORD;
         let key_offset = u32_at(self.roman, base).ok_or(IndexError::Truncated)? as usize;
         let key_len = u16_at(self.roman, base + 4).ok_or(IndexError::Truncated)? as usize;
-        let value_offset = u32_at(self.roman, base + 6).ok_or(IndexError::Truncated)? as usize;
-        let value_len = u16_at(self.roman, base + 10).ok_or(IndexError::Truncated)? as usize;
+        let rank = *self.roman.get(base + 6).ok_or(IndexError::Truncated)?;
+        let value_len = u16_at(self.roman, base + 7).ok_or(IndexError::Truncated)? as usize;
+        let value_offset = u32_at(self.roman, base + 9).ok_or(IndexError::Truncated)? as usize;
         Ok((
             self.text(key_offset, key_len)?,
+            rank,
             self.text(value_offset, value_len)?,
         ))
     }
@@ -596,6 +624,10 @@ impl SuggestionIndex {
     }
 }
 
+fn valid_roman_key(key: &str) -> bool {
+    (1..=24).contains(&key.len()) && key.bytes().all(|byte| byte.is_ascii_lowercase())
+}
+
 fn slice(raw: &'static [u8], section: Section) -> Result<&'static [u8], IndexError> {
     raw.get(section.offset..section.offset + section.len)
         .ok_or(IndexError::BadSection)
@@ -620,7 +652,7 @@ fn u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::SuggestionIndex;
+    use super::{IndexError, SuggestionIndex};
 
     #[test]
     fn embedded_index_validates() {
@@ -631,7 +663,34 @@ mod tests {
         assert!(counts.curated > 200);
         assert!(counts.autocorrect > 1_000);
         assert!(counts.suffix > 700);
-        assert!(counts.roman > 100_000, "roman {}", counts.roman);
+        assert!(counts.roman >= 151_000, "roman {}", counts.roman);
+    }
+
+    #[test]
+    fn v1_index_is_rejected_as_bad_version() {
+        let mut raw = vec![0u8; 256];
+        raw[0..4].copy_from_slice(b"OKS1");
+        raw[4..6].copy_from_slice(&1u16.to_le_bytes());
+        raw[6..8].copy_from_slice(&10u16.to_le_bytes());
+        let leaked: &'static [u8] = Box::leak(raw.into_boxed_slice());
+        assert_eq!(
+            SuggestionIndex::parse(leaked).unwrap_err(),
+            IndexError::BadVersion
+        );
+    }
+
+    #[test]
+    fn roman_rows_keep_every_target_in_rank_order() {
+        let index = SuggestionIndex::from_embedded().expect("embedded index");
+        let bari = index.exact_roman_targets("bari");
+        assert!(bari.len() >= 4, "bari rows {bari:?}");
+        assert_eq!(bari.first().copied(), Some("বাড়ি"));
+        assert_eq!(index.exact_roman("bari"), vec!["বাড়ি"]);
+        assert_eq!(index.exact_roman_targets("cha").first().copied(), Some("ছা"));
+        assert_eq!(
+            index.exact_roman_targets("bon").first().copied(),
+            Some("বন")
+        );
     }
 
     #[test]
