@@ -805,6 +805,7 @@ fn same_target(pid: u32, hwnd: isize, current_pid: u32, current_hwnd: isize) -> 
 
 #[cfg(windows)]
 fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
+    use std::collections::HashSet;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant};
@@ -856,6 +857,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         compose_pid: &'a mut u32,
         /// Bangla text last written by inline preedit (empty when inactive).
         preedit_rendered: &'a mut String,
+        /// Candidate words already counted as shown in this composition.
+        shown_words: &'a mut HashSet<String>,
         encoding: crate::OutputEncoding,
         learning_enabled: bool,
         state: Option<&'a ProdState>,
@@ -960,6 +963,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
             }
         }
+        emit_suggestion_shown(ctx);
     }
 
     /// Render the current best Bangla candidate into the document as an
@@ -1023,13 +1027,12 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         } else {
             rendered
         };
-        if !ctx.learning_enabled
-            || !unicode_text
-                .chars()
-                .any(|ch| ('\u{0980}'..='\u{09FF}').contains(&ch))
-        {
+        if !ctx.learning_enabled || !has_bengali(&unicode_text) {
+            ctx.shown_words.clear();
             return;
         }
+        emit_suggestion_accepted(ctx, &unicode_text, previous_word.clone());
+        ctx.shown_words.clear();
         let event = LearningEvent::TransliterationCommitted {
             roman_input: roman,
             output: unicode_text,
@@ -1141,6 +1144,55 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    fn has_bengali(text: &str) -> bool {
+        text.chars()
+            .any(|ch| ('\u{0980}'..='\u{09FF}').contains(&ch))
+    }
+
+    /// Count each candidate once per composition as "shown". The card repaints
+    /// many times per keystroke, so a raw emit would inflate the denominator.
+    fn emit_suggestion_shown(ctx: &mut CompositionCtx<'_>) {
+        if !ctx.learning_enabled || !ctx.session.is_composing() {
+            return;
+        }
+        let candidates: Vec<String> = ctx.session.candidates().to_vec();
+        let now = now_ms();
+        for word in candidates {
+            if !has_bengali(&word) || !ctx.shown_words.insert(word.clone()) {
+                continue;
+            }
+            let event = LearningEvent::SuggestionShown {
+                word,
+                language: Language::Bangla,
+                timestamp_ms: now,
+            };
+            if ctx.learn_tx.try_send(event).is_err() {
+                ctx.learn_dropped.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Count an accepted word only when it was actually shown for this
+    /// composition, so acceptance never exceeds the denominator.
+    fn emit_suggestion_accepted(
+        ctx: &mut CompositionCtx<'_>,
+        word: &str,
+        previous_word: Option<String>,
+    ) {
+        if !ctx.learning_enabled || !has_bengali(word) || !ctx.shown_words.remove(word) {
+            return;
+        }
+        let event = LearningEvent::SuggestionAccepted {
+            word: word.to_owned(),
+            language: Language::Bangla,
+            previous_word,
+            timestamp_ms: now_ms(),
+        };
+        if ctx.learn_tx.try_send(event).is_err() {
+            ctx.learn_dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     fn now_ms() -> u64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
@@ -1227,16 +1279,17 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
         hide_popup(ctx.popup, ctx.state);
         if !ctx.learning_enabled {
+            ctx.shown_words.clear();
             return true;
         }
         // A raw Latin fallback (unknown phonetic word) is not a roman -> Bangla
         // pair. Recording it would poison the personal transliteration map.
-        if !unicode_text
-            .chars()
-            .any(|ch| ('\u{0980}'..='\u{09FF}').contains(&ch))
-        {
+        if !has_bengali(&unicode_text) {
+            ctx.shown_words.clear();
             return true;
         }
+        emit_suggestion_accepted(ctx, &unicode_text, previous_word.clone());
+        ctx.shown_words.clear();
         // Queue learning for the background thread. The channel is bounded and
         // `try_send` never blocks, so a stalled learn thread can never stall
         // the key path; the drop is counted (a count carries no text) and
@@ -1262,6 +1315,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // Inline preedit leaves the already-rendered Bangla in the document
         // (Kontho behaviour); only the tracking state is dropped.
         ctx.preedit_rendered.clear();
+        ctx.shown_words.clear();
         hide_popup(ctx.popup, ctx.state);
     }
 
@@ -1276,6 +1330,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if ctx.session.is_composing() && !same {
             ctx.session.reset();
             ctx.preedit_rendered.clear();
+            ctx.shown_words.clear();
             hide_popup(ctx.popup, ctx.state);
         }
         // A child-window swap inside the same application is not a focus
@@ -1886,6 +1941,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut compose_window = foreground_window_id();
     let mut compose_pid = foreground_window_pid();
     let mut preedit_rendered = String::new();
+    let mut shown_words: HashSet<String> = HashSet::new();
     let mut encoding = options.encoding;
     let mut mode = options.mode;
     let mut learning_enabled = true;
@@ -2375,6 +2431,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if !inline_enabled {
             preedit_rendered.clear();
         }
+        if !session.is_composing() {
+            shown_words.clear();
+        }
         if fixed_enabled
             && !same_target(
                 compose_pid,
@@ -2426,6 +2485,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     compose_window: &mut compose_window,
                     compose_pid: &mut compose_pid,
                     preedit_rendered: &mut preedit_rendered,
+                    shown_words: &mut shown_words,
                     encoding,
                     learning_enabled,
                     state: ipc_state.as_deref(),
@@ -2456,6 +2516,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 compose_window: &mut compose_window,
                 compose_pid: &mut compose_pid,
                 preedit_rendered: &mut preedit_rendered,
+                shown_words: &mut shown_words,
                 encoding,
                 learning_enabled,
                 state: ipc_state.as_deref(),

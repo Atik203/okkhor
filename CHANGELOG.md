@@ -17,6 +17,14 @@ Versioning once it reaches 1.0.
   retypes only that cluster.
 - **`Inline Bangla preedit` setting**, on by default; off restores the 0.9
   commit-on-Space behaviour exactly.
+- **Real acceptance learning.** `SuggestionShown` is emitted once per candidate
+  per composition, and `SuggestionAccepted` only when the committed word was
+  actually shown. This makes Smriti's acceptance signal real instead of
+  permanently zero.
+- **Full WTR1 index v2.** The importer now reads the documented dictionary
+  format exactly, keeps every target, preserves preferred rank, applies nukta
+  then NFC, and ships 135,409 aliases / 151,110 pairs (13,192 multi-target
+  aliases). Golden top-1 92.9 % and top-5 100 % are unchanged. See ADR 0023.
 
 ## [0.9.3] - 2026-11-24
 
