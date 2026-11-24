@@ -9,6 +9,7 @@
 //! Privacy: the buffer holds transient keystrokes in memory only. It is never
 //! logged, never persisted, and cleared on commit, cancel, and pause.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use okkhor_core::Ranker;
@@ -19,6 +20,11 @@ pub const MAX_BUFFER_LEN: usize = 32;
 /// Maximum candidates shown in the popup and addressable by digit keys
 /// (`1`-`9` and `0` for the tenth row).
 pub const MAX_CANDIDATES: usize = 10;
+
+/// Per-composition prefix cache. Backspacing to a prefix the user just saw
+/// returns the exact same rows instead of re-ranking them; the entry is
+/// dropped on commit/cancel so learned state and a new word start clean.
+const PREFIX_CACHE_ENTRIES: usize = 16;
 
 /// Virtual-key codes handled by the session. These are plain `u16`
 /// constants so this module stays free of Win32 types.
@@ -140,6 +146,15 @@ pub struct InputSession<P = DefaultEngine> {
     previous_word: Option<String>,
     now_ms: u64,
     user_words: Vec<UserWord>,
+    /// Rank time frozen at the first letter of this composition. Recency
+    /// scoring must not reshuffle the same prefix a few milliseconds later.
+    rank_ms: u64,
+    /// (roman, previous, limit) -> rows for this composition.
+    cache: VecDeque<(String, Option<String>, usize, Vec<String>)>,
+    /// True once the user moves the highlight with an arrow key. Only then
+    /// does `refresh` follow that row across a keystroke; the automatic top
+    /// row stays row 0.
+    selection_pinned: bool,
 }
 
 impl<P: SuggestionProvider> InputSession<P> {
@@ -154,6 +169,9 @@ impl<P: SuggestionProvider> InputSession<P> {
             previous_word: None,
             now_ms: 0,
             user_words: Vec::new(),
+            rank_ms: 0,
+            cache: VecDeque::with_capacity(PREFIX_CACHE_ENTRIES),
+            selection_pinned: false,
         }
     }
 
@@ -165,6 +183,7 @@ impl<P: SuggestionProvider> InputSession<P> {
     /// Replace the user dictionary snapshot used by the provider.
     pub fn set_user_words(&mut self, words: Vec<UserWord>) {
         self.user_words = words;
+        self.cache.clear();
     }
 
     /// English prefix completions for the shared English tracker.
@@ -188,6 +207,7 @@ impl<P: SuggestionProvider> InputSession<P> {
             return;
         }
         self.max_candidates = max;
+        self.cache.clear();
         if self.candidates.len() > max {
             self.candidates.truncate(max);
             self.selected = self.selected.min(max - 1);
@@ -230,6 +250,14 @@ impl<P: SuggestionProvider> InputSession<P> {
         if self.buffer.len() >= MAX_BUFFER_LEN {
             return false;
         }
+        if self.buffer.is_empty() {
+            // Freeze recency for this word: the same prefix must rank the same
+            // when the user backspaces and retypes it. A fresh word also
+            // starts with a fresh cache so the previous word cannot leak in.
+            self.rank_ms = self.now_ms;
+            self.cache.clear();
+            self.selection_pinned = false;
+        }
         self.buffer.push(lower as char);
         self.refresh();
         true
@@ -239,6 +267,10 @@ impl<P: SuggestionProvider> InputSession<P> {
     pub fn backspace(&mut self) -> BackspaceOutcome {
         if self.buffer.pop().is_none() {
             return BackspaceOutcome::Empty;
+        }
+        if self.buffer.is_empty() {
+            self.rank_ms = 0;
+            self.selection_pinned = false;
         }
         self.refresh();
         if self.buffer.is_empty() {
@@ -259,6 +291,7 @@ impl<P: SuggestionProvider> InputSession<P> {
         let len = len as i32;
         let next = (self.selected as i32 + delta).rem_euclid(len);
         self.selected = next as usize;
+        self.selection_pinned = true;
     }
 
     /// Commit the currently selected candidate (default index 0).
@@ -317,22 +350,72 @@ impl<P: SuggestionProvider> InputSession<P> {
         self.buffer.clear();
         self.candidates.clear();
         self.selected = 0;
+        self.rank_ms = 0;
+        self.cache.clear();
+        self.selection_pinned = false;
     }
 
     fn refresh(&mut self) {
+        // Keep the highlighted row across a keystroke when that same text is
+        // still offered. Kontho selects `wordSofar` and Bongo restores the
+        // previous selection; snapping back to row 0 makes an arrow selection
+        // feel lost.
+        let previous_selection = if self.selection_pinned {
+            self.candidates.get(self.selected).cloned()
+        } else {
+            None
+        };
         self.candidates.clear();
         self.selected = 0;
         if self.buffer.is_empty() {
             return;
         }
-        self.candidates = self.provider.suggestions(
-            &self.buffer,
-            self.max_candidates,
-            self.previous_word.as_deref(),
-            self.now_ms,
-            &self.user_words,
-        );
-        self.candidates.truncate(self.max_candidates);
+        let previous = self.previous_word.as_deref();
+        let limit = self.max_candidates;
+        let cached = self
+            .cache
+            .iter()
+            .find(|(roman, cached_previous, cached_limit, _)| {
+                roman == &self.buffer
+                    && cached_previous.as_deref() == previous
+                    && *cached_limit == limit
+            })
+            .map(|(_, _, _, rows)| rows.clone());
+        if let Some(rows) = cached {
+            self.candidates = rows;
+            self.restore_selection(previous_selection);
+            return;
+        }
+        let rank_ms = if self.rank_ms == 0 {
+            self.now_ms
+        } else {
+            self.rank_ms
+        };
+        let rows =
+            self.provider
+                .suggestions(&self.buffer, limit, previous, rank_ms, &self.user_words);
+        self.candidates = rows;
+        self.candidates.truncate(limit);
+        self.cache.push_front((
+            self.buffer.clone(),
+            previous.map(str::to_owned),
+            limit,
+            self.candidates.clone(),
+        ));
+        self.cache.truncate(PREFIX_CACHE_ENTRIES);
+        self.restore_selection(previous_selection);
+    }
+
+    fn restore_selection(&mut self, previous: Option<String>) {
+        if let Some(text) = previous {
+            if let Some(index) = self.candidates.iter().position(|row| *row == text) {
+                self.selected = index;
+                return;
+            }
+            // The user's row fell out of the list; do not keep chasing it.
+            self.selection_pinned = false;
+        }
+        self.selected = 0;
     }
 }
 
@@ -503,6 +586,26 @@ mod tests {
         }
     }
 
+    /// Stub provider that counts calls, for the per-composition cache.
+    struct CountingEngine {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl SuggestionProvider for CountingEngine {
+        fn suggestions(
+            &self,
+            roman: &str,
+            _limit: usize,
+            _previous: Option<&str>,
+            _now_ms: u64,
+            _user_words: &[UserWord],
+        ) -> Vec<String> {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            vec![roman.to_owned()]
+        }
+    }
+
     /// Stub provider yielding a fixed candidate list: keeps selection and
     /// commit tests independent of the committed index.
     struct FixedEngine {
@@ -538,6 +641,31 @@ mod tests {
         let counts = engine.index_counts().expect("index counts");
         assert!(counts.bangla > 150_000, "bangla {}", counts.bangla);
         assert!(counts.roman > 100_000, "roman {}", counts.roman);
+    }
+
+    #[test]
+    fn backspace_reuses_cached_prefix_rows() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut session = InputSession::new(CountingEngine {
+            calls: Arc::clone(&calls),
+        });
+        type_text(&mut session, "bhal");
+        let full = session.candidates().to_vec();
+        assert_eq!(session.backspace(), BackspaceOutcome::StillComposing);
+        assert!(session.push_letter(b'l'));
+        assert_eq!(session.candidates(), full.as_slice());
+        // b, bh, bha, bhal; the backspace and retype are cache hits.
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn selection_survives_a_keystroke_when_the_row_stays() {
+        let mut session = InputSession::new(FixedEngine::new(&["a", "b", "c"]));
+        type_text(&mut session, "x");
+        session.move_selection(2);
+        assert_eq!(session.selected(), 2);
+        assert!(session.push_letter(b'y'));
+        assert_eq!(session.selected(), 2);
     }
 
     #[test]

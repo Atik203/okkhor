@@ -91,6 +91,7 @@ pub fn encode_source(source: CandidateSource) -> u8 {
         CandidateSource::Recent => 3,
         CandidateSource::Context => 4,
         CandidateSource::Ai => 5,
+        CandidateSource::RawInput => 6,
     }
 }
 
@@ -363,6 +364,7 @@ mod tests {
     fn encodings_are_stable() {
         assert_eq!(encode_source(CandidateSource::Dictionary), 0);
         assert_eq!(encode_source(CandidateSource::Transliteration), 1);
+        assert_eq!(encode_source(CandidateSource::RawInput), 6);
         assert_eq!(encode_layout(None), 0);
         assert_eq!(encode_layout(Some("avro")), 1);
         assert_eq!(encode_layout(Some("AVRO")), 1);

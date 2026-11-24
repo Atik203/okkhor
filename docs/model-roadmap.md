@@ -123,7 +123,10 @@ implemented as `FeatureVectorV1` (`SCHEMA_VERSION = 1`) in the shipped
 `okkhor-features` crate and re-exported by the offline `okkhor-train` crate, in
 the exact field order of the table above (the optional `trigram_score` is out of
 v1). Categorical fields use stable codes (`candidate_source`:
-dictionary 0, transliteration 1, user-history 2, recent 3, context 4, AI 5;
+dictionary 0, transliteration 1, user-history 2, recent 3, context 4, AI 5,
+raw-input 6. Raw-input is an additive code for the always-selectable Latin
+fallback (ADR 0020); the shipped synthetic model was trained without it and
+the default baseline ranker does not depend on it.
 `language`: English 0, Bangla 1; `layout`: none 0, avro 1, bijoy 2, national
 3, probhat 4, banglish 5, khipro 6, unibijoy 7, other 8; `context_language`:
 none 0, English 1, Bangla 2, mixed 3). Extraction is

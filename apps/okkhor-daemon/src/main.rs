@@ -805,7 +805,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if let Some(tracker) = ctx.caret {
             let _ = tracker.request();
         }
-        let anchor = caret_for_popup(ctx.caret, ctx.caret_generation);
+        let anchor = caret_for_popup(ctx.caret, ctx.caret_generation).or_else(|| window.anchor());
         match anchor {
             Some(anchor) => {
                 if let Err(error) = window.show_candidates(candidates, selected, &anchor) {
@@ -865,7 +865,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 return;
             }
         }
-        match caret_for_popup(caret, caret_generation) {
+        match caret_for_popup(caret, caret_generation).or_else(|| window.anchor()) {
             Some(anchor) => {
                 if window
                     .show_candidates(english.suggestions(), english.selected(), &anchor)
@@ -993,6 +993,14 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
         hide_popup(ctx.popup, ctx.state);
         if !ctx.learning_enabled {
+            return true;
+        }
+        // A raw Latin fallback (unknown Banglish) is not a roman -> Bangla
+        // pair. Recording it would poison the personal transliteration map.
+        if !unicode_text
+            .chars()
+            .any(|ch| ('\u{0980}'..='\u{09FF}').contains(&ch))
+        {
             return true;
         }
         // Queue learning for the background thread. The channel is bounded and
@@ -1695,6 +1703,14 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             );
         }
 
+        // Flush a paint that was coalesced while the user was typing fast.
+        // This is a no-op unless a visible list is waiting for its slot.
+        if let Some(window) = popup.as_mut() {
+            if let Err(error) = window.tick() {
+                logger.error(logging::Scope::Daemon, "popup_paint", error.code());
+            }
+        }
+
         // IPC live sync: the UI flips `capture.set` and settings, and the loop
         // applies them here so the hook thread and the blocking IPC threads
         // never meet. All reads are lock-free atomics except the hotkey chords
@@ -1986,12 +2002,45 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
 
         if session.is_composing() {
-            apply_caret_anchor(
-                &mut popup,
-                caret_tracker.as_ref(),
-                logger,
-                &mut last_anchor_generation,
-            );
+            // The caret resolver can finish after the key that requested it.
+            // Re-show/move from that late sample instead of waiting for the
+            // next keystroke; this is what keeps a popup from staying hidden
+            // for the rest of a word after a transient probe failure.
+            if let Some(sample) = caret_tracker.as_ref().and_then(CaretTracker::latest) {
+                if sample.generation > last_anchor_generation {
+                    last_anchor_generation = sample.generation;
+                    if let Some(window) = popup.as_mut() {
+                        match window.show_candidates(
+                            session.candidates(),
+                            session.selected(),
+                            &sample.anchor,
+                        ) {
+                            Ok(_) => {
+                                if let Some(state) = ipc_state.as_deref() {
+                                    state.set_popup_visible(window.is_visible());
+                                }
+                            }
+                            Err(error) => {
+                                logger.error(logging::Scope::Daemon, "popup_show", error.code());
+                            }
+                        }
+                    }
+                } else {
+                    apply_caret_anchor(
+                        &mut popup,
+                        caret_tracker.as_ref(),
+                        logger,
+                        &mut last_anchor_generation,
+                    );
+                }
+            } else {
+                apply_caret_anchor(
+                    &mut popup,
+                    caret_tracker.as_ref(),
+                    logger,
+                    &mut last_anchor_generation,
+                );
+            }
         }
 
         hook.set_composition_state(
