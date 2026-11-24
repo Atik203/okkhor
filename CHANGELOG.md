@@ -30,6 +30,12 @@ Versioning once it reaches 1.0.
   format exactly, keeps every target, preserves preferred rank, applies nukta
   then NFC, and ships 135,409 aliases / 151,110 pairs (13,192 multi-target
   aliases). Golden top-1 92.9 % and top-5 100 % are unchanged. See ADR 0023.
+- **Global next-word prior.** The ghost hint now merges the user's own Smriti
+  pairs with an embedded `OKNW` bigram table: Bangla trained on 30.0M tokens
+  (held-out top-5 31.1 %, coverage 96.0 %) and English on 65.6M tokens (top-5
+  31.3 %, coverage 98.3 %). The table is a zero-copy lookup with no I/O on the
+  query path; a missing or corrupt blob falls back to local pairs. See ADR 0024
+  and `docs/learning.md`.
 
 ## [0.9.3] - 2026-11-24
 

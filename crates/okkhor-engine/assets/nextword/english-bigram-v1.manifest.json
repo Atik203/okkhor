@@ -1,0 +1,8 @@
+{
+  "name": "english-bigram",
+  "version": 1,
+  "format": "OKNW1",
+  "bytes": 11350019,
+  "sha256": "EC77135D1D67A220DBF611155B7BE94D6C4EA487252CD5AA1555F2C69A9F120E",
+  "source": "nextword-bigram-en-v1.json"
+}

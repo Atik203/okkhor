@@ -1236,6 +1236,38 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    /// Merge local Smriti next words with the global prior.
+    ///
+    /// Personal pairs come first; the global prior fills the remaining slots and
+    /// duplicates are dropped. This runs after a commit on the worker thread, so
+    /// it stays well inside the rerank budget.
+    fn next_word_choices(
+        smriti: &Smriti,
+        language: Language,
+        previous: &str,
+        limit: usize,
+    ) -> Vec<String> {
+        let mut words: Vec<String> = smriti
+            .next_words(language, previous, limit)
+            .into_iter()
+            .map(|(word, _)| word)
+            .collect();
+        if words.len() < limit {
+            if let Some(prior) = okkhor_engine::nextword::global(language) {
+                for follower in prior.followers(previous, limit) {
+                    if words.iter().any(|existing| existing == follower) {
+                        continue;
+                    }
+                    words.push(follower.to_owned());
+                    if words.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+        words
+    }
+
     fn show_ghost(ctx: &mut CompositionCtx<'_>, ghost: &mut GhostState) {
         if ghost.words.is_empty() {
             return;
@@ -2448,11 +2480,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                             &text,
                             english_previous.take(),
                         );
-                        ghost.words = smriti
-                            .next_words(Language::English, &text, 3)
-                            .into_iter()
-                            .map(|(word, _)| word)
-                            .collect();
+                        ghost.words = next_word_choices(&smriti, Language::English, &text, 3);
                         ghost.selected = 0;
                         english_previous = Some(text);
                     }
@@ -2527,11 +2555,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                                 &text,
                                 english_previous.take(),
                             );
-                            ghost.words = smriti
-                                .next_words(Language::English, &text, 3)
-                                .into_iter()
-                                .map(|(word, _)| word)
-                                .collect();
+                            ghost.words = next_word_choices(&smriti, Language::English, &text, 3);
                             ghost.selected = 0;
                             english_previous = Some(text);
                         } else if okkhor_win::english_popup_visible() {
@@ -2693,13 +2717,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 ghost_prev = previous.clone();
                 ghost.words = previous
                     .as_deref()
-                    .map(|word| {
-                        smriti
-                            .next_words(Language::Bangla, word, 3)
-                            .into_iter()
-                            .map(|(word, _)| word)
-                            .collect()
-                    })
+                    .map(|word| next_word_choices(&smriti, Language::Bangla, word, 3))
                     .unwrap_or_default();
                 ghost.selected = 0;
             }

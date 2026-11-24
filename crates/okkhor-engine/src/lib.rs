@@ -13,12 +13,14 @@ pub mod config;
 pub mod engine;
 pub mod error;
 pub mod golden;
+pub mod nextword;
 pub mod suggest;
 
 pub use config::{EngineConfig, LanguageBudget};
 pub use engine::CandidateEngine;
 pub use error::EngineError;
 pub use golden::{GoldenCase, GoldenCorpus, ParityReport, check_parity};
+pub use nextword::{NextWordPrior, PriorError};
 pub use suggest::{
     IndexCounts, IndexError, MAX_LIMIT, SuggestRequest, SuggestionEngine, SuggestionError,
     SuggestionIndex, UserWord,

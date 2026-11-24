@@ -22,6 +22,10 @@
 | [0018](0018-opt-in-ai-worker.md) | Opt-in AI worker process boundary | Proposed |
 | [0019](0019-ranker-injection-and-bounded-work.md) | Ranker injection and bounded hybrid work | Proposed |
 | [0020](0020-suggestion-stability-and-raw-fallback.md) | Suggestion stability and raw Latin fallback | Accepted |
+| [0021](0021-fixed-layout-engine.md) | Fixed-layout keyboard engine | Accepted |
+| [0022](0022-inline-bangla-preedit.md) | Inline Bangla preedit | Accepted |
+| [0023](0023-suggestion-index-v2.md) | Suggestion index v2 and the full WTR1 import | Accepted |
+| [0024](0024-next-word-prior.md) | Embedded global next-word prior (`OKNW`) | Accepted |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.

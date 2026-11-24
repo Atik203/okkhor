@@ -1,0 +1,8 @@
+{
+  "name": "bangla-bigram",
+  "version": 1,
+  "format": "OKNW1",
+  "bytes": 14027753,
+  "sha256": "73ECA032D41ED8F9F2471B4D5F7AAF215DC1E8C161171BF351BCD4CBFF6CD879",
+  "source": "nextword-bigram-v2.json"
+}

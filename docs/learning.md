@@ -278,11 +278,13 @@ Online:
 
 - The global next-word prior is trained **offline** from licensed public
   corpora and synthetic data, never from user text.
-- Current program: 1B tokens per language, a 768-d teacher, then a distilled
-  512-d int8 student (~180–220 MB) for shipping.
-- The student ships only if it stays within ~1.5 points top-1 of the teacher and
-  meets the latency/p99 gate.
-- The trained model is a signed static artifact; it does not learn on the device.
+- 0.10.0 ships the **bigram prior** (`OKNW`, ADR 0024): Bangla 30.0M tokens,
+  English 65.6M tokens, about 25 MB embedded. Ghost hints merge local Smriti
+  pairs first, then the prior, de-duplicated.
+- The 1B neural program trains a 768-d teacher per language, then distils a
+  512-d int8 student (~180–220 MB). It ships as a signed model update only if it
+  stays within ~1.5 points top-1 of the teacher and meets the p99 gate.
+- The trained next-word artifact is static; it does not learn on the device.
 - Personal adaptation remains Smriti-only. An opt-in aggregate contribution is a
   later, separate decision (deferred; B in the 0.10 plan).
 

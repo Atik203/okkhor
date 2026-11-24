@@ -57,9 +57,10 @@ Measured on the 1g.18gb slice:
 
 | Model | Data | top-1 | top-5 |
 | --- | --- | ---: | ---: |
-| Bangla bigram | 6.35M tokens | 12.29 % | 25.07 % |
+| Bangla bigram (shipped prior) | 30.0M tokens | 12.40 % | 31.06 % |
+| Bangla context-8 transformer | 30.0M tokens | 19.39 % | 35.96 % |
 | Bangla context-2 MLP | 6.35M tokens | 14.85 % | 27.94 % |
-| English bigram | 65.6M tokens | 16.93 % | 31.33 % |
+| English bigram (shipped prior) | 65.6M tokens | 16.93 % | 31.33 % |
 
 The 0.10 program scales to **1B tokens per language** from licensed corpora
 (FineWeb-2 `ben_Beng`, FineWeb `sample-10BT`, Wikipedia) and trains a 768-d /
