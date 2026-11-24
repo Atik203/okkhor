@@ -12,10 +12,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use okkhor_ipc::ErrorCode;
 use okkhor_ipc::protocol::{
     AiCompleteParams, AiJobStarted, AiJobState, AiStatusInfo, Request, Response,
 };
-use okkhor_ipc::ErrorCode;
 
 const DEFAULT_PIPE: &str = r"\\.\pipe\okkhor-ai-worker-v1";
 const DEFAULT_MODEL: &str = "gpt-6-luna";
@@ -55,7 +55,8 @@ impl AiProxy {
     pub fn new(enabled: bool) -> Arc<Self> {
         let env_file = load_env_file();
         let key = setting(&env_file, "OKKHOR_OPENAI_API_KEY");
-        let model = setting(&env_file, "OKKHOR_AI_MODEL").unwrap_or_else(|| DEFAULT_MODEL.to_owned());
+        let model =
+            setting(&env_file, "OKKHOR_AI_MODEL").unwrap_or_else(|| DEFAULT_MODEL.to_owned());
         Arc::new(Self {
             enabled: AtomicBool::new(enabled),
             key,
@@ -76,10 +77,7 @@ impl AiProxy {
     }
 
     /// Queue one request and return its job id immediately.
-    pub fn complete(
-        self: &Arc<Self>,
-        params: AiCompleteParams,
-    ) -> Result<AiJobStarted, ErrorCode> {
+    pub fn complete(self: &Arc<Self>, params: AiCompleteParams) -> Result<AiJobStarted, ErrorCode> {
         if !self.enabled.load(Ordering::SeqCst) {
             return Err(ErrorCode::AiDisabled);
         }

@@ -26,9 +26,7 @@ use okkhor_ai::{
     AiError, AiPolicy, AiProvider, AiRequest, AiService, CancellationToken, DisabledProvider,
     OpenAiConfig, OpenAiProvider,
 };
-use okkhor_ipc::protocol::{
-    AiCompleteParams, AiJobState, AiStatusInfo, NoArgs, Request, Response,
-};
+use okkhor_ipc::protocol::{AiCompleteParams, AiJobState, AiStatusInfo, NoArgs, Request, Response};
 use okkhor_ipc::transport::{Handler, Server};
 use okkhor_ipc::{ErrorCode, Token};
 
@@ -78,10 +76,7 @@ impl WorkerHandler {
             prompt_version: PROMPT_VERSION.to_owned(),
         };
 
-        match self
-            .service
-            .complete(&request, &CancellationToken::new())
-        {
+        match self.service.complete(&request, &CancellationToken::new()) {
             Ok(response) => Response::AiJob(AiJobState::Done {
                 text: response.text,
                 model: response.model,

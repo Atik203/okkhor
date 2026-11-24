@@ -17,11 +17,11 @@
 //! and neither target can see the other's uses. Real dead code in *this* file
 //! still warns.
 #[allow(dead_code)]
-#[path = "../src/ipc.rs"]
-mod ipc;
-#[allow(dead_code)]
 #[path = "../src/ai_proxy.rs"]
 mod ai_proxy;
+#[allow(dead_code)]
+#[path = "../src/ipc.rs"]
+mod ipc;
 #[allow(dead_code)]
 #[path = "../src/paths.rs"]
 mod paths;
