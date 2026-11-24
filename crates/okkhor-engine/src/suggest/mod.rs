@@ -314,19 +314,24 @@ impl SuggestionEngine {
     fn stage_user_words(&self, words: &[UserWord], roman: &str, staged: &mut Vec<Candidate>) {
         for word in words {
             if word.roman == roman {
+                // An explicit user mapping always wins over curated and
+                // dictionary rows. This is the owner's `ammar -> আমার` case:
+                // the user added it, so it must be the first row.
                 push(
                     staged,
                     &word.bangla,
-                    1.25,
+                    1.98,
                     1.0,
                     CandidateSource::UserHistory,
                 );
             } else if word.roman.starts_with(roman) {
+                // Prefix matches from the user's own list still outrank the
+                // generic dictionary prefix stage.
                 push(
                     staged,
                     &word.bangla,
-                    0.90,
-                    0.70,
+                    1.10,
+                    0.80,
                     CandidateSource::UserHistory,
                 );
             }
@@ -577,7 +582,7 @@ impl index::IndexError {
 
 #[cfg(test)]
 mod tests {
-    use super::{SuggestRequest, SuggestionEngine};
+    use super::{SuggestRequest, SuggestionEngine, UserWord};
     use okkhor_learn::Smriti;
 
     fn engine() -> SuggestionEngine {
@@ -698,6 +703,29 @@ mod tests {
             rows.iter()
                 .any(|row| row.source == okkhor_core::CandidateSource::Dictionary),
             "a one-letter prefix must offer a dictionary-backed Bangla row: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn an_explicit_user_mapping_outranks_curated_and_dictionary_rows() {
+        let engine = engine();
+        let smriti = Smriti::new();
+        let words = [UserWord {
+            roman: "ammar".to_owned(),
+            bangla: "আমার".to_owned(),
+        }];
+        let rows = engine.suggest(
+            &SuggestRequest::new("ammar", 8).with_user_words(&words),
+            &smriti,
+        );
+        assert_eq!(
+            rows.first().map(|row| row.text.as_str()),
+            Some("আমার"),
+            "the user's own mapping must be row 1: {rows:?}"
+        );
+        assert_eq!(
+            rows.first().map(|row| row.source),
+            Some(okkhor_core::CandidateSource::UserHistory)
         );
     }
 

@@ -3,6 +3,15 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.3] - 2026-11-24
+
+### Fixed
+
+- **Explicit user mappings rank first.** A custom pair such as
+  `ammar -> আমার` now always outranks curated and dictionary rows. Previously
+  the curated base score (1.30) could beat the user base (1.25), so a user's own
+  word was not guaranteed to be row 1. Regression test added.
+
 ## [0.9.2] - 2026-11-24
 
 ### Fixed
