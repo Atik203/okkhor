@@ -120,10 +120,14 @@ pub const fn should_enqueue(capture_enabled: bool, flags: u32) -> bool {
 /// the roman text survived next to the Bangla.
 ///
 /// Coverage is numeric so the predicate stays platform-free for tests:
-/// Enter/numpad Enter `0x0D`, Space `0x20`, arrows `0x25..=0x28`, row digits
-/// `0x30..=0x39`, numpad digits `0x60..=0x69`.
+/// Tab `0x09` (it now commits the selected Bangla word), Enter/numpad Enter
+/// `0x0D`, Space `0x20`, arrows `0x25..=0x28`, row digits `0x30..=0x39`,
+/// numpad digits `0x60..=0x69`.
 pub const fn is_composition_key(vk: u16) -> bool {
-    matches!(vk, 0x0D | 0x20 | 0x25..=0x28 | 0x30..=0x39 | 0x60..=0x69)
+    matches!(
+        vk,
+        0x09 | 0x0D | 0x20 | 0x25..=0x28 | 0x30..=0x39 | 0x60..=0x69
+    )
 }
 
 /// Whether the low-level hook must swallow this key-down event.
@@ -317,6 +321,7 @@ mod tests {
     #[test]
     fn composition_keys_are_the_commit_and_arrow_set() {
         for vk in [
+            0x09, // Tab now commits the selected Bangla word
             0x0D, // Enter
             0x20, // Space
             0x25, 0x26, 0x27, 0x28, // arrows
@@ -326,7 +331,7 @@ mod tests {
             assert!(is_composition_key(vk), "vk {vk:#04X} must be a commit key");
         }
         // Letters and Backspace stay visible and stay in sync one-for-one.
-        for vk in [0x41, 0x5A, 0x08, 0x09, 0x1B] {
+        for vk in [0x41, 0x5A, 0x08, 0x1B] {
             assert!(!is_composition_key(vk), "vk {vk:#04X} must pass through");
         }
     }

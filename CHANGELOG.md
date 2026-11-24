@@ -3,6 +3,24 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.2] - 2026-11-24
+
+### Fixed
+
+- **Bangla Tab no longer leaves the first letter behind.** Tab is now part of
+  the swallowed composition set. Before, Notepad inserted a tab before the
+  commit erased the buffer, so one character survived.
+- **Stuck key repeats.** Swallowed key-downs now use one flag per virtual key
+  instead of a single "last key" slot, so holding or overlapping Down/Tab can
+  no longer leave a key looking pressed.
+- **Double Tab guard.** A swallowed Tab is re-emitted only when the hook
+  actually took it, so Notepad no longer receives both a Tab and a re-emit.
+
+### Added
+
+- **English live preview.** Up/Down now replace the typed word in the document
+  immediately, not just the highlight. Tab still accepts; Space finalizes.
+
 ## [0.9.1] - 2026-11-24
 
 ### Fixed

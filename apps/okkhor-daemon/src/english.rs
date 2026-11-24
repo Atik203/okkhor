@@ -26,6 +26,9 @@ pub struct EnglishSession {
     suggestions: Vec<String>,
     selected: usize,
     window: isize,
+    /// Characters currently previewed in the document by an arrow selection.
+    /// Zero means the document still holds the typed token.
+    preview_len: usize,
 }
 
 impl EnglishSession {
@@ -39,12 +42,14 @@ impl EnglishSession {
         self.suggestions.clear();
         self.selected = 0;
         self.window = 0;
+        self.preview_len = 0;
     }
 
     /// Hide the list but keep the token so typing can re-open it.
     pub fn dismiss(&mut self) {
         self.suggestions.clear();
         self.selected = 0;
+        self.preview_len = 0;
     }
 
     pub fn token(&self) -> &str {
@@ -82,6 +87,7 @@ impl EnglishSession {
         if self.token.is_empty() {
             self.window = window;
         }
+        self.preview_len = 0;
         self.token.push(letter as char);
         self.refresh(limit, suggest);
         true
@@ -89,6 +95,9 @@ impl EnglishSession {
 
     /// Remove the last character and refresh (or hide when empty).
     pub fn backspace(&mut self, limit: usize, suggest: impl Fn(&str, usize) -> Vec<String>) {
+        // Backspace after an arrow preview edits the previewed word, not the
+        // original token; clearing the marker keeps the erase count correct.
+        self.preview_len = 0;
         self.token.pop();
         if self.token.is_empty() {
             self.suggestions.clear();
@@ -107,6 +116,25 @@ impl EnglishSession {
         }
         let len = self.suggestions.len() as i32;
         self.selected = (self.selected as i32 + delta).rem_euclid(len) as usize;
+    }
+
+    /// Move the highlight and immediately replace the document text with the
+    /// new row, so Up/Down preview the word without Tab.
+    pub fn preview_selection(&mut self, delta: i32) -> Option<EnglishCommit> {
+        if self.suggestions.is_empty() || self.token.is_empty() {
+            return None;
+        }
+        let len = self.suggestions.len() as i32;
+        self.selected = (self.selected as i32 + delta).rem_euclid(len) as usize;
+        let text = self.suggestions[self.selected].clone();
+        let erase_chars = if self.preview_len == 0 {
+            self.token.chars().count()
+        } else {
+            self.preview_len
+        };
+        self.preview_len = text.chars().count();
+        self.token = text.clone();
+        Some(EnglishCommit { erase_chars, text })
     }
 
     /// Accept the highlighted row and return the erase+inject operation.
@@ -232,6 +260,23 @@ mod tests {
         session.backspace(8, fake(&["hello"]));
         assert!(!session.is_visible());
         assert!(session.token().is_empty());
+    }
+
+    #[test]
+    fn arrow_preview_replaces_the_typed_word_in_place() {
+        let mut session = EnglishSession::new();
+        for letter in *b"hel" {
+            session.push_letter(letter, 8, 1, fake(&["hello", "help", "held"]));
+        }
+        let first = session.preview_selection(1).expect("preview");
+        assert_eq!(first.erase_chars, 3);
+        assert_eq!(first.text, "help");
+        let second = session.preview_selection(1).expect("second preview");
+        assert_eq!(second.erase_chars, 4, "erase the previous preview");
+        assert_eq!(second.text, "held");
+        // Typing after a preview continues from the previewed word.
+        session.push_letter(b's', 8, 1, fake(&["helds"]));
+        assert_eq!(session.token(), "helds");
     }
 
     #[test]

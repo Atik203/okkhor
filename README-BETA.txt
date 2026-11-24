@@ -1,4 +1,4 @@
-Okkhor 0.9.1 beta - Windows 11 x64 portable
+Okkhor 0.9.2 beta - Windows 11 x64 portable
 ===========================================
 
 This is an UNSIGNED beta unless the release owner signed it with a trusted
@@ -13,7 +13,7 @@ statically: no separate Microsoft Visual C++ Redistributable is needed.
 Unzip the folder anywhere you can write, e.g. Desktop or Documents. Keep the
 folder layout:
 
-  Okkhor-0.9.1-win64/
+  Okkhor-0.9.2-win64/
     Okkhor.exe          THE APP - double-click this one
     bin/
       okkhor-engine.exe resident input engine (started by Okkhor.exe)
@@ -44,7 +44,7 @@ other machines.
 Before running it, verify the download. Compare the zip hash with
 SHA256SUMS.txt:
 
-  Get-FileHash .\Okkhor-0.9.1-win64-portable.zip -Algorithm SHA256
+  Get-FileHash .\Okkhor-0.9.2-win64-portable.zip -Algorithm SHA256
 
 The value must match SHA256SUMS.txt exactly, character for character. Only
 trust a zip that matches.
@@ -119,8 +119,16 @@ of 1.0; Okkhor sends that. `gpt-6.1-terra` is the quality option. The panel show
 whether a key is set; it never displays the key. Prompts and responses are
 memory-only and are never logged or inserted automatically.
 
-7. WHAT IS IN 0.9.1
+7. WHAT IS IN 0.9.2
 -------------------
+- Bangla Tab now commits the highlighted candidate AND is swallowed like
+  Space, so the first letter is no longer left behind in Notepad.
+- English Up/Down preview the highlighted word in the document immediately;
+  Tab still accepts and Space finalizes. The arrow keys no longer move the
+  caret at the same time.
+- Swallowed keys are tracked one flag per key, so overlapping Down/Tab cannot
+  leave a key stuck, and a Tab is re-emitted only when it was actually
+  swallowed.
 - English completion list: Up/Down arrows move the highlight and Tab accepts
   the highlighted word. The arrow keys no longer move the caret at the same
   time.
@@ -201,7 +209,7 @@ letters; use Unicode there.
 
 9. VERSION IDENTITY
 -------------------
-`.\bin\okkhor-engine.exe --version` must print `okkhor 0.9.1`, matching
+`.\bin\okkhor-engine.exe --version` must print `okkhor 0.9.2`, matching
 BUILD-INFO.json and the folder name. If it does not, stop and rebuild from the
 tag.
 

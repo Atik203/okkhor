@@ -4,7 +4,7 @@
 //! surface small and document every block.
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -63,7 +63,10 @@ static ENGLISH_POPUP: AtomicBool = AtomicBool::new(false);
 
 /// Virtual key of the last key-down the hook swallowed, so its key-up is
 /// swallowed too. Zero means none pending.
-static LAST_SWALLOWED_VK: AtomicU16 = AtomicU16::new(0);
+/// One flag per virtual key whose key-down this hook swallowed. A single
+/// "last VK" slot lost track when two keys (for example Down then Tab) were
+/// swallowed before either release, which could leave a key looking stuck.
+static SWALLOWED_DOWN: [AtomicBool; 256] = [const { AtomicBool::new(false) }; 256];
 
 /// Whether fixed-layout mode is active. The hook drops ASCII letter keydowns
 /// (and their matching keyups via `LAST_SWALLOWED_VK`) so the daemon can inject
@@ -89,6 +92,13 @@ pub fn set_composition_state(bangla_mode: bool, composing: bool, bangla_unicode:
 
 /// Publish whether the English completion popup is visible so the hook can
 /// swallow Tab only while an accept is possible.
+/// Whether the hook is currently swallowing Tab/arrow keys for the English
+/// completion list. The daemon uses it to decide whether a swallowed key must
+/// be re-emitted, avoiding a double Tab when the key had already passed through.
+pub fn english_popup_visible() -> bool {
+    ENGLISH_POPUP.load(Ordering::Relaxed)
+}
+
 pub fn set_english_popup(visible: bool) {
     ENGLISH_POPUP.store(visible, Ordering::Release);
 }
@@ -382,8 +392,8 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                             false,
                             virtual_key,
                         ));
-                    if decision {
-                        LAST_SWALLOWED_VK.store(virtual_key, Ordering::Relaxed);
+                    if decision && (virtual_key as usize) < SWALLOWED_DOWN.len() {
+                        SWALLOWED_DOWN[virtual_key as usize].store(true, Ordering::Relaxed);
                     }
                     decision
                 }
@@ -391,14 +401,9 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                 // unmatched key-up after we hid its key-down. Injected events
                 // are never swallowed (the commit's own re-emitted keys).
                 KeyPhase::Up => {
-                    if !crate::input::is_injected_event(data.flags.0)
-                        && LAST_SWALLOWED_VK.load(Ordering::Relaxed) == virtual_key
-                    {
-                        LAST_SWALLOWED_VK.store(0, Ordering::Relaxed);
-                        true
-                    } else {
-                        false
-                    }
+                    !crate::input::is_injected_event(data.flags.0)
+                        && (virtual_key as usize) < SWALLOWED_DOWN.len()
+                        && SWALLOWED_DOWN[virtual_key as usize].swap(false, Ordering::Relaxed)
                 }
             };
             if swallow {

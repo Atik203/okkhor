@@ -2091,7 +2091,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             for index in clicked {
                 if english.is_visible() {
                     if let Some(commit) = english.accept_index(index) {
-                        if !apply_english_commit(commit, logger, &injection_lock) {
+                        if !apply_english_commit(commit, logger, &injection_lock)
+                            && okkhor_win::english_popup_visible()
+                        {
                             let _ = send_tab();
                         }
                     }
@@ -2110,18 +2112,26 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                         // Never erase a token that was typed in another field.
                         if english.window() != foreground_window_id() {
                             english.reset();
-                            let _ = send_tab();
-                        } else if let Some(commit) = english.accept() {
-                            if !apply_english_commit(commit, logger, &injection_lock) {
+                            if okkhor_win::english_popup_visible() {
                                 let _ = send_tab();
                             }
-                        } else {
+                        } else if let Some(commit) = english.accept() {
+                            if !apply_english_commit(commit, logger, &injection_lock)
+                                && okkhor_win::english_popup_visible()
+                            {
+                                let _ = send_tab();
+                            }
+                        } else if okkhor_win::english_popup_visible() {
                             let _ = send_tab();
                         }
                     }
                     VK_UP | VK_DOWN if english.is_visible() => {
+                        // Preview the highlighted row in the document right
+                        // away; Tab still accepts, but is no longer required.
                         let delta = if event.virtual_key == VK_UP { -1 } else { 1 };
-                        english.move_selection(delta);
+                        if let Some(commit) = english.preview_selection(delta) {
+                            let _ = apply_english_commit(commit, logger, &injection_lock);
+                        }
                     }
                     VK_ESCAPE => english.dismiss(),
                     VK_BACK => english.backspace(limit, |prefix, limit| {
