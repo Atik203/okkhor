@@ -671,6 +671,15 @@ export default function QuickbarPage() {
         handlers={barDrag}
         onCollapse={() => void collapse.mutate()}
       />
+      {(notice || queryFailed) && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute inset-x-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-neutral-900/95 px-3 py-1 text-center text-[11px] font-medium text-white shadow-lg dark:bg-neutral-100/95 dark:text-neutral-900"
+        >
+          {notice ?? "Daemon offline — click ⟳ to retry"}
+        </div>
+      )}
       <span
         role="status"
         aria-label={available ? "Daemon connected" : "Daemon unavailable"}
@@ -750,10 +759,6 @@ export default function QuickbarPage() {
         {notice ? (
           <span className="pointer-events-none flex h-full items-center justify-center truncate px-1 text-center text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
             {notice}
-          </span>
-        ) : queryFailed ? (
-          <span className="pointer-events-none flex h-full items-center justify-center truncate px-1 text-center text-[11px] font-medium text-amber-600 dark:text-amber-400">
-            Daemon offline — click ⟳ to retry
           </span>
         ) : null}
       </div>

@@ -3,6 +3,16 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.6] - 2026-11-25
+
+### Fixed
+
+- **Quick-bar feedback is always visible.** The inline notice lived in the
+  shrinking middle of a full 460 px bar, so the **＋** action and the offline
+  message could land in a zero-width area and show nothing. They now render as a
+  centered overlay pill, and the snapshot query fails after two seconds instead
+  of hanging, naming the offline state.
+
 ## [0.9.5] - 2026-11-25
 
 ### Fixed

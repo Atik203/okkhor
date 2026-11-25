@@ -281,3 +281,21 @@ fn stress_mixed_events_keep_the_document_consistent() {
         assert!(sim.doc.len() < 20_000, "document growth is bounded");
     }
 }
+
+#[test]
+fn typing_inside_the_word_uses_the_cursor() {
+    let mut sim = Sim::new();
+    sim.word("amar");
+    assert_eq!(sim.doc, "আমার");
+    assert!(sim.session.move_cursor(-2), "cursor moves inside the word");
+    sim.render();
+    sim.letter('x');
+    assert_eq!(sim.session.buffer(), "amxar");
+    assert_eq!(
+        sim.doc, "!amxar!",
+        "the letter lands mid-word, not at the end"
+    );
+    sim.backspace();
+    assert_eq!(sim.session.buffer(), "amar");
+    assert_eq!(sim.doc, "আমার");
+}

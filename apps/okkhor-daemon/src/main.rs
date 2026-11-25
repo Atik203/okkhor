@@ -1701,7 +1701,17 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-            VK_LEFT | VK_UP => {
+            // Inline preedit: Left/Right move the insertion point inside the
+            // roman buffer so a letter can be corrected mid-word; Up/Down keep
+            // cycling candidates. Without inline preedit the arrows keep their
+            // 0.9 meaning (next/previous candidate).
+            VK_LEFT | VK_RIGHT if ctx.session.is_composing() && inline_enabled => {
+                let delta = if vk == VK_LEFT { -1 } else { 1 };
+                if ctx.session.move_cursor(delta) {
+                    refresh_inline_preedit(ctx);
+                }
+            }
+            VK_UP => {
                 if ctx.session.is_composing() {
                     ctx.session.move_selection(-1);
                     refresh_popup(ctx);
@@ -1710,13 +1720,20 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-            VK_RIGHT | VK_DOWN => {
+            VK_DOWN => {
                 if ctx.session.is_composing() {
                     ctx.session.move_selection(1);
                     refresh_popup(ctx);
                     if inline_enabled {
                         refresh_inline_preedit(ctx);
                     }
+                }
+            }
+            VK_LEFT | VK_RIGHT => {
+                if ctx.session.is_composing() {
+                    let delta = if vk == VK_LEFT { -1 } else { 1 };
+                    ctx.session.move_selection(delta);
+                    refresh_popup(ctx);
                 }
             }
             VK_TAB if ctx.session.is_composing() => {

@@ -140,6 +140,10 @@ pub trait SuggestionProvider {
 pub struct InputSession<P = DefaultEngine> {
     provider: P,
     buffer: String,
+    /// Insertion point in `buffer`, in characters. Editing mid-word inserts
+    /// here instead of at the end, which is what makes caret editing possible
+    /// without a second document buffer.
+    cursor: usize,
     candidates: Vec<String>,
     selected: usize,
     max_candidates: usize,
@@ -163,6 +167,7 @@ pub struct InputSession<P = DefaultEngine> {
 #[derive(Debug, Clone)]
 struct Snapshot {
     buffer: String,
+    cursor: usize,
     candidates: Vec<String>,
     selected: usize,
     rank_ms: u64,
@@ -175,6 +180,7 @@ impl<P: SuggestionProvider> InputSession<P> {
         Self {
             provider,
             buffer: String::with_capacity(MAX_BUFFER_LEN),
+            cursor: 0,
             candidates: Vec::with_capacity(MAX_CANDIDATES),
             selected: 0,
             max_candidates: MAX_CANDIDATES,
@@ -271,6 +277,7 @@ impl<P: SuggestionProvider> InputSession<P> {
         }
         self.history.push(Snapshot {
             buffer: self.buffer.clone(),
+            cursor: self.cursor,
             candidates: self.candidates.clone(),
             selected: self.selected,
             rank_ms: self.rank_ms,
@@ -284,7 +291,17 @@ impl<P: SuggestionProvider> InputSession<P> {
             self.cache.clear();
             self.selection_pinned = false;
         }
-        self.buffer.push(lower as char);
+        if self.cursor > self.buffer.chars().count() {
+            self.cursor = self.buffer.chars().count();
+        }
+        let byte_at = self
+            .buffer
+            .char_indices()
+            .nth(self.cursor)
+            .map(|(index, _)| index)
+            .unwrap_or(self.buffer.len());
+        self.buffer.insert(byte_at, lower as char);
+        self.cursor += 1;
         self.refresh();
         true
     }
@@ -295,8 +312,25 @@ impl<P: SuggestionProvider> InputSession<P> {
     /// instead of jumping to a different word; the engine is not re-run, so a
     /// shorter buffer with no candidates cannot wipe the word.
     pub fn backspace(&mut self) -> BackspaceOutcome {
+        // Mid-word: delete the character before the cursor and re-render.
+        if self.cursor < self.buffer.chars().count() {
+            if self.cursor > 0 {
+                let byte_at = self
+                    .buffer
+                    .char_indices()
+                    .nth(self.cursor - 1)
+                    .map(|(index, _)| index)
+                    .unwrap_or(0);
+                self.buffer.remove(byte_at);
+                self.cursor -= 1;
+                self.refresh();
+                return BackspaceOutcome::StillComposing;
+            }
+            return BackspaceOutcome::Empty;
+        }
         if let Some(snapshot) = self.history.pop() {
             self.buffer = snapshot.buffer;
+            self.cursor = snapshot.cursor;
             self.candidates = snapshot.candidates;
             self.selected = snapshot.selected;
             self.rank_ms = snapshot.rank_ms;
@@ -320,6 +354,28 @@ impl<P: SuggestionProvider> InputSession<P> {
         } else {
             BackspaceOutcome::StillComposing
         }
+    }
+
+    /// Move the insertion point inside the roman buffer.
+    ///
+    /// Returns whether the cursor moved. This is what enables mid-word editing:
+    /// the next letter is inserted at the cursor instead of at the end.
+    pub fn move_cursor(&mut self, delta: i32) -> bool {
+        if self.buffer.is_empty() {
+            return false;
+        }
+        let length = self.buffer.chars().count() as i32;
+        let next = (self.cursor as i32 + delta).clamp(0, length) as usize;
+        if next == self.cursor {
+            return false;
+        }
+        self.cursor = next;
+        true
+    }
+
+    /// Current insertion point, in characters.
+    pub fn cursor(&self) -> usize {
+        self.cursor
     }
 
     /// Move the selection by `delta` steps, wrapping around the list.
@@ -400,6 +456,7 @@ impl<P: SuggestionProvider> InputSession<P> {
 
     fn clear(&mut self) {
         self.buffer.clear();
+        self.cursor = 0;
         self.candidates.clear();
         self.selected = 0;
         self.rank_ms = 0;
