@@ -1,0 +1,12 @@
+[package]
+name = "okkhor-simd"
+description = "Reviewed SIMD dot-product kernels for the next-word runtime. Safe API; every unsafe block is documented."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

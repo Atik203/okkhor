@@ -11,6 +11,7 @@ pub struct ModelReport {
     pub load_ms: f64,
     pub samples: Vec<f64>,
     pub top: Vec<(u32, f32)>,
+    pub logits_ms: Vec<f64>,
 }
 
 impl ModelReport {
@@ -36,12 +37,16 @@ pub fn run(path: &str, iterations: usize) -> Result<ModelReport, String> {
 
     let mut state: u64 = 0x4F4B_4B48;
     let mut samples = Vec::with_capacity(iterations);
+    let mut logits_ms = Vec::with_capacity(iterations);
     let mut top = Vec::new();
     for _ in 0..iterations {
         state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
         let ids: Vec<u32> = (0..context)
             .map(|index| ((state >> (index * 3)) as u32 % 1000) % model.vocab_len() as u32)
             .collect();
+        let started = Instant::now();
+        let _ = model.logits(&ids);
+        logits_ms.push(started.elapsed().as_secs_f64() * 1000.0);
         let started = Instant::now();
         let ranked = model.predict(&ids, 5);
         samples.push(started.elapsed().as_secs_f64() * 1000.0);
@@ -54,5 +59,6 @@ pub fn run(path: &str, iterations: usize) -> Result<ModelReport, String> {
         load_ms,
         samples,
         top,
+        logits_ms,
     })
 }

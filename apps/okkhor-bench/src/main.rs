@@ -204,6 +204,16 @@ fn print_model(report: &model::ModelReport) {
         report.percentile(100.0),
         report.samples.len()
     );
+    if !report.logits_ms.is_empty() {
+        let mut sorted = report.logits_ms.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        println!(
+            "logits only: p50 {:.2} ms, min {:.2} ms, max {:.2} ms",
+            sorted[sorted.len() / 2],
+            sorted[0],
+            sorted[sorted.len() - 1]
+        );
+    }
     if let Some((id, probability)) = report.top.first() {
         println!("sample top: id {} p {:.4}", id, probability);
     }

@@ -13,6 +13,7 @@ members = [
     "crates/okkhor-learn",
     "crates/okkhor-lang",
     "crates/okkhor-model",
+    "crates/okkhor-simd",
     "crates/okkhor-storage",
     "crates/okkhor-win",
     "crates/okkhor-transliterate",
@@ -34,6 +35,7 @@ okkhor-ipc = { path = "crates/okkhor-ipc" }
 okkhor-lang = { path = "crates/okkhor-lang" }
 okkhor-learn = { path = "crates/okkhor-learn" }
 okkhor-model = { path = "crates/okkhor-model" }
+okkhor-simd = { path = "crates/okkhor-simd" }
 okkhor-storage = { path = "crates/okkhor-storage" }
 okkhor-transliterate = { path = "crates/okkhor-transliterate" }
 okkhor-win = { path = "crates/okkhor-win" }

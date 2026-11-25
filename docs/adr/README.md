@@ -26,6 +26,7 @@
 | [0022](0022-inline-bangla-preedit.md) | Inline Bangla preedit | Accepted |
 | [0023](0023-suggestion-index-v2.md) | Suggestion index v2 and the full WTR1 import | Accepted |
 | [0024](0024-next-word-prior.md) | Embedded global next-word prior (`OKNW`) | Accepted |
+| [0025](0025-simd-boundary.md) | SIMD boundary for the next-word runtime | Accepted |
 
 An ADR is required for a new crate, process, protocol, storage engine, provider,
 or a change to a hard performance/privacy rule.
