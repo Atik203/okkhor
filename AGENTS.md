@@ -292,6 +292,11 @@ These are hard rules. Each one cost GPU time in this project.
 8. **Keep the GPU busy deliberately.** If the queue is empty, either queue the
    next stage or stop the GPU work and say so. Do not leave a slice idle
    overnight by accident.
+9. **Pause and resume are file-based.** Create `<out-prefix>.pause` and the
+   trainer checkpoints, then waits until the file is removed; `SIGTERM` saves
+   and exits 75; the queue treats 75 as "paused", not as a failed attempt.
+   Example: `touch artifacts/nextword-1b-bn.pause`. Never kill -9 a training
+   run: that is the only action that loses progress.
 
 ## Definition of done
 
