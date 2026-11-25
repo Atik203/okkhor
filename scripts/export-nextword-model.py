@@ -1,19 +1,8 @@
 """Export a trained next-word model to the `OKNM` v1 container.
 
-The app is Rust and must never load PyTorch. This container is versioned,
-self-describing, and checksummed:
-
-    magic "OKNM" | u16 version | u32 header_len | header JSON | pad to 64
-    vocabulary blob (UTF-8 words, newline separated, id order)
-    tensor blocks, each aligned to 64 bytes
-
-Header fields: schema, language, context, vocab, embed, d_model, layers, heads,
-ff, dtype, tensors[{name, shape, offset, bytes, dtype, scale_offset?}],
-vocab_offset, vocab_bytes.
-
-`--quantize-output int8` stores the 200k-way output weight as int8 with one
-scale per row; the encoder stays f32. `golden.json` captures the PyTorch logits
-for a fixed input so the Rust runtime can be tested against exact numbers.
+The app is Rust and must never load PyTorch. See `nextword_container.py` for the
+byte layout and `docs/superpowers/plans/2026-11-25-nextword-integration.md` for
+the contract.
 
 Usage:
     python scripts/export-nextword-model.py \
@@ -23,18 +12,15 @@ Usage:
 """
 
 import argparse
-import hashlib
 import json
-import struct
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-MAGIC = b"OKNM"
-VERSION = 1
-ALIGN = 64
+from nextword_container import quantize_rows, write_container
+
 LAYER_TENSORS = [
     "self_attn.in_proj_weight",
     "self_attn.in_proj_bias",
@@ -73,18 +59,6 @@ class Model(nn.Module):
         return self.out(self.encoder(self.proj(self.emb(x)))[:, -1])
 
 
-def align(position: int) -> int:
-    return (position + ALIGN - 1) // ALIGN * ALIGN
-
-
-def quantize_rows(tensor: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
-    values = tensor.detach().float().numpy()
-    scale = np.abs(values).max(axis=1) / 127.0
-    scale[scale == 0] = 1.0
-    quantized = np.clip(np.rint(values / scale[:, None]), -127, 127).astype(np.int8)
-    return quantized, scale.astype(np.float32)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
@@ -109,9 +83,7 @@ def main() -> None:
     vocab = int(state["out.weight"].shape[0])
     embed = int(state["emb.weight"].shape[1])
     d_model = int(state["proj.weight"].shape[0])
-    layers = 1 + max(
-        int(name.split(".")[2]) for name in state if name.startswith("encoder.layers.")
-    )
+    layers = 1 + max(int(n.split(".")[2]) for n in state if n.startswith("encoder.layers."))
     ff = int(state["encoder.layers.0.linear1.weight"].shape[0])
     context = int(metrics.get("context", 8))
     print(
@@ -120,88 +92,47 @@ def main() -> None:
         flush=True,
     )
 
-    blobs: list[tuple[str, np.ndarray, str, np.ndarray | None]] = []
+    def f32(name: str) -> tuple[str, bytes, str, list[int]]:
+        array = state[name].detach().float().numpy()
+        return name, array.tobytes(order="C"), "f32", list(array.shape)
+
+    tensors: list[tuple[str, bytes, str, list[int]]] = [
+        f32("emb.weight"),
+        f32("proj.weight"),
+        f32("proj.bias"),
+    ]
     for layer in range(layers):
         for suffix in LAYER_TENSORS:
             key = f"encoder.layers.{layer}.{suffix}"
-            blobs.append(
-                (key.removeprefix("encoder.layers."), state[key].detach().float().numpy(), "f32", None)
-            )
+            name = f"layers.{layer}.{suffix}"
+            array = state[key].detach().float().numpy()
+            tensors.append((name, array.tobytes(order="C"), "f32", list(array.shape)))
 
-    ordered: list[tuple[str, np.ndarray, str, np.ndarray | None]] = [
-        ("emb.weight", state["emb.weight"].detach().float().numpy(), "f32", None),
-        ("proj.weight", state["proj.weight"].detach().float().numpy(), "f32", None),
-        ("proj.bias", state["proj.bias"].detach().float().numpy(), "f32", None),
-    ]
-    ordered += blobs
     if args.quantize_output == "int8":
-        packed, scale = quantize_rows(state["out.weight"])
-        ordered.append(("out.weight", packed, "i8", None))
-        ordered.append(("out.weight.scale", scale, "f32", None))
+        packed, scale, shape = quantize_rows(state["out.weight"].detach().float().numpy())
+        tensors.append(("out.weight", packed, "i8", shape))
+        tensors.append(("out.weight.scale", scale, "f32", [vocab]))
     else:
-        ordered.append(("out.weight", state["out.weight"].detach().float().numpy(), "f32", None))
-    ordered.append(("out.bias", state["out.bias"].detach().float().numpy(), "f32", None))
-
-    vocab_blob = "\n".join(words).encode("utf-8")
-    header: dict = {
-        "schema": 1,
-        "format": MAGIC.decode(),
-        "version": VERSION,
-        "language": args.language,
-        "context": context,
-        "vocab": vocab,
-        "embed": embed,
-        "d_model": d_model,
-        "layers": layers,
-        "heads": args.heads,
-        "ff": ff,
-        "dtype": "f32",
-        "vocab_offset": 0,
-        "vocab_bytes": len(vocab_blob),
-        "tensors": [],
-    }
-
-    payload = bytearray()
-    payload += vocab_blob
-    for name, array, dtype, _scale in ordered:
-        padding = align(len(payload)) - len(payload)
-        payload += b"\0" * padding
-        offset = len(payload)
-        raw = array.tobytes(order="C")
-        payload += raw
-        header["tensors"].append(
-            {
-                "name": name,
-                "shape": list(array.shape),
-                "dtype": dtype,
-                "offset": offset,
-                "bytes": len(raw),
-            }
-        )
-
-    header_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
-    prefix = struct.pack("<4sHI", MAGIC, VERSION, len(header_bytes)) + header_bytes
-    prefix += b"\0" * (align(len(prefix)) - len(prefix))
-    blob = prefix + bytes(payload)
+        tensors.append(f32("out.weight"))
+    tensors.append(f32("out.bias"))
 
     out = Path(args.out).expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(blob)
-    digest = hashlib.sha256(blob).hexdigest().upper()
-    manifest = {
-        "name": out.stem,
-        "version": 1,
-        "format": "OKNM1",
-        "language": args.language,
-        "bytes": len(blob),
-        "sha256": digest,
-        "source": Path(args.input).name,
-        "quantize_output": args.quantize_output,
-    }
-    out.with_suffix(".manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(f"wrote {out} {len(blob):,} bytes sha256 {digest}", flush=True)
+    manifest = write_container(
+        out,
+        language=args.language,
+        words=words,
+        tensors=tensors,
+        context=context,
+        embed=embed,
+        d_model=d_model,
+        layers=layers,
+        heads=args.heads,
+        ff=ff,
+        source=Path(args.input).name,
+    )
+    print(f"wrote {out} {manifest['bytes']:,} bytes sha256 {manifest['sha256']}", flush=True)
 
-    # Golden vectors: exact inputs and PyTorch logits for the Rust runtime test.
     model = Model(vocab, embed, d_model, layers, args.heads, ff)
     model.load_state_dict(state)
     model.eval()
@@ -215,26 +146,27 @@ def main() -> None:
         "inputs": inputs.tolist(),
         "top_ids": top.indices.tolist(),
         "top_logits": [[round(float(v), 6) for v in row] for row in top.values.tolist()],
-        "argmax_logits": [round(float(v), 6) for v in logits.max(dim=1).values.tolist()],
+        "max_logits": [round(float(v), 6) for v in logits.max(dim=1).values.tolist()],
     }
     out.with_suffix(".golden.json").write_text(json.dumps(golden, indent=2) + "\n", encoding="utf-8")
-    print(f"wrote golden vectors ({len(inputs)} rows)", flush=True)
+    print("wrote golden vectors", flush=True)
 
-    # Round-trip check of every tensor.
-    reader = json.loads(blob[10 : 10 + len(header_bytes)])
-    for entry, (name, array, dtype, _scale) in zip(reader["tensors"], ordered):
-        start = len(prefix) + entry["offset"]
-        stored = np.frombuffer(
-            blob,
-            dtype=np.int8 if dtype == "i8" else np.float32,
-            count=entry["bytes"] // (1 if dtype == "i8" else 4),
-            offset=start,
-        ).reshape(entry["shape"])
-        assert stored.shape == array.shape, (name, stored.shape, array.shape)
+    # Round-trip: every tensor reads back byte-identically (f32) or within 1 LSB.
+    blob = out.read_bytes()
+    header_len = int.from_bytes(blob[6:10], "little")
+    header = json.loads(blob[10 : 10 + header_len])
+    prefix_len = 10 + header_len
+    prefix_len += (-prefix_len) % 64
+    by_name = {entry["name"]: entry for entry in header["tensors"]}
+    for name, raw, dtype, shape in tensors:
+        entry = by_name[name]
+        start = prefix_len + entry["offset"]
+        width = 1 if dtype == "i8" else 4
+        stored = np.frombuffer(blob, dtype=np.int8 if dtype == "i8" else np.float32,
+                               count=entry["bytes"] // width, offset=start)
+        assert stored.size == int(np.prod(shape)), (name, stored.size, shape)
         if dtype == "f32":
-            assert np.array_equal(stored, array), name
-        else:
-            assert np.abs(stored.astype(np.int32) - array.astype(np.int32)).max() <= 1, name
+            assert np.array_equal(stored, np.frombuffer(raw, dtype=np.float32)), name
     print("round-trip verified", flush=True)
 
 

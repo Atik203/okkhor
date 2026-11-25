@@ -13,8 +13,12 @@ use std::sync::OnceLock;
 use okkhor_core::Language;
 use okkhor_learn::Smriti;
 
-const BANGLA: &[u8] = include_bytes!("../assets/nextword/bangla-bigram-v1.bin");
-const ENGLISH: &[u8] = include_bytes!("../assets/nextword/english-bigram-v1.bin");
+pub mod model;
+
+pub use model::{ModelError, NextWordModel};
+
+const BANGLA: &[u8] = include_bytes!("../../assets/nextword/bangla-bigram-v1.bin");
+const ENGLISH: &[u8] = include_bytes!("../../assets/nextword/english-bigram-v1.bin");
 const MAGIC: &[u8; 4] = b"OKNW";
 const VERSION: u16 = 1;
 const HEADER_LEN: usize = 32;

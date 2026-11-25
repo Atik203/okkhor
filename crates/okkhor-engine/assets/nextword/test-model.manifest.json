@@ -1,0 +1,9 @@
+{
+  "name": "test-model",
+  "version": 1,
+  "format": "OKNM1",
+  "language": "bn",
+  "bytes": 24128,
+  "sha256": "47D21385AB7BC4A18A9F61E980D642D57FB623CFCF24DF26C9DD151861E3B387",
+  "source": "fixture"
+}
