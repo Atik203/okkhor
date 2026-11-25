@@ -25,3 +25,4 @@ apps/okkhor-ui/src-tauri/gen/
 # Python dev tooling
 scripts/__pycache__/
 *.pyc
+target-rel2/

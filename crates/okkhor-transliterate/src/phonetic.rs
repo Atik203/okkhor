@@ -635,7 +635,6 @@ impl TransliteratorEngine for PhoneticTransliterator {
     }
 }
 
-
 /// True for the roman vowels Avro treats as syllable carriers.
 fn is_vowel(input: Option<char>) -> bool {
     matches!(
@@ -654,7 +653,10 @@ mod reph_tests {
         let options = TransliterationOptions::default();
         for (input, expected) in [
             ("korte", "\u{0995}\u{09b0}\u{09a4}\u{09c7}"),
-            ("kortechi", "\u{0995}\u{09b0}\u{09a4}\u{09c7}\u{099b}\u{09bf}"),
+            (
+                "kortechi",
+                "\u{0995}\u{09b0}\u{09a4}\u{09c7}\u{099b}\u{09bf}",
+            ),
             ("korchi", "\u{0995}\u{09b0}\u{099b}\u{09bf}"),
             ("kormo", "\u{0995}\u{09b0}\u{09ae}"),
         ] {

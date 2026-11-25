@@ -409,6 +409,22 @@ async fn ipc_list_words(
 }
 
 #[tauri::command]
+async fn ipc_add_last_word() -> Result<okkhor_ipc::words::Word, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .words_add_last()
+            .await
+            .map_err(|e| map_client_error(&e))
+    }
+    #[cfg(not(windows))]
+    {
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+#[tauri::command]
 async fn ipc_add_word(
     roman: String,
     output: String,
@@ -1081,6 +1097,7 @@ fn main() {
             ipc_set_paused,
             ipc_list_words,
             ipc_add_word,
+            ipc_add_last_word,
             ipc_remove_word,
             ipc_import_words,
             ipc_export_words,

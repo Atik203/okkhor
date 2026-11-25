@@ -13,6 +13,7 @@ import {
   Minimize2,
   Pause,
   Play,
+  Plus,
   Power,
   RotateCw,
   Settings,
@@ -524,6 +525,12 @@ export default function QuickbarPage() {
     },
     onError: fail,
   });
+  const addLastWord = useMutation({
+    mutationFn: () => api.addLastWord(),
+    onSuccess: (word) => showNotice(`Added “${word.output}” to your words.`),
+    onError: () =>
+      showNotice("Type a word first, then add it from the bar."),
+  });
   const collapse = useMutation({
     mutationFn: () => api.quickbarCollapse(),
     onSuccess: applySnapshot,
@@ -703,6 +710,13 @@ export default function QuickbarPage() {
         ) : (
           <Pause aria-hidden="true" />
         )}
+      </IconButton>
+      <IconButton
+        title="Add the last typed word to my dictionary"
+        disabled={needsDaemon || addLastWord.isPending}
+        onClick={() => void addLastWord.mutate()}
+      >
+        <Plus aria-hidden="true" />
       </IconButton>
       {queryFailed && (
         <IconButton

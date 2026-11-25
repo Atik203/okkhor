@@ -1074,6 +1074,10 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         }
         emit_suggestion_accepted(ctx, &unicode_text, previous_word.clone());
         emit_correction(ctx, &unicode_text);
+        // Remember the pair for the quick bar's "add word" action.
+        if let Some(state) = ctx.state {
+            state.remember_commit(&roman, &unicode_text);
+        }
         *ctx.last_commit = Some((unicode_text.clone(), now_ms()));
         ctx.shown_words.clear();
         let event = LearningEvent::TransliterationCommitted {

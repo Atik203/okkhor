@@ -460,6 +460,17 @@ impl Client {
         })
     }
 
+    /// Add the last committed (roman, output) pair as a custom mapping.
+    pub async fn words_add_last(&mut self) -> Result<crate::words::Word, ClientError> {
+        let response = self
+            .call(&Request::WordsAddLast(crate::protocol::NoArgs {}))
+            .await?;
+        Self::lift(response, |response| match response {
+            Response::Word(word) => Some(word),
+            _ => None,
+        })
+    }
+
     pub async fn words_remove(&mut self, id: u64) -> Result<bool, ClientError> {
         let response = self
             .call(&Request::WordsRemove(crate::protocol::WordRemove { id }))

@@ -32,7 +32,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use okkhor_ipc::error::ErrorCode;
-use okkhor_ipc::protocol::{LayoutInfo, Request, Response, Status, TextInserted, WordRemoveResult};
+use okkhor_ipc::protocol::{
+    LayoutInfo, Request, Response, Status, TextInserted, WordAdd, WordRemoveResult,
+};
 
 use crate::ai_proxy;
 use okkhor_ipc::settings::{InputMode, OutputEncoding, Settings, SettingsPatch};
@@ -235,6 +237,8 @@ pub struct DaemonState<P> {
     apply_seq: AtomicU64,
     last_apply: Mutex<LiveApply>,
     store_failures: AtomicU64,
+    /// (roman, output) of the last inline commit, for `words.add_last`.
+    last_commit: Mutex<Option<(String, String)>>,
     ai: Arc<ai_proxy::AiProxy>,
 }
 
@@ -351,8 +355,25 @@ impl<P: Protector> DaemonState<P> {
             apply_seq: AtomicU64::new(0),
             last_apply: Mutex::new(LiveApply::Applied),
             store_failures: AtomicU64::new(0),
+            last_commit: Mutex::new(None),
             ai,
         }
+    }
+
+    /// Remember the (roman, output) pair of the last inline commit so the quick
+    /// bar can add it as a custom mapping with `words.add_last`.
+    pub fn remember_commit(&self, roman: &str, output: &str) {
+        if let Ok(mut guard) = self.last_commit.lock() {
+            *guard = Some((roman.to_owned(), output.to_owned()));
+        }
+    }
+
+    /// Take the remembered pair; a second call without a new commit is empty.
+    pub fn take_last_commit(&self) -> Option<(String, String)> {
+        self.last_commit
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take())
     }
 
     fn lock_settings(&self) -> MutexGuard<'_, SettingsStore> {
@@ -653,6 +674,26 @@ impl<P: Protector> DaemonState<P> {
                     self.note_store_error(&error);
                     Response::error(error.code())
                 }
+            },
+            Request::WordsAddLast(_) => match self.take_last_commit() {
+                Some((roman, output)) => {
+                    let add = WordAdd {
+                        roman,
+                        output,
+                        language: okkhor_ipc::words::WordLanguage::Bn,
+                    };
+                    match self.lock_words().add(&add) {
+                        Ok(word) => {
+                            self.words_revision.fetch_add(1, Ordering::Relaxed);
+                            Response::Word(word)
+                        }
+                        Err(error) => {
+                            self.note_store_error(&error);
+                            Response::error(error.code())
+                        }
+                    }
+                }
+                None => Response::error(ErrorCode::InvalidRequest),
             },
             Request::WordsRemove(remove) => match self.lock_words().remove(remove.id) {
                 Ok(removed) => {
@@ -1060,6 +1101,28 @@ mod tests {
         assert_eq!(
             plan.deferred,
             vec!["font_unicode", "toggle_hotkey", "pause_hotkey"]
+        );
+    }
+
+    #[test]
+    fn add_last_needs_a_commit_and_adds_the_pair() {
+        let dir = temp_dir("add-last");
+        let (state, _sink, _injection) = open_state(&dir, "s");
+        assert!(matches!(
+            state.handle_request(Request::WordsAddLast(NoArgs {})),
+            Response::Error(_)
+        ));
+        state.remember_commit("kortechi", "করতেছি");
+        assert!(matches!(
+            state.handle_request(Request::WordsAddLast(NoArgs {})),
+            Response::Word(_)
+        ));
+        assert!(
+            matches!(
+                state.handle_request(Request::WordsAddLast(NoArgs {})),
+                Response::Error(_)
+            ),
+            "the pair is consumed once"
         );
     }
 

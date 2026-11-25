@@ -329,6 +329,8 @@ pub enum Request {
     WordsList(WordsListQuery),
     #[serde(rename = "words.add")]
     WordsAdd(WordAdd),
+    #[serde(rename = "words.add_last")]
+    WordsAddLast(NoArgs),
     #[serde(rename = "words.remove")]
     WordsRemove(WordRemove),
     #[serde(rename = "words.import")]
