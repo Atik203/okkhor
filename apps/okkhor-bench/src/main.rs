@@ -6,6 +6,7 @@
 mod candidates;
 mod corpus;
 mod injection;
+mod model;
 mod nextword;
 mod output;
 mod ranking;
@@ -126,6 +127,14 @@ fn run() -> Result<(), BenchError> {
         }
     }
 
+    if let Some(path) = &options.nextword_model {
+        let iterations = options
+            .iterations
+            .unwrap_or(if options.smoke { 3 } else { 20 });
+        let report = model::run(path, iterations).map_err(BenchError::Failed)?;
+        print_model(&report);
+    }
+
     if options.nextword {
         let iterations = options
             .iterations
@@ -180,6 +189,24 @@ fn validate_suggestions_smoke(report: &suggestions::SuggestionReport) -> Result<
         ));
     }
     Ok(())
+}
+
+fn print_model(report: &model::ModelReport) {
+    println!(
+        "model: vocab {} context {} load {:.1} ms",
+        report.vocab, report.context, report.load_ms
+    );
+    println!(
+        "predict: p50 {:.2} ms, p95 {:.2} ms, p99 {:.2} ms, max {:.2} ms (n={})",
+        report.percentile(50.0),
+        report.percentile(95.0),
+        report.percentile(99.0),
+        report.percentile(100.0),
+        report.samples.len()
+    );
+    if let Some((id, probability)) = report.top.first() {
+        println!("sample top: id {} p {:.4}", id, probability);
+    }
 }
 
 fn print_nextword(report: &nextword::NextWordReport) {
@@ -450,6 +477,7 @@ struct Options {
     suggestions: bool,
     injection: bool,
     nextword: bool,
+    nextword_model: Option<String>,
     smoke: bool,
     sendinput: bool,
     json: bool,
@@ -469,6 +497,7 @@ impl Default for Options {
             suggestions: false,
             injection: false,
             nextword: false,
+            nextword_model: None,
             smoke: false,
             sendinput: false,
             json: false,
@@ -493,6 +522,9 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
             "--suggestions" => options.suggestions = true,
             "--injection" => options.injection = true,
             "--nextword" => options.nextword = true,
+            "--nextword-model" => {
+                options.nextword_model = Some(take_value(&mut arguments, "--nextword-model")?);
+            }
             "--smoke" => options.smoke = true,
             "--sendinput" => options.sendinput = true,
             "--json" => options.json = true,
@@ -545,6 +577,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
         && !options.suggestions
         && !options.injection
         && !options.nextword
+        && options.nextword_model.is_none()
     {
         if options.smoke {
             options.ranking = true;
@@ -610,7 +643,8 @@ fn print_help() {
          \x20   okkhor-bench --candidates [--iterations N] [--warmup N] [--json|--csv] [--smoke]\n\
          \x20   okkhor-bench --suggestions [--iterations N] [--warmup N] [--smoke]\n\
          \x20   okkhor-bench --injection [--iterations N] [--sendinput] [--json|--csv]\n\
-         \x20   okkhor-bench --nextword [--iterations N] [--warmup N] [--smoke]\n\n\
+         \x20   okkhor-bench --nextword [--iterations N] [--warmup N] [--smoke]\n\
+         \x20   okkhor-bench --nextword-model <path.oknm> [--iterations N]\n\n\
          MODES:\n\
          \x20   --ranking      Run N Smriti::rank calls over synthetic English/Bangla cases.\n\
          \x20   --candidates   Run N CandidateEngine::suggest calls over the committed\n\
@@ -620,6 +654,7 @@ fn print_help() {
          \x20   --injection    Inject synthetic text into a private Win32 EDIT window and read it back.\n\
          \x20   --nextword     Parse the embedded next-word priors and time the real ghost merge\n\
          \x20                  (Smriti + prior) over sampled words; gates p99 at 2 ms.\n\
+         \x20   --nextword-model  Load an exported OKNM model and time predict(); report p50/p99.\n\
          \x20   --smoke        Short CI-friendly run; validates the percentile report\n\
          \x20                  (ranking default; one-case subset with `--candidates`).\n\n\
          OPTIONS:\n\
