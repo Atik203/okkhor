@@ -1003,7 +1003,11 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 .candidates()
                 .get(ctx.session.selected())
                 .cloned()
-                .unwrap_or_default()
+                // A shortened buffer can have no candidates (the engine knows
+                // no rule for that prefix). Erasing the rendered word then would
+                // delete the whole word on one Backspace; keep what is on screen
+                // until the buffer itself is empty.
+                .unwrap_or_else(|| ctx.preedit_rendered.clone())
         } else {
             String::new()
         };
