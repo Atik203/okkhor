@@ -224,7 +224,11 @@ fn unknown_input_is_never_silently_merged() {
     sim.word("xyz");
     sim.space();
     assert!(sim.doc.starts_with("আমার ভালো "));
-    assert!(sim.doc.contains("xyz"), "raw marker echoes the buffer: {}", sim.doc);
+    assert!(
+        sim.doc.contains("xyz"),
+        "raw marker echoes the buffer: {}",
+        sim.doc
+    );
 }
 
 /// 5,000 mixed events with a structural invariant after every one.
@@ -232,7 +236,9 @@ fn unknown_input_is_never_silently_merged() {
 fn stress_mixed_events_keep_the_document_consistent() {
     let mut sim = Sim::new();
     let mut state: u64 = 0x4F4B_4B48;
-    let alphabet = ['a', 'm', 'r', 'b', 'h', 'l', 'o', 't', 'u', 'i', 'k', 'e', 'n', 'c', 'd', 's'];
+    let alphabet = [
+        'a', 'm', 'r', 'b', 'h', 'l', 'o', 't', 'u', 'i', 'k', 'e', 'n', 'c', 'd', 's',
+    ];
     for step in 0..5_000 {
         state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
         match (state >> 33) % 10 {

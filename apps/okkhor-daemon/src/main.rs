@@ -1023,24 +1023,35 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         *ctx.preedit_rendered = next;
     }
 
-    /// Finalize an inline-preedit word. The document already contains the
-    /// rendered Bangla, so only the delimiter is injected.
+    /// Finalize an inline-preedit word in one atomic `SendInput` batch.
+    ///
+    /// The document already contains the rendered word, but it is rewritten
+    /// together with its delimiter so the final state cannot race an earlier
+    /// edit. Two separate batches (word, then delimiter) is what left a word
+    /// overlapping its neighbour under fast typing.
     fn finalize_inline(
         ctx: &mut CompositionCtx<'_>,
         roman: String,
         previous_word: Option<String>,
-        trailing_space: bool,
+        delimiter: Option<&str>,
         newline: bool,
         send_tab: bool,
     ) {
         let rendered = ctx.preedit_rendered.clone();
-        let committed = ctx.session.commit(trailing_space);
+        let committed = ctx.session.commit(delimiter == Some(" "));
         ctx.preedit_rendered.clear();
         hide_popup(ctx.popup, ctx.state);
+
+        let units = rendered.encode_utf16().count();
+        let mut text = rendered.clone();
+        if let Some(delimiter) = delimiter {
+            text.push_str(delimiter);
+        }
         if newline {
-            let _ = okkhor_win::send_enter();
-        } else if trailing_space {
-            let _ = okkhor_win::inject_commit(0, "", true);
+            text.push('\n');
+        }
+        if !text.is_empty() {
+            let _ = okkhor_win::inject_commit(units, &text, false);
         } else if committed.is_none() && send_tab {
             // Nothing to accept: preserve the Tab the hook swallowed.
             let _ = okkhor_win::send_tab();
@@ -1594,7 +1605,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 // already gone from the document, so it must not be erased.
                 ctx.session.select_index(index);
                 refresh_inline_preedit(ctx);
-                finalize_inline(ctx, roman, previous_word, false, false, false);
+                finalize_inline(ctx, roman, previous_word, None, false, false);
             } else if let Some(commit) = ctx.session.select_digit(index) {
                 do_commit(ctx, commit, roman, false, previous_word);
             } else {
@@ -1649,7 +1660,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                         ctx,
                         roman,
                         previous_word,
-                        vk == VK_SPACE,
+                        if vk == VK_SPACE { Some(" ") } else { None },
                         vk == VK_RETURN,
                         false,
                     );
@@ -1707,7 +1718,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 let roman = ctx.session.buffer().to_owned();
                 let previous_word = ctx.session.previous_word().map(str::to_owned);
                 if inline_enabled {
-                    finalize_inline(ctx, roman, previous_word, false, false, true);
+                    finalize_inline(ctx, roman, previous_word, None, false, true);
                     return;
                 }
                 match ctx.session.commit(false) {
@@ -1726,25 +1737,23 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             VK_OEM_PERIOD if ctx.encoding == crate::OutputEncoding::Unicode => {
                 // Bangla Unicode: the hook swallowed this `.` so the sentence
-                // ends with the Bengali danda (।). Commit any live composition
-                // first, then emit the danda on its own.
+                // ends with the Bengali danda (।).
                 let roman = ctx.session.buffer().to_owned();
                 let previous_word = ctx.session.previous_word().map(str::to_owned);
+                if ctx.session.is_composing() && inline_enabled {
+                    // Atomic word + danda: the rendered word is already in the
+                    // document, so the finalize batch rewrites it with the
+                    // delimiter and nothing else is injected.
+                    finalize_inline(ctx, roman, previous_word, Some("।"), false, false);
+                    return;
+                }
                 let ready = if ctx.session.is_composing() {
-                    if inline_enabled {
-                        // The document already shows the rendered Bangla, so
-                        // only the composition state is finalised; erasing the
-                        // roman buffer here would delete the word itself.
-                        finalize_inline(ctx, roman, previous_word, false, false, false);
-                        true
-                    } else {
-                        match ctx.session.commit(false) {
-                            Some(commit) => do_commit(ctx, commit, roman, false, previous_word),
-                            None => {
-                                ctx.session.reset();
-                                hide_popup(ctx.popup, ctx.state);
-                                true
-                            }
+                    match ctx.session.commit(false) {
+                        Some(commit) => do_commit(ctx, commit, roman, false, previous_word),
+                        None => {
+                            ctx.session.reset();
+                            hide_popup(ctx.popup, ctx.state);
+                            true
                         }
                     }
                 } else {
