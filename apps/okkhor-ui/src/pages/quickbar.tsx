@@ -63,7 +63,18 @@ function readStoredWidth(): number {
 function useSnapshot() {
   const query = useQuery({
     queryKey: ["quickbar"],
-    queryFn: () => api.quickbarState(),
+    // A hung pipe must never leave the bar as an empty grey shell: fail fast
+    // and show the offline state, then keep retrying on the interval below.
+    queryFn: () =>
+      Promise.race([
+        api.quickbarState(),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(
+            () => reject(new Error("quickbar_state timeout")),
+            2_000,
+          ),
+        ),
+      ]),
     retry: false,
     refetchOnWindowFocus: false,
     staleTime: 5_000,
@@ -736,11 +747,15 @@ export default function QuickbarPage() {
         onPointerUp={barDrag.end}
         onPointerCancel={barDrag.cancel}
       >
-        {notice && (
+        {notice ? (
           <span className="pointer-events-none flex h-full items-center justify-center truncate px-1 text-center text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
             {notice}
           </span>
-        )}
+        ) : queryFailed ? (
+          <span className="pointer-events-none flex h-full items-center justify-center truncate px-1 text-center text-[11px] font-medium text-amber-600 dark:text-amber-400">
+            Daemon offline — click ⟳ to retry
+          </span>
+        ) : null}
       </div>
       <IconButton
         title="Hide quick bar to tray"
