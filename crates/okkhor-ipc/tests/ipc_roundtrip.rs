@@ -121,6 +121,7 @@ impl Handler for MemoryHandler {
                 words.push(word.clone());
                 Response::Word(word)
             }
+            Request::WordsAddLast(_) => Response::error(ErrorCode::InvalidRequest),
             Request::WordsRemove(remove) => {
                 let mut words = self.words.lock().expect("words");
                 let before = words.len();

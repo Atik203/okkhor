@@ -3,6 +3,34 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.5] - 2026-11-25
+
+### Fixed
+
+- **`kor…` words keep their vowel.** The phonetic table turned any `consonant + r`
+  into ra-phala, so `korte` rendered as `ক্রতে` and `kortechi` could never become
+  `করতেছি`. The pipeline now tracks the last consumed input character and applies
+  that rule only when no vowel precedes the `r`. Golden rows `উত্তর` and `অক্ষর`
+  were the same bug and are corrected.
+- **Backspace is one keystroke of undo.** The session snapshots buffer, candidates
+  and selection before every letter, so Backspace restores the previous state
+  instead of re-running the engine from a shorter buffer. A shortened buffer with
+  no candidates can no longer replace or erase the whole rendered word.
+- **No overlap on Space or danda.** An inline word and its delimiter are now
+  written in one atomic `SendInput` batch; the danda no longer injects a second
+  delimiter.
+- **Digit selection in inline preedit** re-renders the chosen row and finalises
+  without erasing the rendered word.
+
+### Added
+
+- **Quick-add from the quick bar.** The daemon remembers the `(roman, output)`
+  pair of the last inline commit; `words.add_last` stores it as a user mapping, so
+  a word missing from the dictionary ranks first next time. The pair never leaves
+  the daemon and is persisted in the encrypted word store.
+- **Five ghost candidates** (was three), so the reachable set matches the top-5
+  metric.
+
 ## [0.10.0] - unreleased
 
 ### Added
