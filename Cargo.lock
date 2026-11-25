@@ -610,6 +610,7 @@ dependencies = [
  "okkhor-core",
  "okkhor-lang",
  "okkhor-learn",
+ "okkhor-simd",
  "okkhor-transliterate",
  "serde",
  "serde_json",

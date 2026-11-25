@@ -267,14 +267,14 @@ impl NextWordModel {
         let width = self.d_model;
         let mut logits = vec![0.0f32; self.vocab];
         if !scale.is_empty() {
+            okkhor_simd::project_i8_f32(output, width, &hidden, &mut logits);
             for (id, slot) in logits.iter_mut().enumerate() {
-                let row = &output[id * width..(id + 1) * width];
-                *slot = dot_i8_row(row, &hidden) * read_f32(scale, id) + read_f32(bias, id);
+                *slot = *slot * read_f32(scale, id) + read_f32(bias, id);
             }
         } else {
+            okkhor_simd::project_f32_bytes(output, width, &hidden, &mut logits);
             for (id, slot) in logits.iter_mut().enumerate() {
-                let row = &output[id * width * 4..(id + 1) * width * 4];
-                *slot = dot_f32_row(row, &hidden) + read_f32(bias, id);
+                *slot += read_f32(bias, id);
             }
         }
         logits
@@ -302,9 +302,9 @@ impl NextWordModel {
                 *slot = read_f32(emb, start / 4 + index);
             }
             let row = &mut x[position * d..(position + 1) * d];
+            okkhor_simd::project_f32_bytes(proj_w, embed, &staged, row);
             for (out, slot) in row.iter_mut().enumerate() {
-                *slot = dot_f32_row(&proj_w[out * embed * 4..(out + 1) * embed * 4], &staged)
-                    + read_f32(proj_b, out);
+                *slot += read_f32(proj_b, out);
             }
         }
 
@@ -351,19 +351,17 @@ impl NextWordModel {
         let lin2_w = self.tensor(&format!("{prefix}linear2.weight"));
         let lin2_b = self.tensor(&format!("{prefix}linear2.bias"));
         let mut hidden = vec![0.0f32; self.ff];
+        let mut ffn = vec![0.0f32; d];
         for position in 0..seq {
             let input = &normed[position * d..(position + 1) * d];
+            okkhor_simd::project_f32_bytes(lin1_w, d, input, &mut hidden);
             for (out, slot) in hidden.iter_mut().enumerate() {
-                let value = dot_f32_row(&lin1_w[out * d * 4..(out + 1) * d * 4], input)
-                    + read_f32(lin1_b, out);
-                *slot = value.max(0.0);
+                *slot = (*slot + read_f32(lin1_b, out)).max(0.0);
             }
+            okkhor_simd::project_f32_bytes(lin2_w, self.ff, &hidden, &mut ffn);
             let row = &mut x[position * d..(position + 1) * d];
             for (index, slot) in row.iter_mut().enumerate() {
-                *slot += dot_f32_row(
-                    &lin2_w[index * self.ff * 4..(index + 1) * self.ff * 4],
-                    &hidden,
-                ) + read_f32(lin2_b, index);
+                *slot += ffn[index] + read_f32(lin2_b, index);
             }
         }
     }
@@ -383,9 +381,9 @@ impl NextWordModel {
         for position in 0..seq {
             let input = &input[position * d..(position + 1) * d];
             let row = &mut qkv[position * 3 * d..(position + 1) * 3 * d];
+            okkhor_simd::project_f32_bytes(in_w, d, input, row);
             for (out, slot) in row.iter_mut().enumerate() {
-                *slot =
-                    dot_f32_row(&in_w[out * d * 4..(out + 1) * d * 4], input) + read_f32(in_b, out);
+                *slot += read_f32(in_b, out);
             }
         }
 
@@ -418,9 +416,9 @@ impl NextWordModel {
         for position in 0..seq {
             let input = &context[position * d..(position + 1) * d];
             let row = &mut output[position * d..(position + 1) * d];
+            okkhor_simd::project_f32_bytes(out_w, d, input, row);
             for (out, slot) in row.iter_mut().enumerate() {
-                *slot = dot_f32_row(&out_w[out * d * 4..(out + 1) * d * 4], input)
-                    + read_f32(out_b, out);
+                *slot += read_f32(out_b, out);
             }
         }
         output

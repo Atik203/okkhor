@@ -222,25 +222,58 @@ unsafe fn project_i8_avx2(weights: &[u8], width: usize, x: &[f32], out: &mut [f3
 #[target_feature(enable = "avx2")]
 unsafe fn project_f32_avx2(weights: &[u8], width: usize, x: &[f32], out: &mut [f32]) {
     use std::arch::x86_64::{
-        _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_setzero_ps, _mm256_storeu_ps,
+        __m256, _mm256_add_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_setzero_ps,
+        _mm256_storeu_ps,
     };
 
     let lanes = width.min(x.len());
     unsafe {
-        // SAFETY: AVX2 is guaranteed by the caller. Loads stay inside
-        // `weights[base * 4 .. (base + width) * 4]` and `x[..lanes]`.
+        // SAFETY: AVX2 is guaranteed by the caller. For row `r`, loads stay
+        // inside `weights[r * width * 4 .. (r + 1) * width * 4]` and `x[..lanes]`;
+        // `out` matches the checked row count. Four accumulators break the FMA
+        // dependency chain (one accumulator is latency-bound at ~1.6 GMAC/s).
         for (row, slot) in out.iter_mut().enumerate() {
             let base = row * width * 4;
-            let mut accumulator = _mm256_setzero_ps();
+            let mut acc0 = _mm256_setzero_ps();
+            let mut acc1 = _mm256_setzero_ps();
+            let mut acc2 = _mm256_setzero_ps();
+            let mut acc3 = _mm256_setzero_ps();
             let mut offset = 0usize;
+            while offset + 32 <= lanes {
+                acc0 = _mm256_fmadd_ps(
+                    _mm256_loadu_ps(weights.as_ptr().add(base + offset * 4) as *const f32),
+                    _mm256_loadu_ps(x.as_ptr().add(offset)),
+                    acc0,
+                );
+                acc1 = _mm256_fmadd_ps(
+                    _mm256_loadu_ps(weights.as_ptr().add(base + (offset + 8) * 4) as *const f32),
+                    _mm256_loadu_ps(x.as_ptr().add(offset + 8)),
+                    acc1,
+                );
+                acc2 = _mm256_fmadd_ps(
+                    _mm256_loadu_ps(weights.as_ptr().add(base + (offset + 16) * 4) as *const f32),
+                    _mm256_loadu_ps(x.as_ptr().add(offset + 16)),
+                    acc2,
+                );
+                acc3 = _mm256_fmadd_ps(
+                    _mm256_loadu_ps(weights.as_ptr().add(base + (offset + 24) * 4) as *const f32),
+                    _mm256_loadu_ps(x.as_ptr().add(offset + 24)),
+                    acc3,
+                );
+                offset += 32;
+            }
             while offset + 8 <= lanes {
-                let values = _mm256_loadu_ps(weights.as_ptr().add(base + offset * 4) as *const f32);
-                let activations = _mm256_loadu_ps(x.as_ptr().add(offset));
-                accumulator = _mm256_fmadd_ps(values, activations, accumulator);
+                acc0 = _mm256_fmadd_ps(
+                    _mm256_loadu_ps(weights.as_ptr().add(base + offset * 4) as *const f32),
+                    _mm256_loadu_ps(x.as_ptr().add(offset)),
+                    acc0,
+                );
                 offset += 8;
             }
+            let combined: __m256 =
+                _mm256_add_ps(_mm256_add_ps(acc0, acc1), _mm256_add_ps(acc2, acc3));
             let mut lanes_out = [0.0f32; 8];
-            _mm256_storeu_ps(lanes_out.as_mut_ptr(), accumulator);
+            _mm256_storeu_ps(lanes_out.as_mut_ptr(), combined);
             let mut total: f32 = lanes_out.iter().sum();
             total += dot_f32_bytes_scalar(
                 &weights[base + offset * 4..base + width * 4],
@@ -250,7 +283,6 @@ unsafe fn project_f32_avx2(weights: &[u8], width: usize, x: &[f32], out: &mut [f
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
