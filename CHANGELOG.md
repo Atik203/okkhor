@@ -23,7 +23,7 @@ Versioning once it reaches 1.0.
   permanently zero.
 - **Next-word ghost hint.** After a Bangla word is committed, the top local
   bigram follower appears as a grey, non-activating hint after the caret.
-  Up/Down cycles up to three candidates; Tab inserts the selected word; typing
+  Up/Down cycles up to five candidates; Tab inserts the selected word; typing
   dismisses it. It never edits the document by itself. English is wired after
   its learning events and model.
 - **Full WTR1 index v2.** The importer now reads the documented dictionary

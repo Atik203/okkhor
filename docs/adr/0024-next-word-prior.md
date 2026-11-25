@@ -55,7 +55,7 @@ Ghost candidates are built as:
 
 1. local Smriti next words (the user's own pairs), then
 2. global prior followers for the same previous word, de-duplicated, capped at
-   the caller's limit (3).
+   the caller's limit (5).
 
 The local layer always wins a tie. The prior never changes the selected word on
 its own and never injects text; the user still accepts with Tab.

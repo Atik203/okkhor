@@ -803,6 +803,10 @@ fn same_target(pid: u32, hwnd: isize, current_pid: u32, current_hwnd: isize) -> 
     }
 }
 
+/// Ghost candidates offered after a commit. The hint shows one at a time and
+/// Up/Down cycles the list, so this is the reachable set.
+const GHOST_CANDIDATES: usize = 5;
+
 /// One grey next-word hint after a commit.
 #[derive(Debug, Default)]
 struct GhostState {
@@ -2467,7 +2471,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                             &smriti,
                             Language::English,
                             &text,
-                            3,
+                            GHOST_CANDIDATES,
                         );
                         ghost.selected = 0;
                         english_previous = Some(text);
@@ -2547,7 +2551,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                                 &smriti,
                                 Language::English,
                                 &text,
-                                3,
+                                GHOST_CANDIDATES,
                             );
                             ghost.selected = 0;
                             english_previous = Some(text);
@@ -2715,7 +2719,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                             &smriti,
                             Language::Bangla,
                             word,
-                            3,
+                            GHOST_CANDIDATES,
                         )
                     })
                     .unwrap_or_default();

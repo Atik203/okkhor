@@ -246,9 +246,9 @@ def evaluate(
     device: torch.device,
     batch: int,
     samples: int,
-) -> tuple[float, float, int]:
+) -> tuple[float, float, float, int]:
     model.eval()
-    top1 = top5 = seen = 0
+    top1 = top3 = top5 = seen = 0
     remaining = samples
     with torch.no_grad():
         while remaining > 0:
@@ -260,11 +260,12 @@ def evaluate(
                 logits = model(x_t)
             top = logits.topk(5, dim=1).indices
             top1 += int((top[:, 0] == y_t).sum())
+            top3 += int((top[:, :3] == y_t.unsqueeze(1)).any(dim=1).sum())
             top5 += int((top == y_t.unsqueeze(1)).any(dim=1).sum())
             seen += take
             remaining -= take
     model.train()
-    return top1 / max(seen, 1), top5 / max(seen, 1), seen
+    return top1 / max(seen, 1), top3 / max(seen, 1), top5 / max(seen, 1), seen
 
 
 def probe_batch(
@@ -495,14 +496,19 @@ def main() -> None:
             f"epoch {epoch} done loss {float(running_total) / max(steps, 1):.4f}",
             flush=True,
         )
-        top1, top5, seen = evaluate(
+        top1, top3, top5, seen = evaluate(
             model, eval_windows, device, batch, args.eval_samples
         )
-        print(f"epoch {epoch} eval top1 {top1:.4f} top5 {top5:.4f} n {seen:,}", flush=True)
+        print(
+            f"epoch {epoch} eval top1 {top1:.4f} top3 {top3:.4f} top5 {top5:.4f} n {seen:,}",
+            flush=True,
+        )
         save_checkpoint(epoch + 1, 0)
         start_step = 0
 
-    top1, top5, seen = evaluate(model, eval_windows, device, batch, args.eval_samples)
+    top1, top3, top5, seen = evaluate(
+        model, eval_windows, device, batch, args.eval_samples
+    )
     metrics = {
         "language": args.lang,
         "arch": args.arch,
@@ -511,6 +517,7 @@ def main() -> None:
         "eval_tokens": int(eval_windows.size),
         "eval_pairs": seen,
         "top1": round(top1, 4),
+        "top3": round(top3, 4),
         "top5": round(top5, 4),
         "context": args.context,
         "d_model": args.d_model,
