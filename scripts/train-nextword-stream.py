@@ -20,6 +20,8 @@ Usage (on the training host):
 
 import argparse
 import json
+import queue
+import threading
 import time
 from pathlib import Path
 
@@ -52,6 +54,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ckpt-every", type=int, default=2_000)
     parser.add_argument("--log-every", type=int, default=250)
     parser.add_argument("--max-steps", type=int, default=0)
+    parser.add_argument("--compile", action="store_true")
+    parser.add_argument("--prefetch", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0x4F4B4B48)
     parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
@@ -81,6 +85,48 @@ class Windows:
         window = self.data[index[:, None] + offsets]
         window = np.where(window == EOS, PAD, window)
         return window[:, :-1], window[:, -1]
+
+
+class Prefetcher:
+    """Gather windows and pin them on a producer thread while the GPU runs.
+
+    The memmap gather is CPU work; overlapping it with the forward/backward is
+    the difference between a GPU-bound loop and a half-idle one.
+    """
+
+    def __init__(
+        self, windows: Windows, batch: int, device: torch.device, depth: int
+    ) -> None:
+        self.windows = windows
+        self.batch = batch
+        self.device = device
+        self.pending: queue.Queue = queue.Queue(maxsize=max(2, depth))
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._produce, daemon=True)
+        self.thread.start()
+
+    def _produce(self) -> None:
+        while not self.stop.is_set():
+            x, y = self.windows.sample(self.batch)
+            x_t = torch.from_numpy(x.astype(np.int64))
+            y_t = torch.from_numpy(y.astype(np.int64))
+            if self.device.type == "cuda":
+                x_t = x_t.pin_memory()
+                y_t = y_t.pin_memory()
+            try:
+                self.pending.put((x_t, y_t), timeout=1.0)
+            except queue.Full:
+                continue
+
+    def next(self) -> tuple[torch.Tensor, torch.Tensor]:
+        x_t, y_t = self.pending.get()
+        return (
+            x_t.to(self.device, non_blocking=True),
+            y_t.to(self.device, non_blocking=True),
+        )
+
+    def close(self) -> None:
+        self.stop.set()
 
 
 def build_model(args: argparse.Namespace, vocab_size: int) -> nn.Module:
@@ -141,7 +187,7 @@ def evaluate(
             x, y = windows.sample(take)
             x_t = torch.from_numpy(x.astype(np.int64)).to(device)
             y_t = torch.from_numpy(y.astype(np.int64)).to(device)
-            with torch.autocast("cuda", dtype=torch.float16, enabled=device.type == "cuda"):
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.type == "cuda"):
                 logits = model(x_t)
             top = logits.topk(5, dim=1).indices
             top1 += int((top[:, 0] == y_t).sum())
@@ -152,6 +198,25 @@ def evaluate(
     return top1 / max(seen, 1), top5 / max(seen, 1), seen
 
 
+def probe_batch(
+    model: nn.Module,
+    windows: Windows,
+    device: torch.device,
+    batch: int,
+    loss_fn: nn.Module,
+    amp_dtype: torch.dtype,
+) -> None:
+    """One forward/backward at `batch`; raises CUDA OOM if it does not fit."""
+    x, y = windows.sample(batch)
+    x_t = torch.from_numpy(x.astype(np.int64)).to(device)
+    y_t = torch.from_numpy(y.astype(np.int64)).to(device)
+    with torch.autocast("cuda", dtype=amp_dtype, enabled=device.type == "cuda"):
+        loss = loss_fn(model(x_t), y_t)
+    loss.backward()
+    model.zero_grad(set_to_none=True)
+    del x_t, y_t, loss
+
+
 def main() -> None:
     args = parse_args()
     vocab = json.loads(Path(args.vocab).expanduser().read_text(encoding="utf-8"))
@@ -160,20 +225,58 @@ def main() -> None:
 
     train_windows = Windows(str(Path(args.tokens).expanduser()), args.context, args.seed)
     eval_windows = Windows(str(Path(args.eval_tokens).expanduser()), args.context, args.seed + 1)
-    steps_per_epoch = max(1, train_windows.size // args.batch)
-    if args.max_steps:
-        steps_per_epoch = min(steps_per_epoch, args.max_steps)
     print(
         f"device {device} lang {args.lang} arch {args.arch} vocab {vocab_size:,} "
-        f"train_tokens {train_windows.size:,} eval_tokens {eval_windows.size:,} "
-        f"steps/epoch {steps_per_epoch:,}",
+        f"train_tokens {train_windows.size:,} eval_tokens {eval_windows.size:,}",
         flush=True,
     )
 
     model = build_model(args, vocab_size).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=args.lr, fused=device.type == "cuda"
+    )
     loss_fn = nn.CrossEntropyLoss()
-    scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
+    # bf16 needs no loss scaling on Hopper; keep the scaler disabled so the
+    # checkpoint format stays the same.
+    amp_dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+    scaler = torch.amp.GradScaler("cuda", enabled=False)
+
+    # Probe the requested batch and halve until it fits. The probe runs through
+    # the compiled callable, so the measurement includes compile workspace. Any
+    # compile failure falls back to eager before training starts.
+    forward: nn.Module = model
+    compiled = False
+    batch = args.batch
+    if device.type == "cuda":
+        while True:
+            try:
+                if args.compile and not compiled:
+                    forward = torch.compile(model)
+                    compiled = True
+                    print("torch.compile enabled", flush=True)
+                probe_batch(forward, train_windows, device, batch, loss_fn, amp_dtype)
+                break
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                if batch <= 1024:
+                    raise
+                print(f"OOM at batch {batch}; halving", flush=True)
+                batch //= 2
+            except Exception as error:  # pragma: no cover - environment dependent
+                if not compiled:
+                    raise
+                print(f"compile unavailable: {error}; using eager", flush=True)
+                forward = model
+                compiled = False
+        print(f"batch {batch} fits", flush=True)
+        torch.cuda.empty_cache()
+
+    steps_per_epoch = max(1, train_windows.size // batch)
+    if args.max_steps:
+        steps_per_epoch = min(steps_per_epoch, args.max_steps)
+    print(f"steps/epoch {steps_per_epoch:,} batch {batch}", flush=True)
+
+    prefetcher = Prefetcher(train_windows, batch, device, args.prefetch)
 
     prefix = Path(args.out_prefix).expanduser()
     prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -197,12 +300,23 @@ def main() -> None:
         steps = 0
         first = start_step if epoch == start_epoch else 0
         for step in range(first, steps_per_epoch):
-            x, y = train_windows.sample(args.batch)
-            x_t = torch.from_numpy(x.astype(np.int64)).to(device)
-            y_t = torch.from_numpy(y.astype(np.int64)).to(device)
+            x_t, y_t = prefetcher.next()
             optimizer.zero_grad(set_to_none=True)
-            with torch.autocast("cuda", dtype=torch.float16, enabled=device.type == "cuda"):
-                loss = loss_fn(model(x_t), y_t)
+            try:
+                with torch.autocast(
+                    "cuda", dtype=amp_dtype, enabled=device.type == "cuda"
+                ):
+                    loss = loss_fn(forward(x_t), y_t)
+            except Exception as error:  # pragma: no cover - environment dependent
+                if not compiled:
+                    raise
+                print(f"compile fallback to eager: {error}", flush=True)
+                forward = model
+                compiled = False
+                with torch.autocast(
+                    "cuda", dtype=amp_dtype, enabled=device.type == "cuda"
+                ):
+                    loss = loss_fn(model(x_t), y_t)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
@@ -210,15 +324,16 @@ def main() -> None:
             steps += 1
             global_step += 1
             if steps % args.log_every == 0:
-                used = (
-                    torch.cuda.memory_allocated() // (1024**2)
-                    if device.type == "cuda"
-                    else 0
-                )
+                used = reserved = 0
+                if device.type == "cuda":
+                    used = torch.cuda.memory_allocated() // (1024**2)
+                    reserved = torch.cuda.memory_reserved() // (1024**2)
                 elapsed = time.time() - started
+                tokens_per_s = batch * steps / max(elapsed, 1e-9)
                 print(
                     f"epoch {epoch} step {step} loss {running / steps:.4f} "
-                    f"vram {used}MiB elapsed {elapsed / 60:.0f}m",
+                    f"vram {used}MiB reserved {reserved}MiB "
+                    f"tok/s {tokens_per_s:,.0f} elapsed {elapsed / 60:.0f}m",
                     flush=True,
                 )
             if steps % args.ckpt_every == 0:
@@ -235,7 +350,7 @@ def main() -> None:
                 )
         print(f"epoch {epoch} done loss {running / max(steps, 1):.4f}", flush=True)
         top1, top5, seen = evaluate(
-            model, eval_windows, device, args.batch, args.eval_samples
+            model, eval_windows, device, batch, args.eval_samples
         )
         print(f"epoch {epoch} eval top1 {top1:.4f} top5 {top5:.4f} n {seen:,}", flush=True)
         torch.save(
@@ -251,7 +366,7 @@ def main() -> None:
         )
         start_step = 0
 
-    top1, top5, seen = evaluate(model, eval_windows, device, args.batch, args.eval_samples)
+    top1, top5, seen = evaluate(model, eval_windows, device, batch, args.eval_samples)
     metrics = {
         "language": args.lang,
         "arch": args.arch,
