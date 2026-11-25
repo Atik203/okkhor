@@ -61,6 +61,7 @@ Measured on the 1g.18gb slice:
 | Bangla context-8 transformer | 30.0M tokens | 19.39 % | 35.96 % |
 | Bangla context-2 MLP | 6.35M tokens | 14.85 % | 27.94 % |
 | English bigram (shipped prior) | 65.6M tokens | 16.93 % | 31.33 % |
+| English context-4 MLP | 65.6M tokens | 18.54 % | 32.94 % |
 | English context-8 transformer | 65.6M tokens | 22.17 % | 39.38 % |
 
 The 0.10 program scales to **1B tokens per language** from licensed corpora

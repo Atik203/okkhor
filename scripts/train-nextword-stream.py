@@ -21,6 +21,8 @@ Usage (on the training host):
 import argparse
 import json
 import queue
+import signal
+import sys
 import threading
 import time
 from pathlib import Path
@@ -30,6 +32,12 @@ import torch
 import torch.nn as nn
 
 PAD, EOS = 0, 2
+STOP_REQUESTED = False
+
+
+def _request_stop(signum: int, frame: object) -> None:
+    global STOP_REQUESTED
+    STOP_REQUESTED = True
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,6 +64,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int, default=0)
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--prefetch", type=int, default=4)
+    parser.add_argument(
+        "--sampled-softmax",
+        type=int,
+        default=0,
+        help="train the output layer against K shared negatives instead of the full vocabulary",
+    )
+    parser.add_argument("--sample-temp", type=float, default=0.75)
+    parser.add_argument("--sample-tokens", type=int, default=20_000_000)
     parser.add_argument("--seed", type=int, default=0x4F4B4B48)
     parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
@@ -143,6 +159,9 @@ def build_model(args: argparse.Namespace, vocab_size: int) -> nn.Module:
                     nn.Linear(args.hidden, vocab_size),
                 )
 
+            def encode(self, x: torch.Tensor) -> torch.Tensor:
+                return self.net[:-1](self.emb(x).flatten(1))
+
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 return self.net(self.emb(x).flatten(1))
 
@@ -164,11 +183,61 @@ def build_model(args: argparse.Namespace, vocab_size: int) -> nn.Module:
                 self.encoder = nn.TransformerEncoder(layer, args.layers)
                 self.out = nn.Linear(args.d_model, vocab_size)
 
+            def encode(self, x: torch.Tensor) -> torch.Tensor:
+                return self.encoder(self.proj(self.emb(x)))[:, -1]
+
             def forward(self, x: torch.Tensor) -> torch.Tensor:
-                hidden = self.encoder(self.proj(self.emb(x)))
-                return self.out(hidden[:, -1])
+                return self.out(self.encode(x))
 
     return Model()
+
+
+class NegativeSampler:
+    """Shared negatives drawn from the corpus unigram^temperature.
+
+    Training against K negatives turns the 200k-way output layer into a
+    (K+1)-way problem. The weights are still the full vocabulary, so evaluation
+    and inference keep the exact softmax.
+    """
+
+    def __init__(
+        self,
+        data: np.ndarray,
+        vocab_size: int,
+        device: torch.device,
+        temperature: float,
+        sample_tokens: int,
+    ) -> None:
+        chunk = np.asarray(data[:sample_tokens], dtype=np.int64)
+        counts = np.bincount(chunk, minlength=vocab_size).astype(np.float64)
+        counts[:3] = 0.0  # <pad>, <unk>, <eos> are never suggestions
+        weights = counts**temperature
+        weights /= weights.sum()
+        self.device = device
+        probs = torch.tensor(weights, dtype=torch.float32, device=device)
+        self.cdf = torch.cumsum(probs, dim=0)
+        self.logprob = torch.log(probs.clamp_min(1e-12))
+
+    def sample(self, count: int) -> torch.Tensor:
+        draws = torch.rand(count, device=self.device)
+        return torch.searchsorted(self.cdf, draws).clamp_(max=self.cdf.numel() - 1)
+
+
+def sampled_logits(
+    model: nn.Module,
+    hidden: torch.Tensor,
+    target: torch.Tensor,
+    sampler: NegativeSampler,
+    negatives: int,
+) -> torch.Tensor:
+    """Logits for the target plus K shared negatives, debiased by log q."""
+    weight = model.out.weight
+    neg = sampler.sample(negatives)
+    w_neg = torch.nn.functional.embedding(neg, weight)
+    w_pos = torch.nn.functional.embedding(target, weight)
+    positive = (hidden * w_pos).sum(dim=1, keepdim=True) - sampler.logprob[target].unsqueeze(1)
+    negative = hidden @ w_neg.t() - sampler.logprob[neg].unsqueeze(0)
+    return torch.cat([positive, negative], dim=1)
 
 
 def evaluate(
@@ -205,16 +274,30 @@ def probe_batch(
     batch: int,
     loss_fn: nn.Module,
     amp_dtype: torch.dtype,
-) -> None:
-    """One forward/backward at `batch`; raises CUDA OOM if it does not fit."""
-    x, y = windows.sample(batch)
-    x_t = torch.from_numpy(x.astype(np.int64)).to(device)
-    y_t = torch.from_numpy(y.astype(np.int64)).to(device)
-    with torch.autocast("cuda", dtype=amp_dtype, enabled=device.type == "cuda"):
-        loss = loss_fn(model(x_t), y_t)
-    loss.backward()
-    model.zero_grad(set_to_none=True)
-    del x_t, y_t, loss
+) -> bool:
+    """One forward/backward at `batch`; returns False on CUDA OOM.
+
+    The OOM is caught here rather than propagated: a traceback would keep the
+    failed tensors alive and make the next, smaller probe fail for the wrong
+    reason.
+    """
+    x_t = None
+    y_t = None
+    try:
+        x, y = windows.sample(batch)
+        x_t = torch.from_numpy(x.astype(np.int64)).to(device)
+        y_t = torch.from_numpy(y.astype(np.int64)).to(device)
+        with torch.autocast("cuda", dtype=amp_dtype, enabled=device.type == "cuda"):
+            loss = loss_fn(model(x_t), y_t)
+        loss.backward()
+        model.zero_grad(set_to_none=True)
+        return True
+    except torch.cuda.OutOfMemoryError:
+        return False
+    finally:
+        del x_t, y_t
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
 
 
 def main() -> None:
@@ -241,33 +324,50 @@ def main() -> None:
     amp_dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
     scaler = torch.amp.GradScaler("cuda", enabled=False)
 
+    sampler = None
+    if args.sampled_softmax > 0 and device.type == "cuda":
+        sampler = NegativeSampler(
+            train_windows.data,
+            vocab_size,
+            device,
+            args.sample_temp,
+            args.sample_tokens,
+        )
+        print(
+            f"sampled softmax k={args.sampled_softmax} temp={args.sample_temp}",
+            flush=True,
+        )
+    use_compile = args.compile and sampler is None
+
     # Probe the requested batch and halve until it fits. The probe runs through
     # the compiled callable, so the measurement includes compile workspace. Any
     # compile failure falls back to eager before training starts.
     forward: nn.Module = model
     compiled = False
+    compile_blocked = False
     batch = args.batch
     if device.type == "cuda":
         while True:
             try:
-                if args.compile and not compiled:
+                if use_compile and not compiled and not compile_blocked:
                     forward = torch.compile(model)
                     compiled = True
                     print("torch.compile enabled", flush=True)
-                probe_batch(forward, train_windows, device, batch, loss_fn, amp_dtype)
-                break
-            except torch.cuda.OutOfMemoryError:
-                torch.cuda.empty_cache()
-                if batch <= 1024:
-                    raise
-                print(f"OOM at batch {batch}; halving", flush=True)
-                batch //= 2
+                if probe_batch(forward, train_windows, device, batch, loss_fn, amp_dtype):
+                    break
             except Exception as error:  # pragma: no cover - environment dependent
                 if not compiled:
                     raise
                 print(f"compile unavailable: {error}; using eager", flush=True)
                 forward = model
                 compiled = False
+                compile_blocked = True
+                continue
+            torch.cuda.empty_cache()
+            if batch <= 1024:
+                raise SystemExit("batch 1024 does not fit on this slice")
+            print(f"OOM at batch {batch}; halving", flush=True)
+            batch //= 2
         print(f"batch {batch} fits", flush=True)
         torch.cuda.empty_cache()
 
@@ -281,6 +381,25 @@ def main() -> None:
     prefix = Path(args.out_prefix).expanduser()
     prefix.parent.mkdir(parents=True, exist_ok=True)
     checkpoint = prefix.with_suffix(".ckpt.pt")
+    pause_file = prefix.with_suffix(".pause")
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
+
+    def save_checkpoint(epoch: int, step: int) -> None:
+        temp = checkpoint.with_suffix(".tmp")
+        torch.save(
+            {
+                "state": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scaler": scaler.state_dict(),
+                "epoch": epoch,
+                "step": step,
+                "args": vars(args),
+            },
+            temp,
+        )
+        temp.replace(checkpoint)
+
     start_epoch = 0
     start_step = 0
     if args.resume and checkpoint.exists():
@@ -296,17 +415,40 @@ def main() -> None:
     global_step = start_step
     for epoch in range(start_epoch, args.epochs):
         model.train()
-        running = 0.0
+        running_total = torch.zeros((), device=device)
         steps = 0
         first = start_step if epoch == start_epoch else 0
         for step in range(first, steps_per_epoch):
+            if STOP_REQUESTED:
+                save_checkpoint(epoch, step)
+                print("stop requested; checkpoint saved", flush=True)
+                sys.exit(75)
+            if pause_file.exists():
+                save_checkpoint(epoch, step)
+                print(
+                    f"paused at epoch {epoch} step {step}; remove {pause_file.name} to resume",
+                    flush=True,
+                )
+                while pause_file.exists() and not STOP_REQUESTED:
+                    time.sleep(10)
+                if STOP_REQUESTED:
+                    print("stop requested while paused", flush=True)
+                    sys.exit(75)
+                print("resumed", flush=True)
             x_t, y_t = prefetcher.next()
             optimizer.zero_grad(set_to_none=True)
             try:
                 with torch.autocast(
                     "cuda", dtype=amp_dtype, enabled=device.type == "cuda"
                 ):
-                    loss = loss_fn(forward(x_t), y_t)
+                    if sampler is None:
+                        loss = loss_fn(forward(x_t), y_t)
+                    else:
+                        hidden = model.encode(x_t)
+                        logits = sampled_logits(
+                            model, hidden, y_t, sampler, args.sampled_softmax
+                        )
+                        loss = loss_fn(logits, torch.zeros_like(y_t))
             except Exception as error:  # pragma: no cover - environment dependent
                 if not compiled:
                     raise
@@ -320,7 +462,9 @@ def main() -> None:
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            running += float(loss.item())
+            # Keep the running loss on the GPU and sync once per log window;
+            # a per-step `item()` stalls the pipeline every step.
+            running_total = running_total + loss.detach()
             steps += 1
             global_step += 1
             if steps % args.log_every == 0:
@@ -331,39 +475,22 @@ def main() -> None:
                 elapsed = time.time() - started
                 tokens_per_s = batch * steps / max(elapsed, 1e-9)
                 print(
-                    f"epoch {epoch} step {step} loss {running / steps:.4f} "
+                    f"epoch {epoch} step {step} loss {float(running_total) / steps:.4f} "
                     f"vram {used}MiB reserved {reserved}MiB "
                     f"tok/s {tokens_per_s:,.0f} elapsed {elapsed / 60:.0f}m",
                     flush=True,
                 )
             if steps % args.ckpt_every == 0:
-                torch.save(
-                    {
-                        "state": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "scaler": scaler.state_dict(),
-                        "epoch": epoch,
-                        "step": step + 1,
-                        "args": vars(args),
-                    },
-                    checkpoint,
-                )
-        print(f"epoch {epoch} done loss {running / max(steps, 1):.4f}", flush=True)
+                save_checkpoint(epoch, step + 1)
+        print(
+            f"epoch {epoch} done loss {float(running_total) / max(steps, 1):.4f}",
+            flush=True,
+        )
         top1, top5, seen = evaluate(
             model, eval_windows, device, batch, args.eval_samples
         )
         print(f"epoch {epoch} eval top1 {top1:.4f} top5 {top5:.4f} n {seen:,}", flush=True)
-        torch.save(
-            {
-                "state": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scaler": scaler.state_dict(),
-                "epoch": epoch + 1,
-                "step": 0,
-                "args": vars(args),
-            },
-            checkpoint,
-        )
+        save_checkpoint(epoch + 1, 0)
         start_step = 0
 
     top1, top5, seen = evaluate(model, eval_windows, device, batch, args.eval_samples)
