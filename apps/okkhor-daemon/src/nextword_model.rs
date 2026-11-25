@@ -14,10 +14,19 @@ use okkhor_learn::Smriti;
 
 /// Confidence gates from the 0.10 offline sweep: at these levels the hint is
 /// right roughly 39 % (Bangla) and 28 % (English) of the time.
-fn threshold(language: Language) -> f32 {
-    match language {
+///
+/// Short context is a special case: after one committed word the model has
+/// almost nothing to condition on, so the same gate would hide nearly every
+/// hint. The gate is relaxed until the buffer fills.
+fn threshold(language: Language, context_len: usize) -> f32 {
+    let base = match language {
         Language::Bangla => 0.12,
         Language::English => 0.15,
+    };
+    match context_len {
+        0..=1 => base * 0.35,
+        2..=3 => base * 0.7,
+        _ => base,
     }
 }
 
@@ -130,16 +139,13 @@ pub fn candidates(
         return Vec::new();
     }
 
-    let ids: Vec<u32> = recent
-        .context(model.context_len())
-        .into_iter()
-        .map(|word| model.id(word))
-        .collect();
+    let context = recent.context(model.context_len());
+    let ids: Vec<u32> = context.iter().map(|word| model.id(word)).collect();
     let ranked = model.predict(&ids, 50);
     let Some((_, top_probability)) = ranked.first() else {
         return Vec::new();
     };
-    if *top_probability < threshold(language) {
+    if *top_probability < threshold(language, context.len()) {
         return Vec::new();
     }
 

@@ -294,6 +294,16 @@ impl<P: SuggestionProvider> InputSession<P> {
         self.selection_pinned = true;
     }
 
+    /// Select an absolute candidate index (digit shortcuts and tests).
+    ///
+    /// Out-of-range indices are ignored, leaving the current selection.
+    pub fn select_index(&mut self, index: usize) {
+        if index < self.candidates.len() {
+            self.selected = index;
+            self.selection_pinned = true;
+        }
+    }
+
     /// Commit the currently selected candidate (default index 0).
     ///
     /// Returns `None` — leaving all state untouched — when the buffer is
@@ -641,6 +651,20 @@ mod tests {
         let counts = engine.index_counts().expect("index counts");
         assert!(counts.bangla > 150_000, "bangla {}", counts.bangla);
         assert!(counts.roman > 100_000, "roman {}", counts.roman);
+    }
+
+    #[test]
+    fn select_index_sets_an_absolute_row() {
+        let engine = FixedEngine::new(&["alpha", "beta", "gamma"]);
+        let mut session = InputSession::new(engine);
+        type_text(&mut session, "a");
+        assert_eq!(session.selected(), 0);
+        session.select_index(2);
+        assert_eq!(session.selected(), 2);
+        session.select_index(99);
+        assert_eq!(session.selected(), 2, "out of range is ignored");
+        let commit = session.commit(false).expect("commit");
+        assert_eq!(commit.text, "gamma");
     }
 
     #[test]

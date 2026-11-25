@@ -1031,6 +1031,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         previous_word: Option<String>,
         trailing_space: bool,
         newline: bool,
+        send_tab: bool,
     ) {
         let rendered = ctx.preedit_rendered.clone();
         let committed = ctx.session.commit(trailing_space);
@@ -1040,7 +1041,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             let _ = okkhor_win::send_enter();
         } else if trailing_space {
             let _ = okkhor_win::inject_commit(0, "", true);
-        } else if committed.is_none() {
+        } else if committed.is_none() && send_tab {
             // Nothing to accept: preserve the Tab the hook swallowed.
             let _ = okkhor_win::send_tab();
         }
@@ -1588,7 +1589,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             let roman = ctx.session.buffer().to_owned();
             let previous_word = ctx.session.previous_word().map(str::to_owned);
-            if let Some(commit) = ctx.session.select_digit(index) {
+            if inline_enabled && index < ctx.session.candidates().len() {
+                // Re-render the chosen row, then finalise; the roman buffer is
+                // already gone from the document, so it must not be erased.
+                ctx.session.select_index(index);
+                refresh_inline_preedit(ctx);
+                finalize_inline(ctx, roman, previous_word, false, false, false);
+            } else if let Some(commit) = ctx.session.select_digit(index) {
                 do_commit(ctx, commit, roman, false, previous_word);
             } else {
                 // Out-of-range selection: the hook swallowed the digit, so
@@ -1638,7 +1645,14 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 if inline_enabled {
                     let roman = ctx.session.buffer().to_owned();
                     let previous_word = ctx.session.previous_word().map(str::to_owned);
-                    finalize_inline(ctx, roman, previous_word, vk == VK_SPACE, vk == VK_RETURN);
+                    finalize_inline(
+                        ctx,
+                        roman,
+                        previous_word,
+                        vk == VK_SPACE,
+                        vk == VK_RETURN,
+                        false,
+                    );
                     return;
                 }
                 let roman = ctx.session.buffer().to_owned();
@@ -1693,7 +1707,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 let roman = ctx.session.buffer().to_owned();
                 let previous_word = ctx.session.previous_word().map(str::to_owned);
                 if inline_enabled {
-                    finalize_inline(ctx, roman, previous_word, false, false);
+                    finalize_inline(ctx, roman, previous_word, false, false, true);
                     return;
                 }
                 match ctx.session.commit(false) {
@@ -1717,12 +1731,20 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 let roman = ctx.session.buffer().to_owned();
                 let previous_word = ctx.session.previous_word().map(str::to_owned);
                 let ready = if ctx.session.is_composing() {
-                    match ctx.session.commit(false) {
-                        Some(commit) => do_commit(ctx, commit, roman, false, previous_word),
-                        None => {
-                            ctx.session.reset();
-                            hide_popup(ctx.popup, ctx.state);
-                            true
+                    if inline_enabled {
+                        // The document already shows the rendered Bangla, so
+                        // only the composition state is finalised; erasing the
+                        // roman buffer here would delete the word itself.
+                        finalize_inline(ctx, roman, previous_word, false, false, false);
+                        true
+                    } else {
+                        match ctx.session.commit(false) {
+                            Some(commit) => do_commit(ctx, commit, roman, false, previous_word),
+                            None => {
+                                ctx.session.reset();
+                                hide_popup(ctx.popup, ctx.state);
+                                true
+                            }
                         }
                     }
                 } else {
