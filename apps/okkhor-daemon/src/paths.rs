@@ -63,6 +63,11 @@ pub fn learning_path() -> Result<PathBuf, PathsError> {
     Ok(data_home()?.join("data").join("learning.bin"))
 }
 
+/// Directory for the optional next-word models (`onet-bn-i8.oknm`, ...).
+pub fn models_dir() -> Result<PathBuf, PathsError> {
+    Ok(data_home()?.join("data").join("models"))
+}
+
 /// Resolve `<home>/runtime/ipc.token` (ADR 0012 §2).
 ///
 /// This matches `okkhor_ipc::auth::default_token_path`: the override maps to

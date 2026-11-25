@@ -76,7 +76,13 @@ int8; harness runs offline with no GPU.
 Acceptance: golden match, latency gate, corrupt blob → `None` and the ghost
 falls back to the bigram prior.
 
-## Phase C — ghost integration and personal rerank
+## Phase C — ghost integration and personal rerank (done)
+
+- `apps/okkhor-daemon/src/nextword_model.rs`: model loading off the typing path,
+  an 8-word `Recent` buffer, the confidence gate and the Smriti boost.
+- Model files are data under `%LOCALAPPDATA%\Okkhor\data\models\`; a missing or
+  corrupt file keeps the prior + Smriti path.
+- `scripts/run-local.ps1` builds and starts the daemon for a typing-feel pass.
 
 - Keep a ring buffer of the last 8 committed words in the daemon session
   (today only `previous_word` is stored).

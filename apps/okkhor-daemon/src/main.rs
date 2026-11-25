@@ -22,6 +22,7 @@ mod english;
 mod input_session;
 mod ipc;
 mod layout_engine;
+mod nextword_model;
 mod paths;
 mod settings_store;
 mod words_store;
@@ -827,7 +828,7 @@ impl GhostState {
 fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Arc, mpsc};
+    use std::sync::{Arc, OnceLock, mpsc};
     use std::time::{Duration, Instant};
 
     use crate::english::{EnglishCommit, EnglishSession};
@@ -1997,6 +1998,31 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             logger.error(logging::Scope::Daemon, "prior_prewarm", None);
         }
     }
+
+    // Optional global next-word models. Loading reads a few hundred megabytes,
+    // so it happens on a worker thread; the loop only ever reads the ready
+    // `OnceLock`. A missing or corrupt file keeps the prior + Smriti path.
+    let models: Arc<OnceLock<nextword_model::Models>> = Arc::new(OnceLock::new());
+    {
+        let models = Arc::clone(&models);
+        let directory = crate::paths::models_dir().ok();
+        let spawned = std::thread::Builder::new()
+            .name("okkhor-model".to_owned())
+            .spawn(move || {
+                let (loaded, failures) = match &directory {
+                    Some(path) => nextword_model::Models::load(path),
+                    None => (nextword_model::Models::default(), Vec::new()),
+                };
+                for (code, _error) in failures {
+                    eprintln!("next-word model: {code}");
+                }
+                let _ = models.set(loaded);
+            });
+        if spawned.is_err() {
+            logger.error(logging::Scope::Daemon, "model_spawn", None);
+        }
+    }
+    let mut recent = nextword_model::Recent::new(8);
     const LEARN_QUEUE_CAP: usize = 1024;
     let (learn_tx, learn_rx) = mpsc::sync_channel::<LearningEvent>(LEARN_QUEUE_CAP);
     let learn_dropped = Arc::new(AtomicU64::new(0));
@@ -2467,10 +2493,14 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                             &text,
                             english_previous.take(),
                         );
-                        ghost.words = okkhor_engine::nextword::merge_next_words(
+                        recent.push(&text);
+                        ghost.words = nextword_model::candidates(
+                            models
+                                .get()
+                                .and_then(|loaded| loaded.get(Language::English)),
                             &smriti,
                             Language::English,
-                            &text,
+                            &recent,
                             GHOST_CANDIDATES,
                         );
                         ghost.selected = 0;
@@ -2547,10 +2577,14 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                                 &text,
                                 english_previous.take(),
                             );
-                            ghost.words = okkhor_engine::nextword::merge_next_words(
+                            recent.push(&text);
+                            ghost.words = nextword_model::candidates(
+                                models
+                                    .get()
+                                    .and_then(|loaded| loaded.get(Language::English)),
                                 &smriti,
                                 Language::English,
-                                &text,
+                                &recent,
                                 GHOST_CANDIDATES,
                             );
                             ghost.selected = 0;
@@ -2711,18 +2745,17 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         } else {
             let previous = session.previous_word().map(str::to_owned);
             if previous != ghost_prev {
+                if let Some(word) = previous.as_deref() {
+                    recent.push(word);
+                }
                 ghost_prev = previous.clone();
-                ghost.words = previous
-                    .as_deref()
-                    .map(|word| {
-                        okkhor_engine::nextword::merge_next_words(
-                            &smriti,
-                            Language::Bangla,
-                            word,
-                            GHOST_CANDIDATES,
-                        )
-                    })
-                    .unwrap_or_default();
+                ghost.words = nextword_model::candidates(
+                    models.get().and_then(|loaded| loaded.get(Language::Bangla)),
+                    &smriti,
+                    Language::Bangla,
+                    &recent,
+                    GHOST_CANDIDATES,
+                );
                 ghost.selected = 0;
             }
             if !ghost.words.is_empty() && !ghost.visible {
