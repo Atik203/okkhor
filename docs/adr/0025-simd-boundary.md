@@ -37,5 +37,8 @@ the projection itself at ~5 ms.
 - Block projection (one call per matrix) is required; a per-row call is slower
   than scalar because a `#[target_feature]` function cannot be inlined into a
   plain caller.
-- The encoder still performs many small per-position projections; converting
-  those to block calls is the next performance step, not a correctness one.
+- The encoder stores its matrices as int8 with per-row scales: f32 weights made
+  the encoder memory-bound (4 B/MAC versus 1 B/MAC, ~4.9 versus ~19.6 GMAC/s).
+- Measured on the 512-d export: scalar 73 ms, block projection 50 ms, int8
+  encoder + single-pass softmax **17.8 ms p50 / 18.3 ms p99**, inside the 20 ms
+  gate. Golden vectors still match exactly.

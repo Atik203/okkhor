@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+
 import torch
 import torch.nn as nn
 
@@ -66,6 +67,7 @@ def main() -> None:
     parser.add_argument("--language", choices=["bn", "en"], required=True)
     parser.add_argument("--heads", type=int, default=8)
     parser.add_argument("--quantize-output", choices=["none", "int8"], default="none")
+    parser.add_argument("--quantize-encoder", choices=["none", "int8"], default="none")
     args = parser.parse_args()
 
     ckpt = torch.load(Path(args.input).expanduser(), map_location="cpu", weights_only=False)
@@ -96,26 +98,49 @@ def main() -> None:
         array = state[name].detach().float().numpy()
         return name, array.tobytes(order="C"), "f32", list(array.shape)
 
-    tensors: list[tuple[str, bytes, str, list[int]]] = [
-        f32("emb.weight"),
-        f32("proj.weight"),
-        f32("proj.bias"),
-    ]
+    # Golden vectors must use the *dequantized* weights, otherwise PyTorch and
+    # Rust would legitimately disagree.
+    effective = {key: value.detach().float().clone() for key, value in state.items()}
+    encoder_matrices = {
+        "proj.weight",
+        "self_attn.in_proj_weight",
+        "self_attn.out_proj.weight",
+        "linear1.weight",
+        "linear2.weight",
+    }
+
+    def quantized_pair(
+        source: str, name: str
+    ) -> list[tuple[str, bytes, str, list[int]]]:
+        packed, scale, shape = quantize_rows(state[source].detach().float().numpy())
+        dequant = np.frombuffer(packed, dtype=np.int8).reshape(shape).astype(np.float32)
+        dequant = dequant * np.frombuffer(scale, dtype=np.float32)[:, None]
+        effective[source] = torch.from_numpy(dequant.copy())
+        return [
+            (name, packed, "i8", shape),
+            (f"{name}.scale", scale, "f32", [shape[0]]),
+        ]
+
+    tensors: list[tuple[str, bytes, str, list[int]]] = [f32("emb.weight"), f32("proj.bias")]
+    if args.quantize_encoder == "int8":
+        tensors += quantized_pair("proj.weight", "proj.weight")
+    else:
+        tensors.append(f32("proj.weight"))
     for layer in range(layers):
         for suffix in LAYER_TENSORS:
             key = f"encoder.layers.{layer}.{suffix}"
             name = f"layers.{layer}.{suffix}"
-            array = state[key].detach().float().numpy()
-            tensors.append((name, array.tobytes(order="C"), "f32", list(array.shape)))
+            if args.quantize_encoder == "int8" and suffix in encoder_matrices:
+                tensors += quantized_pair(key, name)
+            else:
+                array = state[key].detach().float().numpy()
+                tensors.append((name, array.tobytes(order="C"), "f32", list(array.shape)))
 
     if args.quantize_output == "int8":
-        packed, scale, shape = quantize_rows(state["out.weight"].detach().float().numpy())
-        tensors.append(("out.weight", packed, "i8", shape))
-        tensors.append(("out.weight.scale", scale, "f32", [vocab]))
+        tensors += quantized_pair("out.weight", "out.weight")
     else:
         tensors.append(f32("out.weight"))
     tensors.append(f32("out.bias"))
-
     out = Path(args.out).expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
     manifest = write_container(
@@ -134,7 +159,7 @@ def main() -> None:
     print(f"wrote {out} {manifest['bytes']:,} bytes sha256 {manifest['sha256']}", flush=True)
 
     model = Model(vocab, embed, d_model, layers, args.heads, ff)
-    model.load_state_dict(state)
+    model.load_state_dict(effective)
     model.eval()
     generator = torch.Generator().manual_seed(0x4F4B4B48)
     inputs = torch.randint(3, vocab, (8, context), generator=generator)

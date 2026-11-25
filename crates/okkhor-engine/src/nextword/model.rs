@@ -236,26 +236,39 @@ impl NextWordModel {
         if limit == 0 || self.vocab == 0 {
             return Vec::new();
         }
-        let logits = self.logits(context);
+        let mut logits = self.logits(context);
         let max = max_of(&logits);
-        let mut sum = 0.0f64;
-        for value in &logits {
-            sum += f64::from((value - max).exp());
+        // One exponential pass: transform in place, keep the normalizer, and
+        // normalize only the winners. A second exp pass and a per-entry division
+        // cost more than the projection on a 200k vocabulary.
+        let mut sum = 0.0f32;
+        for value in logits.iter_mut() {
+            let weight = (*value - max).exp();
+            *value = weight;
+            sum += weight;
         }
-        let sum = if sum > 0.0 { sum as f32 } else { 1.0 };
-        let mut ranked: Vec<(u32, f32)> = logits
-            .iter()
-            .enumerate()
-            .map(|(id, value)| (id as u32, (value - max).exp() / sum))
-            .collect();
-        ranked.sort_unstable_by(|left, right| {
-            right
-                .1
-                .partial_cmp(&left.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        ranked.truncate(limit.min(self.vocab));
-        ranked
+        let inverse = if sum > 0.0 { 1.0 / sum } else { 1.0 };
+        let keep = limit.min(self.vocab);
+        let mut best: Vec<(u32, f32)> = Vec::with_capacity(keep);
+        for (id, weight) in logits.iter().enumerate() {
+            if best.len() < keep {
+                best.push((id as u32, *weight));
+                if best.len() == keep {
+                    best.sort_unstable_by(descending);
+                }
+            } else if *weight > best[keep - 1].1 {
+                let position = best
+                    .iter()
+                    .position(|(_, ranked)| *ranked < *weight)
+                    .unwrap_or(best.len() - 1);
+                best.insert(position, (id as u32, *weight));
+                best.truncate(keep);
+            }
+        }
+        for (_, probability) in best.iter_mut() {
+            *probability *= inverse;
+        }
+        best
     }
 
     /// Raw logits for every vocabulary entry.
@@ -286,7 +299,6 @@ impl NextWordModel {
         let embed = self.embed;
         let mut x = vec![0.0f32; self.context * d];
         let emb = self.tensor("emb.weight");
-        let proj_w = self.tensor("proj.weight");
         let proj_b = self.tensor("proj.bias");
         let pad = self.context.saturating_sub(context.len());
         let mut staged = vec![0.0f32; self.context * embed];
@@ -302,7 +314,7 @@ impl NextWordModel {
                 staged[position * embed + index] = read_f32(emb, start + index);
             }
         }
-        okkhor_simd::project_f32_multi(proj_w, embed, &staged, self.context, &mut x);
+        self.project("proj.weight", embed, &staged, self.context, &mut x);
         for position in 0..self.context {
             let row = &mut x[position * d..(position + 1) * d];
             for (out, slot) in row.iter_mut().enumerate() {
@@ -348,12 +360,16 @@ impl NextWordModel {
                 &mut normed[start..start + d],
             );
         }
-        let lin1_w = self.tensor(&format!("{prefix}linear1.weight"));
         let lin1_b = self.tensor(&format!("{prefix}linear1.bias"));
-        let lin2_w = self.tensor(&format!("{prefix}linear2.weight"));
         let lin2_b = self.tensor(&format!("{prefix}linear2.bias"));
         let mut hidden = vec![0.0f32; seq * self.ff];
-        okkhor_simd::project_f32_multi(lin1_w, d, &normed, seq, &mut hidden);
+        self.project(
+            &format!("{prefix}linear1.weight"),
+            d,
+            &normed,
+            seq,
+            &mut hidden,
+        );
         for position in 0..seq {
             for out in 0..self.ff {
                 let slot = &mut hidden[position * self.ff + out];
@@ -361,7 +377,13 @@ impl NextWordModel {
             }
         }
         let mut ffn = vec![0.0f32; seq * d];
-        okkhor_simd::project_f32_multi(lin2_w, self.ff, &hidden, seq, &mut ffn);
+        self.project(
+            &format!("{prefix}linear2.weight"),
+            self.ff,
+            &hidden,
+            seq,
+            &mut ffn,
+        );
         for position in 0..seq {
             let row = &mut x[position * d..(position + 1) * d];
             let source = &ffn[position * d..(position + 1) * d];
@@ -377,13 +399,11 @@ impl NextWordModel {
         let heads = self.heads;
         let head_dim = d / heads;
         let prefix = format!("layers.{layer}.self_attn.");
-        let in_w = self.tensor(&format!("{prefix}in_proj_weight"));
         let in_b = self.tensor(&format!("{prefix}in_proj_bias"));
-        let out_w = self.tensor(&format!("{prefix}out_proj.weight"));
         let out_b = self.tensor(&format!("{prefix}out_proj.bias"));
 
         let mut qkv = vec![0.0f32; seq * 3 * d];
-        okkhor_simd::project_f32_multi(in_w, d, input, seq, &mut qkv);
+        self.project(&format!("{prefix}in_proj_weight"), d, input, seq, &mut qkv);
         for position in 0..seq {
             let row = &mut qkv[position * 3 * d..(position + 1) * 3 * d];
             for (out, slot) in row.iter_mut().enumerate() {
@@ -417,7 +437,13 @@ impl NextWordModel {
         }
 
         let mut output = vec![0.0f32; seq * d];
-        okkhor_simd::project_f32_multi(out_w, d, &context, seq, &mut output);
+        self.project(
+            &format!("{prefix}out_proj.weight"),
+            d,
+            &context,
+            seq,
+            &mut output,
+        );
         for position in 0..seq {
             let row = &mut output[position * d..(position + 1) * d];
             for (out, slot) in row.iter_mut().enumerate() {
@@ -472,7 +498,46 @@ impl NextWordModel {
                 return Err(ModelError::BadTensor);
             }
         }
+        for (name, entry) in &self.tensors {
+            if entry.dtype != "i8" || name.ends_with(".scale") {
+                continue;
+            }
+            let rows = entry.shape.first().copied().unwrap_or(0);
+            let scale_name = format!("{name}.scale");
+            let scale = self.tensors.get(&scale_name).ok_or(ModelError::BadTensor)?;
+            if scale.shape != vec![rows] || scale.dtype != "f32" {
+                return Err(ModelError::BadTensor);
+            }
+        }
         Ok(())
+    }
+
+    /// Project `positions` activation vectors through a weight matrix, choosing
+    /// the int8 kernel when the tensor carries a scale.
+    fn project(&self, name: &str, width: usize, xs: &[f32], positions: usize, out: &mut [f32]) {
+        if positions == 0 || width == 0 {
+            return;
+        }
+        let weights = self.tensor(name);
+        let scale_name = format!("{name}.scale");
+        let scale = self.tensor(&scale_name);
+        let rows = out.len() / positions;
+        if !scale.is_empty() {
+            for position in 0..positions {
+                let target = &mut out[position * rows..(position + 1) * rows];
+                okkhor_simd::project_i8_f32(
+                    weights,
+                    width,
+                    &xs[position * width..(position + 1) * width],
+                    target,
+                );
+                for (row, slot) in target.iter_mut().enumerate() {
+                    *slot *= read_f32(scale, row);
+                }
+            }
+        } else {
+            okkhor_simd::project_f32_multi(weights, width, xs, positions, out);
+        }
     }
 
     fn tensor(&self, name: &str) -> &'static [u8] {
@@ -533,6 +598,13 @@ fn softmax(values: &mut [f32]) {
 
 fn max_of(values: &[f32]) -> f32 {
     values.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+}
+
+fn descending(left: &(u32, f32), right: &(u32, f32)) -> std::cmp::Ordering {
+    right
+        .1
+        .partial_cmp(&left.1)
+        .unwrap_or(std::cmp::Ordering::Equal)
 }
 
 fn dot_f32(left: &[f32], right: &[f32]) -> f32 {
