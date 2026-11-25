@@ -269,13 +269,19 @@ def evaluate(
 
 def probe_batch(
     model: nn.Module,
+    optimizer: torch.optim.Optimizer,
     windows: Windows,
     device: torch.device,
     batch: int,
     loss_fn: nn.Module,
     amp_dtype: torch.dtype,
 ) -> bool:
-    """One forward/backward at `batch`; returns False on CUDA OOM.
+    """One full step at `batch`; returns False on CUDA OOM.
+
+    The step includes `optimizer.step()` on purpose: Adam allocates its state
+    lazily on the first update, and a probe without it underestimates peak
+    memory by ~2 GB, which is exactly how batch 3584 slipped through and then
+    failed in training.
 
     The OOM is caught here rather than propagated: a traceback would keep the
     failed tensors alive and make the next, smaller probe fail for the wrong
@@ -290,7 +296,8 @@ def probe_batch(
         with torch.autocast("cuda", dtype=amp_dtype, enabled=device.type == "cuda"):
             loss = loss_fn(model(x_t), y_t)
         loss.backward()
-        model.zero_grad(set_to_none=True)
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
         return True
     except torch.cuda.OutOfMemoryError:
         return False
@@ -353,7 +360,9 @@ def main() -> None:
                     forward = torch.compile(model)
                     compiled = True
                     print("torch.compile enabled", flush=True)
-                if probe_batch(forward, train_windows, device, batch, loss_fn, amp_dtype):
+                if probe_batch(
+                    forward, optimizer, train_windows, device, batch, loss_fn, amp_dtype
+                ):
                     break
             except Exception as error:  # pragma: no cover - environment dependent
                 if not compiled:
