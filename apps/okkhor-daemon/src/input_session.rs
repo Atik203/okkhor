@@ -155,6 +155,18 @@ pub struct InputSession<P = DefaultEngine> {
     /// does `refresh` follow that row across a keystroke; the automatic top
     /// row stays row 0.
     selection_pinned: bool,
+    /// One entry per keystroke, so Backspace is an exact undo.
+    history: Vec<Snapshot>,
+}
+
+/// State captured before a keystroke.
+#[derive(Debug, Clone)]
+struct Snapshot {
+    buffer: String,
+    candidates: Vec<String>,
+    selected: usize,
+    rank_ms: u64,
+    selection_pinned: bool,
 }
 
 impl<P: SuggestionProvider> InputSession<P> {
@@ -172,6 +184,7 @@ impl<P: SuggestionProvider> InputSession<P> {
             rank_ms: 0,
             cache: VecDeque::with_capacity(PREFIX_CACHE_ENTRIES),
             selection_pinned: false,
+            history: Vec::new(),
         }
     }
 
@@ -250,6 +263,19 @@ impl<P: SuggestionProvider> InputSession<P> {
         if self.buffer.len() >= MAX_BUFFER_LEN {
             return false;
         }
+        // Snapshot before the change: Backspace becomes an exact undo of the
+        // last keystroke instead of a re-run of the engine from a shorter
+        // buffer, which could replace the rendered word wholesale.
+        if self.history.len() >= MAX_BUFFER_LEN {
+            self.history.remove(0);
+        }
+        self.history.push(Snapshot {
+            buffer: self.buffer.clone(),
+            candidates: self.candidates.clone(),
+            selected: self.selected,
+            rank_ms: self.rank_ms,
+            selection_pinned: self.selection_pinned,
+        });
         if self.buffer.is_empty() {
             // Freeze recency for this word: the same prefix must rank the same
             // when the user backspaces and retypes it. A fresh word also
@@ -263,8 +289,24 @@ impl<P: SuggestionProvider> InputSession<P> {
         true
     }
 
-    /// Handle Backspace: edit the buffer, never beyond it.
+    /// Handle Backspace: undo exactly one keystroke when possible.
+    ///
+    /// Restoring the snapshot is what makes the document shrink by one step
+    /// instead of jumping to a different word; the engine is not re-run, so a
+    /// shorter buffer with no candidates cannot wipe the word.
     pub fn backspace(&mut self) -> BackspaceOutcome {
+        if let Some(snapshot) = self.history.pop() {
+            self.buffer = snapshot.buffer;
+            self.candidates = snapshot.candidates;
+            self.selected = snapshot.selected;
+            self.rank_ms = snapshot.rank_ms;
+            self.selection_pinned = snapshot.selection_pinned;
+            if self.buffer.is_empty() {
+                self.rank_ms = 0;
+                return BackspaceOutcome::BecameEmpty;
+            }
+            return BackspaceOutcome::StillComposing;
+        }
         if self.buffer.pop().is_none() {
             return BackspaceOutcome::Empty;
         }
@@ -363,6 +405,7 @@ impl<P: SuggestionProvider> InputSession<P> {
         self.rank_ms = 0;
         self.cache.clear();
         self.selection_pinned = false;
+        self.history.clear();
     }
 
     fn refresh(&mut self) {

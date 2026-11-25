@@ -189,6 +189,20 @@ fn digit_selects_the_chosen_candidate() {
 }
 
 #[test]
+fn backspace_restores_the_previous_keystroke_exactly() {
+    let mut sim = Sim::new();
+    sim.word("amar");
+    assert_eq!(sim.doc, "আমার");
+    sim.backspace();
+    assert_eq!(
+        sim.doc, "!ama!",
+        "one Backspace lands on the previous keystroke's rendering"
+    );
+    sim.backspace();
+    assert_eq!(sim.doc, "!am!");
+}
+
+#[test]
 fn backspace_walks_back_without_leaving_text() {
     let mut sim = Sim::new();
     sim.word("amar");
