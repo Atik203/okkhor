@@ -67,6 +67,44 @@ pub fn project_i8_f32(weights: &[u8], width: usize, x: &[f32], out: &mut [f32]) 
     }
 }
 
+/// Project one f32 matrix against several activation vectors, reading each
+/// weight row once.
+///
+/// `xs` is `positions × width` row-major and `out` is `positions × rows`
+/// row-major. This is the shape the encoder needs: eight positions share one
+/// weight read instead of streaming the matrix eight times.
+pub fn project_f32_multi(
+    weights: &[u8],
+    width: usize,
+    xs: &[f32],
+    positions: usize,
+    out: &mut [f32],
+) {
+    if width == 0 || positions == 0 || xs.len() < positions * width {
+        return;
+    }
+    let rows = (out.len() / positions).min(weights.len() / (width * 4));
+    if rows == 0 {
+        return;
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx2") && positions <= 8 {
+            // SAFETY: guarded by runtime AVX2 detection; the kernel bounds every
+            // load by `rows * width * 4` and `positions * width`.
+            unsafe { project_f32_multi_avx2(weights, width, xs, positions, out, rows) };
+            return;
+        }
+    }
+    for position in 0..positions {
+        project_f32_bytes(
+            weights,
+            width,
+            &xs[position * width..(position + 1) * width],
+            &mut out[position * rows..(position + 1) * rows],
+        );
+    }
+}
 /// Project a whole f32 byte-matrix against one activation vector.
 pub fn project_f32_bytes(weights: &[u8], width: usize, x: &[f32], out: &mut [f32]) {
     if width == 0 {
@@ -283,6 +321,102 @@ unsafe fn project_f32_avx2(weights: &[u8], width: usize, x: &[f32], out: &mut [f
         }
     }
 }
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn project_f32_multi_avx2(
+    weights: &[u8],
+    width: usize,
+    xs: &[f32],
+    positions: usize,
+    out: &mut [f32],
+    rows: usize,
+) {
+    if positions != 8 {
+        for position in 0..positions {
+            // SAFETY: AVX2 is guaranteed by the caller, and the slice bounds are
+            // the same ones `project_f32_avx2` documents.
+            unsafe {
+                project_f32_avx2(
+                    weights,
+                    width,
+                    &xs[position * width..(position + 1) * width],
+                    &mut out[position * rows..(position + 1) * rows],
+                );
+            }
+        }
+        return;
+    }
+    use std::arch::x86_64::{
+        _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_setzero_ps, _mm256_storeu_ps,
+    };
+
+    unsafe {
+        // SAFETY: AVX2 is guaranteed by the caller. Each weight load stays inside
+        // `weights[row * width * 4 .. (row + 1) * width * 4]`; each activation
+        // load stays inside `xs[p * width .. (p + 1) * width]`; `out` is at least
+        // `positions * rows` long. Eight named accumulators keep the values in
+        // registers (a dynamically indexed array spills every iteration).
+        for row in 0..rows {
+            let base = row * width * 4;
+            let mut acc0 = _mm256_setzero_ps();
+            let mut acc1 = _mm256_setzero_ps();
+            let mut acc2 = _mm256_setzero_ps();
+            let mut acc3 = _mm256_setzero_ps();
+            let mut acc4 = _mm256_setzero_ps();
+            let mut acc5 = _mm256_setzero_ps();
+            let mut acc6 = _mm256_setzero_ps();
+            let mut acc7 = _mm256_setzero_ps();
+            let mut offset = 0usize;
+            while offset + 8 <= width {
+                let wv = _mm256_loadu_ps(weights.as_ptr().add(base + offset * 4) as *const f32);
+                acc0 = _mm256_fmadd_ps(wv, _mm256_loadu_ps(xs.as_ptr().add(offset)), acc0);
+                acc1 = _mm256_fmadd_ps(wv, _mm256_loadu_ps(xs.as_ptr().add(width + offset)), acc1);
+                acc2 = _mm256_fmadd_ps(
+                    wv,
+                    _mm256_loadu_ps(xs.as_ptr().add(2 * width + offset)),
+                    acc2,
+                );
+                acc3 = _mm256_fmadd_ps(
+                    wv,
+                    _mm256_loadu_ps(xs.as_ptr().add(3 * width + offset)),
+                    acc3,
+                );
+                acc4 = _mm256_fmadd_ps(
+                    wv,
+                    _mm256_loadu_ps(xs.as_ptr().add(4 * width + offset)),
+                    acc4,
+                );
+                acc5 = _mm256_fmadd_ps(
+                    wv,
+                    _mm256_loadu_ps(xs.as_ptr().add(5 * width + offset)),
+                    acc5,
+                );
+                acc6 = _mm256_fmadd_ps(
+                    wv,
+                    _mm256_loadu_ps(xs.as_ptr().add(6 * width + offset)),
+                    acc6,
+                );
+                acc7 = _mm256_fmadd_ps(
+                    wv,
+                    _mm256_loadu_ps(xs.as_ptr().add(7 * width + offset)),
+                    acc7,
+                );
+                offset += 8;
+            }
+            let accumulators = [acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7];
+            for position in 0..8 {
+                let mut lanes = [0.0f32; 8];
+                _mm256_storeu_ps(lanes.as_mut_ptr(), accumulators[position]);
+                let mut total: f32 = lanes.iter().sum();
+                total += dot_f32_bytes_scalar(
+                    &weights[base + offset * 4..base + width * 4],
+                    &xs[position * width + offset..(position + 1) * width],
+                );
+                out[position * rows + row] = total;
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,6 +511,61 @@ mod tests {
                 "f32 row {row}: {expected} vs {value}"
             );
         }
+    }
+
+    #[test]
+    fn multi_projection_matches_single() {
+        let width = 64usize;
+        let rows = 48usize;
+        let positions = 8usize;
+        let numbers = pseudo_random(rows * width, 0x6161_6161);
+        let weights: Vec<u8> = numbers
+            .iter()
+            .flat_map(|value| (((value % 2001) as f32 - 1000.0) / 97.0).to_le_bytes())
+            .collect();
+        let xs: Vec<f32> = (0..positions * width)
+            .map(|index| ((index % 17) as f32 - 8.0) / 9.0)
+            .collect();
+        let mut multi = vec![0.0f32; positions * rows];
+        project_f32_multi(&weights, width, &xs, positions, &mut multi);
+        for position in 0..positions {
+            let mut single = vec![0.0f32; rows];
+            project_f32_bytes(
+                &weights,
+                width,
+                &xs[position * width..(position + 1) * width],
+                &mut single,
+            );
+            for row in 0..rows {
+                let expected = single[row];
+                let actual = multi[position * rows + row];
+                assert!(
+                    (expected - actual).abs() < 1e-3 * expected.abs().max(1.0),
+                    "p{position} r{row}: {expected} vs {actual}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn multi_projection_throughput() {
+        let width = 512usize;
+        let rows = 1536usize;
+        let positions = 8usize;
+        let weights = vec![3u8; rows * width * 4];
+        let xs = vec![0.5f32; positions * width];
+        let mut out = vec![0.0f32; positions * rows];
+        project_f32_multi(&weights, width, &xs, positions, &mut out);
+        let started = std::time::Instant::now();
+        for _ in 0..5 {
+            project_f32_multi(&weights, width, &xs, positions, &mut out);
+        }
+        let seconds = started.elapsed().as_secs_f64();
+        println!(
+            "multi {:.2} GMAC/s, {:.2} ms/call",
+            (rows * width * positions * 5) as f64 / seconds / 1e9,
+            seconds / 5.0 * 1000.0
+        );
     }
 
     #[test]
