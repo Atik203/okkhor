@@ -260,6 +260,39 @@ here, ask the user for permission first.
   data-handling policies. Training data must still satisfy the privacy rules
   above: no raw keystrokes, no user text, synthetic or licensed corpora only.
 
+### Training-run rules (learned from real failures)
+
+These are hard rules. Each one cost GPU time in this project.
+
+1. **Never rewrite a script in place while bash is executing it.** Bash reads
+   scripts by byte offset, so an in-place edit shifts the remaining text. On
+   2026-11-25 this turned the English MLP stage into
+   `--layers: command not found`, the stage was silently skipped, and the GPU
+   idled for ~9 hours. Write `script.new`, validate it with `bash -n`, then
+   `mv script.new script` (atomic replace), or stop the session first.
+2. **A restarted run must be a fresh run.** A process that is already running
+   keeps the old text and the old environment. After any config change, kill
+   the session and start it again; do not assume the change took effect.
+3. **Watchdog restarts must retry the lock.** A one-shot `flock -n` in a watcher
+   races the previous owner and exits silently. Loop with `flock -w` or retry
+   with backoff, and log every failed attempt.
+4. **Do not set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` on this MIG
+   slice.** `model.to("cuda")` fails with `CUDA driver error: operation not
+   supported`. Reduce batch size, hidden size, or vocabulary instead.
+5. **A started stage is not a training stage.** After (re)starting, confirm
+   real `epoch/step/loss` lines in the log and nonzero GPU use before walking
+   away.
+6. **Only metrics prove completion.** A stage is done when its
+   `*.metrics.json` exists and the `state/*.done` marker is written. Absence of
+   a crash message is not success.
+7. **Record results immediately.** Every finished run's top-1/top-5, data size,
+   wall time and artifact path goes into
+   `docs/superpowers/analysis/0.10-training-runs.md` in the same session.
+   Do not leave results only in a chat message or a log.
+8. **Keep the GPU busy deliberately.** If the queue is empty, either queue the
+   next stage or stop the GPU work and say so. Do not leave a slice idle
+   overnight by accident.
+
 ## Definition of done
 
 A change is done only when:
