@@ -443,8 +443,12 @@ impl PhoneticTransliterator {
         // Bounded: `word` is at most the 64-char input.
         let mut out = String::with_capacity(word.len().saturating_mul(3).min(512));
         let mut pos = 0usize;
+        // Last consumed *input* character. Avro's `r`-after-consonant rule is a
+        // ra-phala; after a vowel it must stay a plain `র`, otherwise `kor…`
+        // renders as `ক্র…` while the dictionary word has not matched yet.
+        let mut prev_input: Option<char> = None;
         while pos < word.len() {
-            if let Some((consumed, replacement)) = self.match_at(word, pos, &out) {
+            if let Some((consumed, replacement)) = self.match_at(word, pos, &out, prev_input) {
                 debug_assert!(consumed > 0);
                 if consumed == 0 {
                     break;
@@ -455,6 +459,8 @@ impl PhoneticTransliterator {
                     out.pop();
                 }
                 out.push_str(&replacement.text);
+                let consumed_text = &word[pos..pos + consumed];
+                prev_input = consumed_text.chars().next_back();
                 pos += consumed;
                 if out.len() > 4096 {
                     break;
@@ -465,6 +471,7 @@ impl PhoneticTransliterator {
                 // consume ASCII pattern text), so this cannot panic.
                 let ch = word[pos..].chars().next().unwrap_or('\u{FFFD}');
                 out.push(ch);
+                prev_input = Some(ch);
                 pos += ch.len_utf8();
             }
         }
@@ -474,7 +481,13 @@ impl PhoneticTransliterator {
     /// Try the bucketed rules anchored at `pos`; longest consumption wins,
     /// table order breaks ties. Returns consumed input bytes plus the
     /// expanded replacement and whether it absorbed the last output char.
-    fn match_at(&self, word: &str, pos: usize, out: &str) -> Option<(usize, Applied)> {
+    fn match_at(
+        &self,
+        word: &str,
+        pos: usize,
+        out: &str,
+        prev_input: Option<char>,
+    ) -> Option<(usize, Applied)> {
         let rest = &word[pos..];
         let last = out.chars().next_back();
         let mut best: Option<(usize, Applied, usize, usize)> = None;
@@ -486,7 +499,16 @@ impl PhoneticTransliterator {
             .map(|b| &self.dispatch.buckets[*b as usize])
         {
             for &(rule_idx, opt_idx) in bucket.iter().chain(self.dispatch.fallback.iter()) {
-                Self::consider(&self.rules, rule_idx, opt_idx, pos, rest, last, &mut best);
+                Self::consider(
+                    &self.rules,
+                    rule_idx,
+                    opt_idx,
+                    pos,
+                    rest,
+                    last,
+                    prev_input,
+                    &mut best,
+                );
             }
         }
         best.map(|(consumed, applied, _, _)| (consumed, applied))
@@ -501,6 +523,7 @@ impl PhoneticTransliterator {
         pos: usize,
         rest: &str,
         last: Option<char>,
+        prev_input: Option<char>,
         best: &mut Option<(usize, Applied, usize, usize)>,
     ) {
         let rule = &rules[rule_idx];
@@ -577,6 +600,11 @@ impl PhoneticTransliterator {
             }
         };
         if let Some((consumed, text)) = found {
+            // Avro: a consonant followed by `r` is ra-phala only when the `r`
+            // does not follow a vowel. `kor…` must stay `কর…`, not `ক্র…`.
+            if is_vowel(prev_input) && text.contains("\u{09CD}\u{09B0}") {
+                return;
+            }
             let pop_context = option.mode != MatchMode::Input;
             // Buckets iterate in table order, so a strictly-longer test
             // keeps the earliest rule on ties; the tuple check states the
@@ -604,5 +632,38 @@ impl TransliteratorEngine for PhoneticTransliterator {
         options: &TransliterationOptions,
     ) -> Vec<TransliterationOutput> {
         self.suggest(input, options)
+    }
+}
+
+
+/// True for the roman vowels Avro treats as syllable carriers.
+fn is_vowel(input: Option<char>) -> bool {
+    matches!(
+        input,
+        Some('a' | 'e' | 'i' | 'o' | 'u' | 'A' | 'E' | 'I' | 'O' | 'U')
+    )
+}
+
+#[cfg(test)]
+mod reph_tests {
+    use super::*;
+
+    #[test]
+    fn ra_phala_does_not_follow_a_vowel() {
+        let engine = PhoneticTransliterator::from_embedded_avro().expect("table");
+        let options = TransliterationOptions::default();
+        for (input, expected) in [
+            ("korte", "\u{0995}\u{09b0}\u{09a4}\u{09c7}"),
+            ("kortechi", "\u{0995}\u{09b0}\u{09a4}\u{09c7}\u{099b}\u{09bf}"),
+            ("korchi", "\u{0995}\u{09b0}\u{099b}\u{09bf}"),
+            ("kormo", "\u{0995}\u{09b0}\u{09ae}"),
+        ] {
+            let out = engine.transliterate(input, &options);
+            assert_eq!(
+                out.first().map(|row| row.text.as_str()),
+                Some(expected),
+                "{input}"
+            );
+        }
     }
 }

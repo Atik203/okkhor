@@ -105,3 +105,21 @@ fn dictionary_multi_target_rows_are_imported_and_preferred_stays_first() {
         bon.iter().map(|row| row.text.as_str()).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn reph_words_keep_their_vowel() {
+    let engine = SuggestionEngine::from_embedded().expect("engine");
+    let smriti = Smriti::new();
+    for (roman, expected) in [
+        ("korte", "করতে"),
+        ("korchi", "করছি"),
+        ("kortechi", "করতেছি"),
+    ] {
+        let ranked = engine.suggest(&SuggestRequest::new(roman, 5), &smriti);
+        assert_eq!(
+            ranked.first().map(|c| c.text.as_str()),
+            Some(expected),
+            "top candidate for {roman}"
+        );
+    }
+}
