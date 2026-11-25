@@ -532,47 +532,6 @@ fn max_of(values: &[f32]) -> f32 {
     values.iter().copied().fold(f32::NEG_INFINITY, f32::max)
 }
 
-/// Dot product of a little-endian f32 row against an activation vector.
-fn dot_f32_row(row: &[u8], right: &[f32]) -> f32 {
-    let mut sums = [0.0f32; 4];
-    let mut chunks = row.chunks_exact(16);
-    let mut values = right.chunks_exact(4);
-    for (bytes, act) in (&mut chunks).zip(&mut values) {
-        sums[0] += f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) * act[0];
-        sums[1] += f32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) * act[1];
-        sums[2] += f32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) * act[2];
-        sums[3] += f32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) * act[3];
-    }
-    let mut total = sums[0] + sums[1] + sums[2] + sums[3];
-    for (bytes, value) in chunks
-        .remainder()
-        .chunks_exact(4)
-        .zip(values.remainder().iter())
-    {
-        total += f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) * value;
-    }
-    total
-}
-
-/// Dot product of an int8 row against an activation vector.
-fn dot_i8_row(row: &[u8], right: &[f32]) -> f32 {
-    let mut sums = [0.0f32; 4];
-    let mut chunks = row.chunks_exact(4);
-    let mut values = right.chunks_exact(4);
-    for (bytes, act) in (&mut chunks).zip(&mut values) {
-        sums[0] += f32::from(bytes[0] as i8) * act[0];
-        sums[1] += f32::from(bytes[1] as i8) * act[1];
-        sums[2] += f32::from(bytes[2] as i8) * act[2];
-        sums[3] += f32::from(bytes[3] as i8) * act[3];
-    }
-    let mut total = sums[0] + sums[1] + sums[2] + sums[3];
-    for (byte, value) in chunks.remainder().iter().zip(values.remainder().iter()) {
-        total += f32::from(*byte as i8) * value;
-    }
-    total
-}
-
-/// Dot product of two f32 slices.
 fn dot_f32(left: &[f32], right: &[f32]) -> f32 {
     let mut sum = 0.0f32;
     for (a, b) in left.iter().zip(right.iter()) {
