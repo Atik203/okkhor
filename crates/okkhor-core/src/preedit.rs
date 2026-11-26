@@ -82,9 +82,69 @@ pub fn plan_edit(rendered: &str, next: &str) -> EditPlan {
     }
 }
 
+/// UTF-16 units between the end of `next` and the composition point.
+///
+/// `prefix` is the rendered form of the roman buffer up to the insertion point.
+/// Transliteration is prefix-stable for most edits (the rendered prefix is a
+/// prefix of the rendered word), and then the suffix length is exact: the
+/// document caret moves left by that many units and sits between the two
+/// rendered halves.
+///
+/// When the prefix is not stable (`k` → `ক` but `ki` → `কি`) the mapping from
+/// roman index to rendered offset is unknown. Returning `0` keeps the caret at
+/// the end of the word, which is always safe: every erase count in
+/// [`plan_edit`] is measured from there.
+pub fn caret_back_units(next: &str, prefix: Option<&str>) -> usize {
+    match prefix {
+        Some(prefix) if !prefix.is_empty() => next
+            .strip_prefix(prefix)
+            .map(|suffix| suffix.encode_utf16().count())
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{EditPlan, is_join_mark, plan_edit};
+    use super::{EditPlan, caret_back_units, is_join_mark, plan_edit};
+
+    #[test]
+    fn caret_back_is_the_rendered_suffix() {
+        // `amar` with the caret after `am`: the suffix is the vowel sign plus
+        // the final reph-less `র`, two UTF-16 units.
+        assert_eq!(caret_back_units("আমার", Some("আম")), 2);
+    }
+
+    #[test]
+    fn caret_back_at_the_end_is_zero() {
+        assert_eq!(caret_back_units("আমার", Some("আমার")), 0);
+    }
+
+    #[test]
+    fn caret_back_refuses_an_unstable_prefix() {
+        // The rendered prefix is not a prefix of the new word, so the roman
+        // index has no exact rendered offset. Stay at the word end.
+        assert_eq!(caret_back_units("কো", Some("কি")), 0);
+    }
+
+    #[test]
+    fn caret_back_keeps_a_conjunct_intact() {
+        // `rm` renders `র্ম`; the caret after `r` sits before the hasanta, so
+        // exactly one unit (the consonant) follows it.
+        assert_eq!(caret_back_units("র্ম", Some("র্")), 1);
+    }
+
+    #[test]
+    fn caret_back_counts_surrogates_per_unit() {
+        assert_eq!(caret_back_units("😀x", Some("😀")), 1);
+        assert_eq!(caret_back_units("x😀", Some("x")), 2);
+    }
+
+    #[test]
+    fn caret_back_without_a_prefix_is_zero() {
+        assert_eq!(caret_back_units("আমার", None), 0);
+        assert_eq!(caret_back_units("আমার", Some("")), 0);
+    }
 
     #[test]
     fn empty_to_bangla_inserts_without_erasing() {

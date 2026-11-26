@@ -878,6 +878,10 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         compose_pid: &'a mut u32,
         /// Bangla text last written by inline preedit (empty when inactive).
         preedit_rendered: &'a mut String,
+        /// UTF-16 units the document caret is currently left of the end of
+        /// `preedit_rendered`. Zero means the caret sits after the word, which
+        /// is the only position `plan_edit` erase counts are measured from.
+        preedit_caret_back: &'a mut usize,
         /// Candidate words already counted as shown in this composition.
         shown_words: &'a mut HashSet<String>,
         /// Last committed Bangla word and its timestamp, for correction detection.
@@ -1012,19 +1016,72 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             String::new()
         };
         let plan = okkhor_core::plan_edit(ctx.preedit_rendered, &next);
-        if plan.is_noop() {
-            *ctx.preedit_rendered = next;
+        // Every erase count is measured from the end of the rendered word, so
+        // the caret must be parked there before the document is touched. If it
+        // cannot be moved back the position is unknown: leave the document
+        // alone rather than erase from the wrong place.
+        if !park_preedit_caret(ctx) {
             return;
         }
-        if let Err(error) = okkhor_win::inject_commit(plan.erase_utf16, &plan.insert, false) {
-            ctx.logger.error(
-                logging::Scope::Daemon,
-                "preedit_inject",
-                inject_code(&error),
-            );
-            return;
+        if !plan.is_noop() {
+            if let Err(error) = okkhor_win::inject_commit(plan.erase_utf16, &plan.insert, false) {
+                ctx.logger.error(
+                    logging::Scope::Daemon,
+                    "preedit_inject",
+                    inject_code(&error),
+                );
+                return;
+            }
         }
         *ctx.preedit_rendered = next;
+        // Show the composition point: walk the caret into the word by the
+        // length of the rendered right-hand half. A transliteration that is not
+        // prefix-stable yields 0, which keeps the caret at the word end.
+        let back = if ctx.session.is_composing() {
+            let prefix = ctx.session.rendered_prefix();
+            okkhor_core::caret_back_units(ctx.preedit_rendered, prefix.as_deref())
+        } else {
+            0
+        };
+        if back > 0 {
+            if let Err(error) = okkhor_win::send_caret_steps(true, back) {
+                ctx.logger
+                    .error(logging::Scope::Daemon, "preedit_caret", inject_code(&error));
+                // The caret is at the word end (parked) and the text matches
+                // the buffer, so dropping the projection is safe.
+                *ctx.preedit_caret_back = 0;
+                return;
+            }
+        }
+        *ctx.preedit_caret_back = back;
+    }
+
+    /// Return the document caret to the end of the rendered word.
+    ///
+    /// Returns `false` when the caret could not be moved, leaving the caller
+    /// with an unknown position; no document mutation may follow that.
+    fn park_preedit_caret(ctx: &mut CompositionCtx<'_>) -> bool {
+        let back = *ctx.preedit_caret_back;
+        if back == 0 {
+            return true;
+        }
+        // An injected arrow while Ctrl/Alt is physically down arrives as a
+        // word- or paragraph-level chord, not a one-unit caret move. Treat the
+        // position as unknown instead of moving the caret by a whole word.
+        if ctrl_or_alt_pressed() {
+            return false;
+        }
+        match okkhor_win::send_caret_steps(false, back) {
+            Ok(()) => {
+                *ctx.preedit_caret_back = 0;
+                true
+            }
+            Err(error) => {
+                ctx.logger
+                    .error(logging::Scope::Daemon, "preedit_caret", inject_code(&error));
+                false
+            }
+        }
     }
 
     /// Finalize an inline-preedit word in one atomic `SendInput` batch.
@@ -1041,9 +1098,16 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         newline: bool,
         send_tab: bool,
     ) {
+        // The batch rewrites the whole rendered word from the caret, so the
+        // caret has to be back at the word end first; a mid-word commit would
+        // erase the units before the caret instead.
+        if !park_preedit_caret(ctx) {
+            return;
+        }
         let rendered = ctx.preedit_rendered.clone();
         let committed = ctx.session.commit(delimiter == Some(" "));
         ctx.preedit_rendered.clear();
+        *ctx.preedit_caret_back = 0;
         hide_popup(ctx.popup, ctx.state);
 
         let units = rendered.encode_utf16().count();
@@ -1446,8 +1510,11 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         // drops: already-typed text stays untouched in the target.
         let _ = ctx.session.cancel();
         // Inline preedit leaves the already-rendered Bangla in the document
-        // (Kontho behaviour); only the tracking state is dropped.
+        // (Kontho behaviour); only the tracking state is dropped. Leave the
+        // caret after the word rather than inside it.
+        let _ = park_preedit_caret(ctx);
         ctx.preedit_rendered.clear();
+        *ctx.preedit_caret_back = 0;
         ctx.shown_words.clear();
         *ctx.pending_correction = None;
         hide_popup(ctx.popup, ctx.state);
@@ -1464,6 +1531,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if ctx.session.is_composing() && !same {
             ctx.session.reset();
             ctx.preedit_rendered.clear();
+            // Focus belongs to another window now; never inject arrows there.
+            *ctx.preedit_caret_back = 0;
             ctx.shown_words.clear();
             *ctx.pending_correction = None;
             hide_popup(ctx.popup, ctx.state);
@@ -1557,6 +1626,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 if ctrl_or_alt_pressed() {
                     let _ = ctx.session.cancel();
                     ctx.preedit_rendered.clear();
+                    // A chord is held: never inject arrows (they would arrive
+                    // as a word-level jump). Forget the projection instead.
+                    *ctx.preedit_caret_back = 0;
                     return;
                 }
                 track_focus(ctx);
@@ -1565,7 +1637,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     refresh_inline_preedit(ctx);
                 } else {
                     let _ = ctx.session.cancel();
+                    let _ = park_preedit_caret(ctx);
                     ctx.preedit_rendered.clear();
+                    *ctx.preedit_caret_back = 0;
                 }
                 return;
             }
@@ -2191,6 +2265,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut compose_window = foreground_window_id();
     let mut compose_pid = foreground_window_pid();
     let mut preedit_rendered = String::new();
+    let mut preedit_caret_back = 0usize;
     let mut shown_words: HashSet<String> = HashSet::new();
     let mut last_commit: Option<(String, u64)> = None;
     let mut pending_correction: Option<String> = None;
@@ -2412,6 +2487,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 let _ = okkhor_win::signal_state_changed();
                 session.reset();
                 preedit_rendered.clear();
+                preedit_caret_back = 0;
                 hide_popup(&mut popup, Some(state));
                 tray.set_mode(tray_mode_of(mode));
                 println!("daemon: mode {}", mode.as_str());
@@ -2422,6 +2498,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 fixed_composition.clear();
                 session.reset();
                 preedit_rendered.clear();
+                preedit_caret_back = 0;
                 println!("daemon: encoding {}", encoding.as_str());
             }
             // Layout changes apply live: no daemon restart required. Rebuild the
@@ -2436,6 +2513,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 fixed_composition.clear();
                 session.reset();
                 preedit_rendered.clear();
+                preedit_caret_back = 0;
                 hide_popup(&mut popup, Some(state));
                 match next {
                     LayoutEngine::Fixed(layout) => {
@@ -2495,6 +2573,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
             toast_until_ms = 0;
             preedit_rendered.clear();
+            preedit_caret_back = 0;
             // Nothing may be swallowed while capture is off.
             hook.set_english_popup(false);
             okkhor_win::set_swallow_inline(false);
@@ -2513,6 +2592,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 session.reset();
             }
             preedit_rendered.clear();
+            preedit_caret_back = 0;
             okkhor_win::set_swallow_inline(false);
             let enabled = ipc_state
                 .as_deref()
@@ -2779,11 +2859,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             // leave the document as-is.
             session.reset();
             preedit_rendered.clear();
+            preedit_caret_back = 0;
             hide_popup(&mut popup, ipc_state.as_deref());
             inline_was_enabled = inline_enabled;
         }
         if !inline_enabled {
             preedit_rendered.clear();
+            preedit_caret_back = 0;
         }
         if !session.is_composing() {
             shown_words.clear();
@@ -2882,6 +2964,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                     compose_window: &mut compose_window,
                     compose_pid: &mut compose_pid,
                     preedit_rendered: &mut preedit_rendered,
+                    preedit_caret_back: &mut preedit_caret_back,
                     shown_words: &mut shown_words,
                     last_commit: &mut last_commit,
                     pending_correction: &mut pending_correction,
@@ -2915,6 +2998,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 compose_window: &mut compose_window,
                 compose_pid: &mut compose_pid,
                 preedit_rendered: &mut preedit_rendered,
+                preedit_caret_back: &mut preedit_caret_back,
                 shown_words: &mut shown_words,
                 last_commit: &mut last_commit,
                 pending_correction: &mut pending_correction,

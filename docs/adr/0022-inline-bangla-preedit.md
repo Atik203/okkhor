@@ -56,7 +56,9 @@ Okkhor implements the same feel with a stricter state machine.
 - **Escape** clears the buffer and leaves the text (Kontho behaviour).
 - **Caret move, click, focus change, pause, layout/encoding change, password
   field, IME/bidi field** reset the composition. Never edit an anchor we no
-  longer own.
+  longer own. Caret movement performed by the composition itself (Left/Right
+  inside the word) is specified in ADR 0026: the caret is projected into the
+  rendered word and parked back at its end before every mutation.
 
 ### UTF-16 and bounds
 

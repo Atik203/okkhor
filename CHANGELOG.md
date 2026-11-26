@@ -3,6 +3,17 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [Unreleased]
+
+### Added
+
+- **Mid-word editing shows where you are.** Left/Right inside a Bangla word
+  moves the composition point, and the caret is now projected into the rendered
+  word instead of staying at its end. The caret is parked back before every
+  rewrite, so erase counts stay measured from the word end; when a
+  transliteration is not prefix-stable, the caret stays at the end rather than
+  guessing an offset (ADR 0026, amending ADR 0022).
+
 ## [0.9.6] - 2026-11-25
 
 ### Fixed

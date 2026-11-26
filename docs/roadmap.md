@@ -304,6 +304,9 @@ record the design.
 
 - Inline Bangla preedit: per-keystroke Bangla, grapheme-safe LCP diff, one
   atomic injection, Backspace walk-back, live Up/Down, Tab/Space/Esc (ADR 0022).
+- Mid-word editing: Left/Right move the composition point inside the word, and
+  the document caret is projected onto it with a bounded arrow batch, parked
+  back before every rewrite (ADR 0026).
 - Full WTR1 import as index v2: 135k aliases / 151k pairs, preferred rank,
   nukta→NFC (ADR 0023).
 - Ghost next-word hint for Bangla and English: grey overlay after the caret,

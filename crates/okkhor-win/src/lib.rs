@@ -87,10 +87,10 @@ pub use state_event::{
 pub use tray::{TrayError, TrayEvent, TrayIcon, TrayMode};
 #[cfg(windows)]
 pub use win32::{
-    HookError, MAX_SEND_BACKSPACES, ModifierFlags, WindowsInjector, WindowsKeyboardHook,
-    altgr_pressed, capture_enabled, ctrl_or_alt_pressed, english_popup_visible,
-    foreground_window_id, foreground_window_pid, inject_char, inject_commit, modifier_state,
-    send_backspaces, send_enter, send_tab, set_capture_enabled, set_composition_state,
-    set_english_popup, set_ghost_popup, set_swallow_inline, set_swallow_letters, toggle_capture,
-    utf16_units,
+    HookError, MAX_CARET_STEPS, MAX_SEND_BACKSPACES, ModifierFlags, WindowsInjector,
+    WindowsKeyboardHook, altgr_pressed, capture_enabled, ctrl_or_alt_pressed,
+    english_popup_visible, foreground_window_id, foreground_window_pid, inject_char, inject_commit,
+    modifier_state, send_backspaces, send_caret_steps, send_enter, send_tab, set_capture_enabled,
+    set_composition_state, set_english_popup, set_ghost_popup, set_swallow_inline,
+    set_swallow_letters, toggle_capture, utf16_units,
 };

@@ -14,8 +14,9 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LWIN,
-    VK_MENU, VK_RETURN, VK_RMENU, VK_RWIN, VK_SHIFT, VK_TAB,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK,
+    VK_CONTROL, VK_LEFT, VK_LWIN, VK_MENU, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RWIN, VK_SHIFT,
+    VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
@@ -531,6 +532,60 @@ fn build_commit_inputs(backspaces: usize, units: &[u16]) -> Vec<INPUT> {
     inputs
 }
 
+/// Upper bound for one [`send_caret_steps`] call.
+///
+/// A rendered word is at most a few hundred UTF-16 units; the composition
+/// buffer is capped at 32 roman characters, so the projected offset stays far
+/// below this. The cap keeps the batch bounded no matter what state is passed.
+pub const MAX_CARET_STEPS: usize = 64;
+
+/// Build one arrow-key batch without calling Win32, so its shape is testable.
+fn build_caret_inputs(left: bool, count: usize) -> Vec<INPUT> {
+    let vk = if left { VK_LEFT } else { VK_RIGHT };
+    // Arrow keys are extended keys; targets that use the scan code (some games
+    // and older controls) need the flag on both the press and the release.
+    let flags = KEYEVENTF_EXTENDEDKEY;
+    let mut inputs = Vec::with_capacity(count.saturating_mul(2));
+    for _ in 0..count {
+        inputs.push(virtual_key_input(vk, flags));
+        inputs.push(virtual_key_input(vk, flags | KEYEVENTF_KEYUP));
+    }
+    inputs
+}
+
+/// Move the document caret `count` positions left or right in one batch.
+///
+/// Only the inline preedit caret projection uses this: it walks the caret into
+/// the rendered word to show the composition point, and back to the word end
+/// before the next edit. The events carry `LLKHF_INJECTED`, so the hook skips
+/// them and they never re-enter the composition. A count of zero touches no
+/// Win32 API; larger counts clamp to [`MAX_CARET_STEPS`]. A failed batch
+/// reports the same typed error as [`inject_commit`], and the caller must then
+/// treat the document caret as unknown instead of guessing.
+pub fn send_caret_steps(left: bool, count: usize) -> Result<(), InjectError> {
+    let count = count.min(MAX_CARET_STEPS);
+    if count == 0 {
+        return Ok(());
+    }
+    let inputs = build_caret_inputs(left, count);
+    // SAFETY: inputs is a valid, fully initialized INPUT slice and the
+    // structure size is provided to SendInput.
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) } as usize;
+    if sent == inputs.len() {
+        Ok(())
+    } else {
+        let code = last_error_code();
+        if sent == 0 && code == 5 {
+            Err(InjectError::Blocked)
+        } else {
+            Err(InjectError::Win32 {
+                operation: "SendInput",
+                code,
+            })
+        }
+    }
+}
+
 /// Commit an erase plus replacement text in one `SendInput` batch.
 ///
 /// Builds a single `INPUT` array — `backspaces` Backspace down/up pairs
@@ -995,7 +1050,8 @@ mod tests {
     use super::{WindowsInjector, unicode_inputs, utf16_units};
     use crate::inject::{InjectionMethod, TextInjector};
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK,
+        INPUT_KEYBOARD, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY,
+        VK_BACK, VK_LEFT, VK_RIGHT,
     };
 
     /// Read the keyboard arm of an INPUT built by this module.
@@ -1090,6 +1146,30 @@ mod tests {
                 .iter()
                 .all(|input| keyboard_fields(input).0 != VK_BACK.0)
         );
+    }
+
+    #[test]
+    fn caret_batch_is_extended_arrow_down_up_pairs() {
+        let inputs = super::build_caret_inputs(true, 3);
+        assert_eq!(inputs.len(), 6);
+        for pair in inputs.chunks(2) {
+            let (down_vk, down_scan, down_flags) = keyboard_fields(&pair[0]);
+            let (up_vk, up_scan, up_flags) = keyboard_fields(&pair[1]);
+            assert_eq!(down_vk, VK_LEFT.0);
+            assert_eq!(up_vk, VK_LEFT.0);
+            assert_eq!(down_scan, 0);
+            assert_eq!(up_scan, 0);
+            // Arrows are extended keys on both edges of the press.
+            assert_eq!(down_flags, KEYEVENTF_EXTENDEDKEY.0);
+            assert_eq!(up_flags, (KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP).0);
+        }
+        let right = super::build_caret_inputs(false, 1);
+        assert_eq!(keyboard_fields(&right[0]).0, VK_RIGHT.0);
+    }
+
+    #[test]
+    fn empty_caret_batch_is_a_noop() {
+        assert!(super::build_caret_inputs(true, 0).is_empty());
     }
 
     #[test]

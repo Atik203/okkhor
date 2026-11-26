@@ -373,6 +373,37 @@ impl<P: SuggestionProvider> InputSession<P> {
         true
     }
 
+    /// Best rendering of the roman buffer up to the insertion point.
+    ///
+    /// The inline preedit shows the composition point inside the rendered word,
+    /// and the only way to place the document caret there is to know how many
+    /// UTF-16 units the right-hand half occupies. Asking the same provider for
+    /// the prefix keeps that projection consistent with what is on screen.
+    ///
+    /// Returns `None` when idle, at either end of the buffer, or when the
+    /// provider has no row for the prefix. `None` means "keep the caret at the
+    /// end of the word", never an error.
+    ///
+    /// This runs on the composition worker, not the hook: one extra bounded
+    /// candidate request per mid-word keystroke, behind the same 3 ms budget.
+    pub fn rendered_prefix(&mut self) -> Option<String> {
+        let length = self.buffer.chars().count();
+        if self.cursor == 0 || self.cursor >= length {
+            return None;
+        }
+        let prefix: String = self.buffer.chars().take(self.cursor).collect();
+        let rank_ms = if self.rank_ms == 0 {
+            self.now_ms
+        } else {
+            self.rank_ms
+        };
+        let previous = self.previous_word.clone();
+        self.provider
+            .suggestions(&prefix, 1, previous.as_deref(), rank_ms, &self.user_words)
+            .into_iter()
+            .next()
+    }
+
     /// Move the selection by `delta` steps, wrapping around the list.
     ///
     /// No-op when fewer than two candidates exist.
@@ -760,6 +791,27 @@ mod tests {
         assert_eq!(session.selected(), 2, "out of range is ignored");
         let commit = session.commit(false).expect("commit");
         assert_eq!(commit.text, "gamma");
+    }
+
+    #[test]
+    fn rendered_prefix_follows_the_composition_cursor() {
+        // The projection only exists mid-word: at either end of the buffer the
+        // caret is already where it belongs, so the caller must not move it.
+        let mut session = InputSession::new(OverflowEngine);
+        type_text(&mut session, "abc");
+        assert_eq!(session.rendered_prefix(), None, "end of the word");
+        assert!(session.move_cursor(-2));
+        assert!(session.rendered_prefix().is_some(), "mid-word");
+        assert!(session.move_cursor(-1));
+        assert_eq!(session.rendered_prefix(), None, "start of the word");
+    }
+
+    #[test]
+    fn rendered_prefix_is_none_when_no_rule_matches() {
+        let mut session = InputSession::new(EmptyEngine);
+        type_text(&mut session, "abc");
+        assert!(session.move_cursor(-1));
+        assert_eq!(session.rendered_prefix(), None);
     }
 
     #[test]
