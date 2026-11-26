@@ -373,11 +373,6 @@ impl<P: SuggestionProvider> InputSession<P> {
         true
     }
 
-    /// Current insertion point, in characters.
-    pub fn cursor(&self) -> usize {
-        self.cursor
-    }
-
     /// Move the selection by `delta` steps, wrapping around the list.
     ///
     /// No-op when fewer than two candidates exist.
