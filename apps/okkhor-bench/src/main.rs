@@ -9,6 +9,7 @@ mod injection;
 mod model;
 mod nextword;
 mod output;
+mod parity;
 mod ranking;
 mod stats;
 mod suggestions;
@@ -113,6 +114,22 @@ fn run() -> Result<(), BenchError> {
         }
     }
 
+    if options.alias_parity {
+        let sample = options.sample.unwrap_or(2_000);
+        let report = parity::run(sample).map_err(BenchError::Failed)?;
+        println!(
+            "alias parity: top1 {}/{} ({:.1}%)",
+            report.matched,
+            report.checked,
+            report.percent()
+        );
+        if !report.misses.is_empty() {
+            println!("parity misses (roman -> expected | got):");
+            for miss in report.misses.iter().take(20) {
+                println!("  {} -> {} | {}", miss.roman, miss.expected, miss.got);
+            }
+        }
+    }
     if options.injection {
         let iterations = options
             .iterations
@@ -491,6 +508,8 @@ struct Options {
     ranking: bool,
     candidates: bool,
     suggestions: bool,
+    alias_parity: bool,
+    sample: Option<usize>,
     injection: bool,
     nextword: bool,
     nextword_model: Option<String>,
@@ -511,6 +530,8 @@ impl Default for Options {
             ranking: false,
             candidates: false,
             suggestions: false,
+            alias_parity: false,
+            sample: None,
             injection: false,
             nextword: false,
             nextword_model: None,
@@ -536,6 +557,12 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
             "--ranking" => options.ranking = true,
             "--candidates" => options.candidates = true,
             "--suggestions" => options.suggestions = true,
+            "--alias-parity" => options.alias_parity = true,
+            "--sample" => {
+                options.sample = Some(take_value(&mut arguments, "--sample")?.parse().map_err(
+                    |_| BenchError::Usage("--sample expects a positive integer".to_owned()),
+                )?);
+            }
             "--injection" => options.injection = true,
             "--nextword" => options.nextword = true,
             "--nextword-model" => {
@@ -591,6 +618,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
     if !options.ranking
         && !options.candidates
         && !options.suggestions
+        && !options.alias_parity
         && !options.injection
         && !options.nextword
         && options.nextword_model.is_none()

@@ -158,6 +158,15 @@ impl SuggestionEngine {
         })
     }
 
+    /// Shipped correction for `roman`, if any. Quality tools use this as the
+    /// authoritative expectation; the engine already stages it first.
+    pub fn overlay_target(&self, roman: &str) -> Option<&str> {
+        self.overlay
+            .iter()
+            .find(|(key, _)| key == roman)
+            .map(|(_, value)| value.as_str())
+    }
+
     /// Static kind of the index failure, if any (for the startup log).
     pub fn index_error(&self) -> Option<&'static str> {
         self.index_error

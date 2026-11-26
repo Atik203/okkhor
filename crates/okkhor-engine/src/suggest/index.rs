@@ -565,6 +565,16 @@ impl SuggestionIndex {
         ))
     }
 
+    /// Number of roman alias rows in the index.
+    pub fn roman_count(&self) -> usize {
+        self.counts.roman
+    }
+
+    /// Roman key of one alias row, for quality sampling (never user text).
+    pub fn roman_key_at(&self, index: usize) -> Option<&str> {
+        self.roman_row(index).ok().map(|(key, _, _)| key)
+    }
+
     fn roman_row(&self, index: usize) -> Result<(&str, u8, &str), IndexError> {
         let base = index * ROMAN_RECORD;
         let key_offset = u32_at(self.roman, base).ok_or(IndexError::Truncated)? as usize;
