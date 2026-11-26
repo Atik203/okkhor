@@ -15,8 +15,8 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK,
-    VK_CONTROL, VK_LEFT, VK_LWIN, VK_MENU, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RWIN, VK_SHIFT,
-    VK_TAB,
+    VK_CAPITAL, VK_CONTROL, VK_LEFT, VK_LWIN, VK_MENU, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RWIN,
+    VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
@@ -772,6 +772,17 @@ pub fn modifier_state() -> ModifierFlags {
             altgr: altgr_pressed(),
         }
     }
+}
+
+/// Whether Caps Lock is toggled on.
+///
+/// `GetAsyncKeyState`'s low bit is the toggle state for toggle keys, which is
+/// the only state readable off the window's own thread. The composition case is
+/// `shift XOR caps`, matching what the target application would receive.
+pub fn caps_lock_on() -> bool {
+    // SAFETY: GetAsyncKeyState with a virtual-key code has no pointer
+    // preconditions.
+    unsafe { (GetAsyncKeyState(i32::from(VK_CAPITAL.0)) & 1) != 0 }
 }
 
 /// Whether the AltGr modifier is held. Ctrl+Alt on Windows is reported as

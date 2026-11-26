@@ -63,6 +63,19 @@ pub enum BackspaceOutcome {
     BecameEmpty,
 }
 
+/// Windows letter casing for a composition key: `shift XOR caps`.
+///
+/// The buffer stores the letter as typed because Avro reads `T/D/N/S/R` (and
+/// `I/U/O/Y`) as different keys. This is pure so the mapping is testable
+/// without a keyboard.
+pub fn cased_letter(letter: u8, shift: bool, caps: bool) -> u8 {
+    if shift ^ caps {
+        letter.to_ascii_uppercase()
+    } else {
+        letter
+    }
+}
+
 /// Map a virtual-key code to a composition letter (`A`–`Z`, lowercased).
 ///
 /// Returns `None` for anything that is not an ASCII letter key.
@@ -258,12 +271,11 @@ impl<P: SuggestionProvider> InputSession<P> {
     /// Returns `false` without changing state when `letter` is not
     /// `a`–`z`/`A`–`Z` or the buffer is already full.
     pub fn push_letter(&mut self, letter: u8) -> bool {
-        let lower = if letter.is_ascii_uppercase() {
-            letter + 32
-        } else {
-            letter
-        };
-        if !(lower as char).is_ascii_lowercase() {
+        // Case is semantic in the Avro table (T -> ট, D -> ড, R -> ড়, ...),
+        // so the buffer keeps the letter exactly as the user typed it. Lookup
+        // stages that need a lowercase key do their own normalization.
+        let ch = letter as char;
+        if !ch.is_ascii_alphabetic() {
             return false;
         }
         if self.buffer.len() >= MAX_BUFFER_LEN {
@@ -300,7 +312,7 @@ impl<P: SuggestionProvider> InputSession<P> {
             .nth(self.cursor)
             .map(|(index, _)| index)
             .unwrap_or(self.buffer.len());
-        self.buffer.insert(byte_at, lower as char);
+        self.buffer.insert(byte_at, ch);
         self.cursor += 1;
         self.refresh();
         true
@@ -671,8 +683,8 @@ pub fn default_engine(ranker: Arc<dyn Ranker + Send + Sync>) -> DefaultEngine {
 mod tests {
     use super::{
         BackspaceOutcome, DefaultEngine, InputSession, MAX_BUFFER_LEN, MAX_CANDIDATES,
-        SuggestionProvider, default_engine, digit_char, is_modifier_key, vk_to_digit_index,
-        vk_to_letter,
+        SuggestionProvider, cased_letter, default_engine, digit_char, is_modifier_key,
+        vk_to_digit_index, vk_to_letter,
     };
     use okkhor_engine::UserWord;
     use okkhor_learn::Smriti;
@@ -793,6 +805,24 @@ mod tests {
         assert_eq!(commit.text, "gamma");
     }
 
+    #[test]
+    fn shift_and_caps_set_the_letter_case() {
+        assert_eq!(cased_letter(b't', false, false), b't');
+        assert_eq!(cased_letter(b't', true, false), b'T');
+        assert_eq!(cased_letter(b't', false, true), b'T');
+        assert_eq!(cased_letter(b't', true, true), b't');
+    }
+    #[test]
+    fn push_letter_keeps_the_typed_case() {
+        // Avro reads T/D/N/S/R as different keys; the buffer must not flatten
+        // them before the engine sees them.
+        let mut session = InputSession::new(EmptyEngine);
+        assert!(session.push_letter(b'T'));
+        assert!(session.push_letter(b'a'));
+        assert_eq!(session.buffer(), "Ta");
+        assert_eq!(session.backspace(), BackspaceOutcome::StillComposing);
+        assert_eq!(session.buffer(), "T");
+    }
     #[test]
     fn rendered_prefix_follows_the_composition_cursor() {
         // The projection only exists mid-word: at either end of the buffer the
@@ -965,10 +995,14 @@ mod tests {
     }
 
     #[test]
-    fn uppercase_letters_fold_to_lowercase() {
+    fn uppercase_letters_keep_their_case() {
+        // Avro reads capitals as different keys (T -> ট, D -> ড), so folding
+        // them here would make those letters unreachable from the keyboard.
         let mut session = session();
-        assert!(session.push_letter(b'A'));
-        assert_eq!(session.buffer(), "a");
+        assert!(session.push_letter(b'T'));
+        assert_eq!(session.buffer(), "T");
+        assert!(session.push_letter(b'a'));
+        assert_eq!(session.buffer(), "Ta");
     }
 
     #[test]

@@ -69,9 +69,12 @@ English completion rules are in ADR-0016.
 
 - Only key-down events drive the session; key releases follow their key-down's
   swallow decision.
-- Letters are lowercased into the buffer; letters and Backspace keep
-  pass-through, because one target character per buffer character keeps the
-  erase count exact.
+- Letters keep the case the user typed (`shift XOR caps`). Avro reads `T`, `D`,
+  `N`, `S`, `R` and the digraphs built from them as different keys, so folding
+  to lowercase would make ট, ড, ণ, শ and ড় unreachable. Non-semantic capitals
+  are normalized to their lowercase key before the rule matcher sees them
+  (ADR 0027). Letters and Backspace keep pass-through, because one target
+  character per buffer character keeps the erase count exact.
 - Commit keys — Space, Enter, digits `0`–`9` (row and numpad), and the arrows —
   are **swallowed while a composition is active**. They either append a
   character (space, digit) or move the caret, so letting them reach the target

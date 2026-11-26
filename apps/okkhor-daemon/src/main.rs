@@ -846,8 +846,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
 
     use crate::input_session::{
         BackspaceOutcome, Commit, DefaultEngine, InputSession, VK_BACK, VK_DOWN, VK_ESCAPE,
-        VK_LEFT, VK_OEM_PERIOD, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, default_engine,
-        digit_char, is_modifier_key, vk_to_digit_index, vk_to_letter,
+        VK_LEFT, VK_OEM_PERIOD, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP, cased_letter,
+        default_engine, digit_char, is_modifier_key, vk_to_digit_index, vk_to_letter,
     };
 
     /// Allowlisted log kind for a mode toggle (no text, no codes).
@@ -995,6 +995,17 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         emit_suggestion_shown(ctx);
     }
 
+    /// Case exactly as the target application would receive it.
+    ///
+    /// Avro gives `T/D/N/S/R/I/U/O/Y` their own Bangla forms, so the letter the
+    /// user actually typed has to reach the buffer. `shift XOR caps` matches
+    /// Windows' own letter casing; the hook only sees the virtual key.
+    fn composition_letter(vk: u16) -> Option<u8> {
+        let letter = vk_to_letter(vk)?;
+        let shift = okkhor_win::modifier_state().shift;
+        let caps = okkhor_win::caps_lock_on();
+        Some(cased_letter(letter, shift, caps))
+    }
     /// Render the current best Bangla candidate into the document as an
     /// inline preedit. Only the suffix after the common prefix is rewritten,
     /// and the whole edit is one atomic `SendInput` batch.
@@ -1622,7 +1633,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
         }
         if inline_enabled {
-            if let Some(letter) = vk_to_letter(vk) {
+            if let Some(letter) = composition_letter(vk) {
                 if ctrl_or_alt_pressed() {
                     let _ = ctx.session.cancel();
                     ctx.preedit_rendered.clear();
@@ -1644,7 +1655,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 return;
             }
         }
-        if let Some(letter) = vk_to_letter(vk) {
+        if let Some(letter) = composition_letter(vk) {
             // Shortcuts (Ctrl/Alt/Win chords) produce no text in the target;
             // growing the buffer for them would erase the user's real text on
             // commit, so the composition ends before the chord passes through.

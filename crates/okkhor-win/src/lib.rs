@@ -88,7 +88,7 @@ pub use tray::{TrayError, TrayEvent, TrayIcon, TrayMode};
 #[cfg(windows)]
 pub use win32::{
     HookError, MAX_CARET_STEPS, MAX_SEND_BACKSPACES, ModifierFlags, WindowsInjector,
-    WindowsKeyboardHook, altgr_pressed, capture_enabled, ctrl_or_alt_pressed,
+    WindowsKeyboardHook, altgr_pressed, caps_lock_on, capture_enabled, ctrl_or_alt_pressed,
     english_popup_visible, foreground_window_id, foreground_window_pid, inject_char, inject_commit,
     modifier_state, send_backspaces, send_caret_steps, send_enter, send_tab, set_capture_enabled,
     set_composition_state, set_english_popup, set_ghost_popup, set_swallow_inline,

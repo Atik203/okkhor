@@ -383,6 +383,36 @@ impl PhoneticTransliterator {
 
     /// Ranked candidates for `input`. The table pipeline is deterministic,
     /// so this yields at most one output: the table form.
+    /// Avro gives only a few capitals their own Bangla form.
+    ///
+    /// `T/D/N/S/R` select retroflex consonants and `I/U/O/Y` long vowels or
+    /// semivowels; every other capital is the same key as its lowercase letter.
+    /// The legacy keyMap expresses that as `B -> b`, `K -> k`, ..., which emits a
+    /// literal Latin letter if those rules see a capital. Normalizing the
+    /// non-semantic capitals before matching keeps `Bhalo`/`Kemon`/`Ghor` on the
+    /// Bangla path while preserving `Taka`, `Th`, `D`, `R`, `Rh` and `Sh`.
+    fn normalize_case(input: &str) -> std::borrow::Cow<'_, str> {
+        const SEMANTIC: &str = "TDNSRIUOY";
+        if !input
+            .chars()
+            .any(|ch| ch.is_ascii_uppercase() && !SEMANTIC.contains(ch))
+        {
+            return std::borrow::Cow::Borrowed(input);
+        }
+        std::borrow::Cow::Owned(
+            input
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_uppercase() && !SEMANTIC.contains(ch) {
+                        ch.to_ascii_lowercase()
+                    } else {
+                        ch
+                    }
+                })
+                .collect(),
+        )
+    }
+
     pub fn suggest(
         &self,
         input: &str,
@@ -407,7 +437,7 @@ impl PhoneticTransliterator {
             // `boundary` from `find` is always a character boundary.
             let (core, space) = chunk.split_at(boundary);
             if !core.is_empty() {
-                out.push_str(&self.convert_word(core));
+                out.push_str(&self.convert_word(&Self::normalize_case(core)));
             }
             out.push_str(space);
         }
@@ -659,6 +689,41 @@ mod reph_tests {
             ),
             ("korchi", "\u{0995}\u{09b0}\u{099b}\u{09bf}"),
             ("kormo", "\u{0995}\u{09b0}\u{09ae}"),
+        ] {
+            let out = engine.transliterate(input, &options);
+            assert_eq!(
+                out.first().map(|row| row.text.as_str()),
+                Some(expected),
+                "{input}"
+            );
+        }
+    }
+    #[test]
+    fn case_follows_the_kontho_keymap() {
+        let engine = PhoneticTransliterator::from_embedded_avro().expect("table");
+        let options = TransliterationOptions::default();
+        for (input, expected) in [
+            ("taka", "\u{09a4}\u{09be}\u{0995}\u{09be}"),
+            ("Taka", "\u{099f}\u{09be}\u{0995}\u{09be}"),
+            ("th", "\u{09a5}"),
+            ("Th", "\u{09a0}"),
+            ("d", "\u{09a6}"),
+            ("D", "\u{09a1}"),
+            ("r", "\u{09b0}"),
+            ("R", "\u{09dc}"),
+            ("Rh", "\u{09dd}"),
+            ("sh", "\u{09b6}"),
+            ("Sh", "\u{09b7}"),
+            ("n", "\u{09a8}"),
+            ("N", "\u{09a3}"),
+            // Non-semantic capitals are the same key as their lowercase form;
+            // they must never leak a literal Latin letter into the output.
+            ("Bhalo", "\u{09ad}\u{09be}\u{09b2}"),
+            ("Kemon", "\u{0995}\u{09c7}\u{09ae}\u{09a8}"),
+            ("Ghor", "\u{0998}\u{09b0}"),
+            ("Amar", "\u{0986}\u{09ae}\u{09be}\u{09b0}"),
+            // Control: the reph-less retroflex stays precomposed, like the keyMap.
+            ("poRi", "\u{09aa}\u{09dc}\u{09bf}"),
         ] {
             let out = engine.transliterate(input, &options);
             assert_eq!(

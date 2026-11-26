@@ -190,12 +190,22 @@ impl SuggestionEngine {
         let mut staged: Vec<Candidate> = Vec::with_capacity(MAX_STAGED);
 
         self.stage_overlay(roman, &mut staged);
+        // Avro capitals are semantic (T -> ট, D -> ড, R -> ড়, ...). The index
+        // keys are lowercase, so a capitalized key must not be answered with
+        // the lowercase word: the rule path owns this query.
+        let semantic_capital = roman
+            .chars()
+            .any(|ch| matches!(ch, 'T' | 'D' | 'N' | 'S' | 'R' | 'I' | 'U' | 'O' | 'Y'));
         if let Some(index) = &self.index {
-            self.stage_curated(index, roman, &mut staged);
+            if !semantic_capital {
+                self.stage_curated(index, roman, &mut staged);
+            }
             self.stage_user_words(request.user_words, roman, &mut staged);
-            self.stage_roman(index, roman, &mut staged);
-            self.stage_typo(index, roman, &mut staged);
-            self.stage_autocorrect(index, roman, &mut staged);
+            if !semantic_capital {
+                self.stage_roman(index, roman, &mut staged);
+                self.stage_typo(index, roman, &mut staged);
+                self.stage_autocorrect(index, roman, &mut staged);
+            }
         }
 
         let outputs = self.transliterate(roman);
@@ -676,6 +686,25 @@ mod tests {
         suggestions.iter().map(|s| s.text.as_str()).collect()
     }
 
+    #[test]
+    fn capitalized_keys_reach_the_rules() {
+        let engine = engine();
+        let smriti = Smriti::new();
+        for (roman, expected) in [
+            ("Taka", "\u{099f}\u{09be}\u{0995}\u{09be}"),
+            ("Th", "\u{09a0}"),
+            ("D", "\u{09a1}"),
+            ("R", "\u{09dc}"),
+            ("Sh", "\u{09b7}"),
+        ] {
+            let rows = engine.suggest(&SuggestRequest::new(roman, 4), &smriti);
+            assert_eq!(
+                rows.first().map(|row| row.text.as_str()),
+                Some(expected),
+                "{roman}"
+            );
+        }
+    }
     #[test]
     fn shipped_overlay_rows_win() {
         let engine = engine();

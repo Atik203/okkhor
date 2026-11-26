@@ -19,9 +19,23 @@ Versioning once it reaches 1.0.
 
 ### Fixed
 
+- **Capitals now type their own letters.** Avro gives `T`, `Th`, `D`, `Dh`,
+  `R`, `Rh`, `N`, `S`, `Sh`, `I`, `U`, `O` and `Y` distinct Bangla forms, but the
+  composition buffer folded every letter to lowercase, so ট, ঠ, ড, ঢ, ড়, ঢ়, ণ
+  and ষ were unreachable from the keyboard. Case is now taken from
+  `shift XOR caps`, preserved in the buffer, and honored by the engine; the
+  non-semantic capitals (`Bhalo`, `Kemon`, `Ghor`) normalize to their lowercase
+  key instead of leaking a literal Latin letter (ADR 0027).
+- **The rule table is now Kontho's key map.** `avro-v1.json` was a derived set
+  that disagreed with the owner-licensed `Avro Phonetic (Custom).nmsLayout`
+  v1.29 in 247 of 250 rows. It is regenerated from that file with a data-only,
+  no-unpickle reader (`scripts/import-avro-layout.py`), and the everyday corpus
+  goes from 92.8 % to 100 % top-1 with p99 inside the 3 ms budget.
+- **Capitalized input no longer resolves to the lowercase word.** Dictionary
+  stages are skipped when the query contains a semantic capital, so `Taka`
+  yields টাকা rather than তাকা.
 - Corpus rows that were wrong in the harness itself (`bolo`, `ghumi`,
-  `sontan`, `poRi`, `ki`) so a miss means an engine gap, not spelling
-  noise.
+  `sontan`, `poRi`, `ki`) so a miss means an engine gap, not spelling noise.
 
 ## [0.9.7] - 2026-11-26
 
