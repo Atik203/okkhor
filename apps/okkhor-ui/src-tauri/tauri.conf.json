@@ -1,6 +1,6 @@
 {
   "productName": "Okkhor",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "identifier": "app.okkhor.ui",
   "build": {
     "frontendDist": "../dist",

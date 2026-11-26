@@ -3,7 +3,7 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
-## [Unreleased]
+## [0.9.8] - 2026-11-26
 
 ### Added
 
@@ -467,7 +467,7 @@ Versioning once it reaches 1.0.
 - No speech/AI actions yet; no clipboard fallback or elevated-window injection.
 - Manual real-key QA remains owner-gated; see `docs/qa/`.
 
-## [Unreleased]
+## [0.9.8] - 2026-11-26
 
 ### Added
 
