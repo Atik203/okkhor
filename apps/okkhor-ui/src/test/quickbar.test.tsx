@@ -5,6 +5,7 @@ import QuickbarPage from "../pages/quickbar";
 import type { QuickbarSnapshot } from "../lib/ipc";
 
 const invokeMock = vi.fn();
+const startResizeMock = vi.fn(() => Promise.resolve());
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
@@ -15,6 +16,7 @@ vi.mock("@tauri-apps/api/window", () => ({
     outerPosition: () => Promise.resolve({ x: 0, y: 0 }),
     setPosition: () => Promise.resolve(),
     setSize: () => Promise.resolve(),
+    startResizeDragging: startResizeMock,
     scaleFactor: () => Promise.resolve(1),
   }),
   PhysicalPosition: class PhysicalPosition {
@@ -135,9 +137,10 @@ describe("quick bar", () => {
       screen.queryByRole("button", { name: "Open on-screen keyboard" }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: "Quit Okkhor" })).toBeNull();
+    // Resize is a window behavior, not a control button: it stays.
     expect(
-      screen.queryByRole("separator", { name: "Resize quick bar" }),
-    ).toBeNull();
+      screen.getByRole("separator", { name: "Resize quick bar" }),
+    ).toBeInTheDocument();
     // Status is text, not color alone.
     expect(screen.getByLabelText("Daemon connected")).toBeInTheDocument();
     expect(screen.getByText("Daemon connected.")).toBeInTheDocument();
@@ -270,6 +273,16 @@ describe("quick bar", () => {
     expect(bar?.getAttribute("style")).toContain("opacity: 0.65");
   });
 
+  test("the right-edge handle starts a native resize drag", async () => {
+    mockOnline();
+    renderPage();
+    const handle = await screen.findByRole("separator", {
+      name: "Resize quick bar",
+    });
+    startResizeMock.mockClear();
+    fireEvent.pointerDown(handle, { button: 0, isPrimary: true });
+    expect(startResizeMock).toHaveBeenCalledWith("East");
+  });
   test("bar exposes only the five typing-surface controls", async () => {
     mockOnline();
     const { container } = renderPage();

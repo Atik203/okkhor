@@ -3,6 +3,16 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.9] - 2026-11-26
+
+### Fixed
+
+- **The quick bar can be resized again.** 0.9.7 fixed the bar at 340x52 and
+  dropped the right-edge handle. The handle is back: a native window resize drag
+  (no poll loop) between 300 and 560 px, height held at 52, and the width is
+  remembered locally. It is a window behavior, not a control button, so the bar
+  still carries only the five typing-surface targets.
+
 ## [0.9.8] - 2026-11-26
 
 ### Added
@@ -466,6 +476,16 @@ Versioning once it reaches 1.0.
   dictionary and the learned reranker are later milestones.
 - No speech/AI actions yet; no clipboard fallback or elevated-window injection.
 - Manual real-key QA remains owner-gated; see `docs/qa/`.
+
+## [0.9.9] - 2026-11-26
+
+### Fixed
+
+- **The quick bar can be resized again.** 0.9.7 fixed the bar at 340x52 and
+  dropped the right-edge handle. The handle is back: a native window resize drag
+  (no poll loop) between 300 and 560 px, height held at 52, and the width is
+  remembered locally. It is a window behavior, not a control button, so the bar
+  still carries only the five typing-surface targets.
 
 ## [0.9.8] - 2026-11-26
 

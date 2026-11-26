@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import {
   PhysicalPosition,
+  LogicalSize,
   getCurrentWindow,
 } from "@tauri-apps/api/window";
 import {
@@ -30,6 +31,11 @@ import { cn } from "../lib/utils";
  * empty spacer start a drag.
  */
 
+const WIDTH_KEY = "okkhor.quickbar.width";
+const MIN_WIDTH = 300;
+const MAX_WIDTH = 560;
+const DEFAULT_WIDTH = 340;
+const BAR_HEIGHT = 52;
 function useSnapshot() {
   const query = useQuery({
     queryKey: ["quickbar"],
@@ -341,6 +347,7 @@ function DragGrip({
           />
         ))}
       </span>
+
     </div>
   );
 }
@@ -351,6 +358,39 @@ export default function QuickbarPage() {
   const applySnapshot = useApplySnapshot();
   useLockCanvas();
   const barDrag = useBarDrag();
+  // Width is the only resizable axis: height stays 52 so the controls never
+  // reflow. The native resize drag runs on the window itself (no poll loop),
+  // and the width is remembered locally between launches.
+  React.useEffect(() => {
+    let stored = DEFAULT_WIDTH;
+    try {
+      const raw = window.localStorage.getItem(WIDTH_KEY);
+      const value = Number(raw);
+      if (raw && Number.isFinite(value)) {
+        stored = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(value)));
+      }
+    } catch {
+      // Storage disabled: the default width still applies.
+    }
+    if (Math.abs(window.innerWidth - stored) > 1) {
+      void getCurrentWindow()
+        .setSize(new LogicalSize(stored, BAR_HEIGHT))
+        .catch(() => undefined);
+    }
+    const onResize = () => {
+      const actual = Math.round(window.innerWidth);
+      if (actual < MIN_WIDTH || actual > MAX_WIDTH) {
+        return;
+      }
+      try {
+        window.localStorage.setItem(WIDTH_KEY, String(actual));
+      } catch {
+        // Storage disabled: the resize still applies for this session.
+      }
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const collapsed = snapshotQuery.data?.collapsed ?? false;
   const [notice, setNotice] = React.useState<string | null>(null);
   const noticeTimer = React.useRef<number | null>(null);
@@ -617,6 +657,24 @@ export default function QuickbarPage() {
       >
         <Settings aria-hidden="true" />
       </IconButton>
+      <div
+        role="separator"
+        aria-label="Resize quick bar"
+        title="Drag to resize"
+        onPointerDown={(event) => {
+          if (event.button !== 0 || !event.isPrimary) {
+            return;
+          }
+          event.preventDefault();
+          void getCurrentWindow()
+            .startResizeDragging("East")
+            .catch(() => undefined);
+        }}
+        className={cn(
+          "absolute inset-y-2 right-0 w-1.5 touch-none cursor-ew-resize rounded-full",
+          "bg-neutral-300/0 transition hover:bg-teal-500/60 dark:bg-neutral-600/0",
+        )}
+      />
     </div>
   );
 }
