@@ -80,12 +80,38 @@ pub enum SuggestionError {
     Transliterator,
 }
 
+/// Shipped spelling corrections. Format and policy: see the file header.
+const CURATED_OVERLAY: &str = include_str!("../../assets/suggest/curated-overlay.tsv");
+
+/// Parse `roman<TAB>bangla` rows, skipping comments and blank lines.
+fn parse_overlay(source: &str) -> Vec<(String, String)> {
+    source
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let (roman, bangla) = line.split_once('\t')?;
+            let (roman, bangla) = (roman.trim(), bangla.trim());
+            if roman.is_empty() || bangla.is_empty() {
+                return None;
+            }
+            Some((roman.to_owned(), bangla.to_owned()))
+        })
+        .collect()
+}
+
 /// One live suggestion engine. Owns the parsed index and the phonetic table.
+
 #[derive(Debug)]
 pub struct SuggestionEngine {
     index: Option<SuggestionIndex>,
     index_error: Option<&'static str>,
     transliterator: PhoneticTransliterator,
+    /// Shipped roman -> Bangla corrections for words the rule table and the
+    /// licensed aliases both get wrong. Sorted, bounded, built once.
+    overlay: Vec<(String, String)>,
 }
 
 impl SuggestionEngine {
@@ -116,6 +142,7 @@ impl SuggestionEngine {
             index,
             index_error,
             transliterator,
+            overlay: parse_overlay(CURATED_OVERLAY),
         }
     }
 
@@ -127,6 +154,7 @@ impl SuggestionEngine {
             index: None,
             index_error: Some("index_unavailable"),
             transliterator,
+            overlay: parse_overlay(CURATED_OVERLAY),
         })
     }
 
@@ -161,6 +189,7 @@ impl SuggestionEngine {
         let limit = request.limit.clamp(1, MAX_LIMIT);
         let mut staged: Vec<Candidate> = Vec::with_capacity(MAX_STAGED);
 
+        self.stage_overlay(roman, &mut staged);
         if let Some(index) = &self.index {
             self.stage_curated(index, roman, &mut staged);
             self.stage_user_words(request.user_words, roman, &mut staged);
@@ -301,6 +330,18 @@ impl SuggestionEngine {
                 allow_partial: true,
             },
         )
+    }
+
+    /// Stage the shipped corrections first: they carry the curated score and
+    /// resolve words where both the rule table and the licensed aliases give a
+    /// different everyday spelling.
+    fn stage_overlay(&self, roman: &str, staged: &mut Vec<Candidate>) {
+        for (key, value) in &self.overlay {
+            if key == roman {
+                push(staged, value, 1.30, 1.0, CandidateSource::Dictionary);
+                break;
+            }
+        }
     }
 
     fn stage_curated(&self, index: &SuggestionIndex, roman: &str, staged: &mut Vec<Candidate>) {
@@ -633,6 +674,44 @@ mod tests {
 
     fn texts(suggestions: &[okkhor_core::Suggestion]) -> Vec<&str> {
         suggestions.iter().map(|s| s.text.as_str()).collect()
+    }
+
+    #[test]
+    fn shipped_overlay_rows_win() {
+        let engine = engine();
+        let smriti = Smriti::new();
+        assert!(!engine.overlay.is_empty(), "overlay parses");
+        for (roman, bangla) in &engine.overlay {
+            let rows = engine.suggest(&SuggestRequest::new(roman, 4), &smriti);
+            assert_eq!(
+                rows.first().map(|row| row.text.as_str()),
+                Some(bangla.as_str()),
+                "{roman} should render as {bangla}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "diagnostic: prints rows for a roman key"]
+    fn debug_alias_rows() {
+        let engine = engine();
+        let smriti = Smriti::new();
+        for roman in ["chokh", "aath", "chithi", "kotha", "shohoj"] {
+            let exact = engine
+                .index
+                .as_ref()
+                .map(|index| index.exact_roman_targets(roman))
+                .unwrap_or_default();
+            let curated = engine
+                .index
+                .as_ref()
+                .and_then(|index| index.curated_exact(roman));
+            println!("--- {roman} exact={exact:?} curated={curated:?}");
+            let rows = engine.suggest(&SuggestRequest::new(roman, 5), &smriti);
+            for row in &rows {
+                println!("  {} [{:?}]", row.text, row.source);
+            }
+        }
     }
 
     #[test]

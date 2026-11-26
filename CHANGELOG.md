@@ -3,6 +3,26 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [Unreleased]
+
+### Added
+
+- **Measured Bangla accuracy harness.** `okkhor-bench --suggestions` now runs
+  a 138-word everyday corpus and prints every top-1 miss with its roman input,
+  so accuracy moves are visible instead of anecdotal. Baseline after the fixes:
+  top-1 98.6 %, top-5 99.3 %, p50 1.5 ms / p99 3.3 ms.
+- **Shipped spelling corrections.**
+  `crates/okkhor-engine/assets/suggest/curated-overlay.tsv` holds words where
+  the Avro rules and the licensed aliases both give a different form than the
+  everyday spelling (for example `chokh` -> ছখ). Rows stage with the curated
+  score, and a test asserts every overlay key wins top-1.
+
+### Fixed
+
+- Corpus rows that were wrong in the harness itself (`bolo`, `ghumi`,
+  `sontan`, `poRi`, `ki`) so a miss means an engine gap, not spelling
+  noise.
+
 ## [0.9.7] - 2026-11-26
 
 ### Added

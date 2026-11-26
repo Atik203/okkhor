@@ -1,0 +1,17 @@
+# Shipped spelling corrections (roman<TAB>bangla).
+#
+# One row per line, tab separated, `#` starts a comment. These are words where
+# the Avro rule table and the licensed WTR1 aliases both produce a different
+# form than the everyday spelling, so the engine would otherwise offer the rule
+# output first (for example `chokh` -> ছখ instead of চোখ).
+#
+# This is a deliberately small overlay, not a dictionary: it is staged with the
+# curated score (1.30) and must stay limited to words with an identified gap.
+# A future index rebuild folds these rows into the curated section; until then
+# this file is the single review surface for them. Everything here is our own
+# spelling data, so it carries no licensing obligation.
+chokh	চোখ
+chithi	চিঠি
+aath	আট
+shohoj	সহজ
+sohoj	সহজ

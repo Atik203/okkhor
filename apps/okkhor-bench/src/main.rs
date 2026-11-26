@@ -170,6 +170,12 @@ fn print_suggestions(report: &suggestions::SuggestionReport) {
             latency.count
         );
     }
+    if !report.misses.is_empty() {
+        println!("top-1 misses (roman -> expected | got):");
+        for (roman, expected, got) in report.misses.iter().take(20) {
+            println!("  {roman} -> {expected} | {got}");
+        }
+    }
 }
 
 fn validate_suggestions_smoke(report: &suggestions::SuggestionReport) -> Result<(), BenchError> {
