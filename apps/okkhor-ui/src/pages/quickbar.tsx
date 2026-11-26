@@ -750,18 +750,12 @@ export default function QuickbarPage() {
         role="status"
         aria-live="polite"
         className="min-w-0 flex-1 touch-none self-stretch"
-        title={notice ?? "Drag to move"}
+        title="Drag to move"
         onPointerDown={barDrag.begin}
         onPointerMove={barDrag.move}
         onPointerUp={barDrag.end}
         onPointerCancel={barDrag.cancel}
-      >
-        {notice ? (
-          <span className="pointer-events-none flex h-full items-center justify-center truncate px-1 text-center text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
-            {notice}
-          </span>
-        ) : null}
-      </div>
+      />
       <IconButton
         title="Hide quick bar to tray"
         onClick={() => void hideToTray.mutate()}
