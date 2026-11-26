@@ -244,7 +244,7 @@ mod tests {
             1.5,
             EDGE_MARGIN_LOGICAL,
         );
-        assert_eq!((x, y), (1920 - 690 - 18, 18));
+        assert_eq!((x, y), (1920 - 510 - 18, 18));
         let (ox, oy) = quickbar_top_right_physical(
             (0, 0),
             (1920, 1080),
