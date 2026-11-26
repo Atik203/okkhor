@@ -251,14 +251,34 @@ here, ask the user for permission first.
   do not delete other users' files.
 - Python: use a project-local venv or conda environment only. No system-wide
   packages and no `sudo` without administrator approval.
-- Jobs: run long jobs under `tmux` or `screen`; stop idle GPU jobs. No mining,
-  public services, port scanning, or unrelated workloads.
+- Jobs: use the **Task Spooler** batch queue for GPU work (see below); `tmux`
+  remains for the run already in flight and for interactive sessions. Stop idle
+  GPU jobs. No mining, public services, port scanning, or unrelated workloads.
 - Secrets: never commit a server address, hostname, username, account ID,
   password, SSH key, or host fingerprint. The only allowed identifiers are
   `uiu-h200`, `H200 1g.18gb`, driver `580.178.04`, and `CUDA 13.5`.
 - Policy: follow the university's monitoring, acceptable-use, and
   data-handling policies. Training data must still satisfy the privacy rules
   above: no raw keystrokes, no user text, synthetic or licensed corpora only.
+
+### Job queue (Task Spooler)
+
+The server engineer installed **Task Spooler** (Debian package
+`task-spooler`). The binary is `tsp` on this host, not `ts`.
+
+- Queue GPU work with `tsp -L <label> -o artifacts/<name>.log -- <command>`;
+  it runs on one slot, so two GPU jobs never share the MIG slice.
+- Check `tsp -l` before queueing, `tsp -c <id>` to read output, `tsp -t <id>`
+  to remove a queued job. Do not queue a duplicate of a stage that is already
+  running.
+- Do **not** kill an active training run to migrate it to the queue. The Bangla
+  1B run that started under `tmux` stays there until it finishes; the English
+  queue script picks it up as designed. New stages (distillation, export,
+  evaluation) go through `tsp`.
+- Pause/resume stays file-based (`<prefix>.pause`); the queue does not change
+  that contract.
+- If a job needs more than one slot's worth of parallel CPU work, say so in the
+  job and set `tsp -S <n>` deliberately; never leave slots raised afterwards.
 
 ### Training-run rules (learned from real failures)
 
