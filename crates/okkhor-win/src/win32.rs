@@ -29,6 +29,17 @@ use crate::clipboard::ClipboardGuard;
 use crate::inject::{InjectError, InjectionMethod, TextInjector};
 use crate::input::{KeyEvent, KeyPhase, KeyboardHook};
 
+/// Whether the inline preedit currently has rendered Bangla in the document.
+///
+/// Set by the daemon after every render. Backspace is swallowed only when this
+/// is true, because then the composition owns the on-screen word.
+static INLINE_RENDERED: AtomicBool = AtomicBool::new(false);
+
+/// Update the inline-rendered flag used by the Backspace swallow decision.
+pub fn set_inline_rendered(rendered: bool) {
+    INLINE_RENDERED.store(rendered, Ordering::Release);
+}
+
 /// One process-wide hook queue. The daemon starts the hook once for its
 /// lifetime; restart requires a new process.
 static HOOK_TX: OnceLock<SyncSender<KeyEvent>> = OnceLock::new();
@@ -362,6 +373,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     let english_popup = ENGLISH_POPUP.load(Ordering::Relaxed);
                     let fixed = SWALLOW_LETTERS.load(Ordering::Relaxed);
                     let inline = INLINE_PREEDIT.load(Ordering::Relaxed);
+                    let inline_rendered = INLINE_RENDERED.load(Ordering::Relaxed);
                     let ghost = GHOST_POPUP.load(Ordering::Relaxed);
                     // AltGr is a layout modifier, not a shortcut chord. Only
                     // the fixed-layout letter predicate uses this relaxed test;
@@ -381,6 +393,14 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                             fixed,
                             fixed_chord,
                             false,
+                            virtual_key,
+                        ) || crate::input::should_swallow_backspace(
+                            capture,
+                            bangla,
+                            inline,
+                            inline_rendered,
+                            composing,
+                            chord,
                             virtual_key,
                         ) || crate::input::should_swallow_inline_letters(
                             capture,

@@ -154,6 +154,33 @@ pub const fn should_swallow(
         && is_composition_key(vk)
 }
 
+/// Whether the hook must swallow Backspace while the inline preedit owns the
+/// word on screen.
+///
+/// Inline preedit renders the word itself, so letting Backspace reach the
+/// target deletes a character natively *and* the daemon re-renders the shorter
+/// buffer: one keypress removes two or three characters and the document falls
+/// behind the suggestion list. The key is swallowed only when rendered text
+/// exists; with no render (an unknown word showing raw roman) the native
+/// Backspace is correct and must pass.
+pub const fn should_swallow_backspace(
+    capture_enabled: bool,
+    bangla_mode: bool,
+    inline_preedit: bool,
+    inline_rendered: bool,
+    composing: bool,
+    chord_pressed: bool,
+    vk: u16,
+) -> bool {
+    capture_enabled
+        && bangla_mode
+        && inline_preedit
+        && inline_rendered
+        && composing
+        && !chord_pressed
+        && vk == 0x08
+}
+
 /// Whether the hook must swallow an ASCII letter key-down in fixed-layout mode.
 ///
 /// Virtual keys that a fixed layout can map. Space, Enter, Backspace, the
@@ -274,6 +301,29 @@ pub trait KeyboardHook {
 
     fn start(&mut self) -> Result<(), Self::Error>;
     fn stop(&mut self);
+}
+
+#[cfg(test)]
+#[test]
+fn backspace_is_swallowed_only_while_the_render_owns_the_word() {
+    let ok = |rendered: bool, vk: u16| {
+        should_swallow_backspace(true, true, true, rendered, true, false, vk)
+    };
+    assert!(ok(true, 0x08), "inline word on screen");
+    assert!(!ok(false, 0x08), "raw roman fallback keeps native delete");
+    assert!(!ok(true, 0x41), "letters are not this predicate");
+    assert!(
+        !should_swallow_backspace(true, true, true, true, false, false, 0x08),
+        "idle backspace passes through"
+    );
+    assert!(
+        !should_swallow_backspace(true, true, true, true, true, true, 0x08),
+        "chord keeps its meaning"
+    );
+    assert!(
+        !should_swallow_backspace(false, true, true, true, true, false, 0x08),
+        "capture off"
+    );
 }
 
 #[cfg(test)]

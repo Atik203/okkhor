@@ -3,6 +3,19 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.10] - 2026-11-26
+
+### Fixed
+
+- **Backspace deletes one step again.** While inline preedit was active the hook
+  did not swallow Backspace, so the target application deleted a character
+  natively *and* the daemon re-rendered the shorter word: one keypress removed
+  two or three characters, and after two presses the whole word was gone while
+  the suggestion list still showed a longer word. Backspace is now swallowed
+  whenever the composition owns the on-screen word (inline preedit on, rendered
+  text present, no chord) and passes through untouched when the document holds
+  raw roman text or no composition is active.
+
 ## [0.9.9] - 2026-11-26
 
 ### Fixed
@@ -476,6 +489,19 @@ Versioning once it reaches 1.0.
   dictionary and the learned reranker are later milestones.
 - No speech/AI actions yet; no clipboard fallback or elevated-window injection.
 - Manual real-key QA remains owner-gated; see `docs/qa/`.
+
+## [0.9.10] - 2026-11-26
+
+### Fixed
+
+- **Backspace deletes one step again.** While inline preedit was active the hook
+  did not swallow Backspace, so the target application deleted a character
+  natively *and* the daemon re-rendered the shorter word: one keypress removed
+  two or three characters, and after two presses the whole word was gone while
+  the suggestion list still showed a longer word. Backspace is now swallowed
+  whenever the composition owns the on-screen word (inline preedit on, rendered
+  text present, no chord) and passes through untouched when the document holds
+  raw roman text or no composition is active.
 
 ## [0.9.9] - 2026-11-26
 

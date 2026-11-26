@@ -1045,6 +1045,9 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             }
         }
         *ctx.preedit_rendered = next;
+        // Tell the hook whether the composition owns the on-screen word: it
+        // swallows Backspace only then, so one keypress is one undo.
+        okkhor_win::set_inline_rendered(!ctx.preedit_rendered.is_empty());
         // Show the composition point: walk the caret into the word by the
         // length of the rendered right-hand half. A transliteration that is not
         // prefix-stable yields 0, which keeps the caret at the word end.
