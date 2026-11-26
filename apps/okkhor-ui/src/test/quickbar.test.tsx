@@ -106,36 +106,38 @@ describe("quick bar", () => {
     invokeMock.mockReset();
   });
 
-  test("renders mode/encoding chips, pause, keyboard, settings, hide, quit", async () => {
+  test("keeps only the typing-surface controls", async () => {
     mockOnline();
     renderPage();
     expect(
       await screen.findByRole("button", { name: "Switch to English" }),
     ).toHaveTextContent("বাংলা");
     expect(
-      screen.getByRole("button", { name: "Switch output to Bijoy" }),
-    ).toHaveTextContent("ইউনিকোড");
-    expect(
       screen.getByRole("button", { name: "Pause capture" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Add the last typed word to my dictionary",
+      }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Open settings" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Open on-screen keyboard" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Hide quick bar to tray" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Quit Okkhor" }),
-    ).toBeInTheDocument();
-    expect(
       screen.getByRole("button", { name: "Drag to move quick bar" }),
     ).toBeInTheDocument();
+    // Everything rare lives in Settings; the bar is a typing surface, not a
+    // control panel.
     expect(
-      screen.getByRole("separator", { name: "Resize quick bar" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Switch output to Bijoy" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Open on-screen keyboard" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Quit Okkhor" })).toBeNull();
+    expect(
+      screen.queryByRole("separator", { name: "Resize quick bar" }),
+    ).toBeNull();
     // Status is text, not color alone.
     expect(screen.getByLabelText("Daemon connected")).toBeInTheDocument();
     expect(screen.getByText("Daemon connected.")).toBeInTheDocument();
@@ -155,18 +157,6 @@ describe("quick bar", () => {
       await screen.findByRole("button", { name: "Switch to Bangla" }),
     ).toHaveTextContent("EN");
     expect(invokeMock).toHaveBeenCalledWith("quickbar_toggle_mode");
-  });
-
-  test("encoding chip cycles Unicode/Bijoy via quickbar_cycle_encoding", async () => {
-    mockOnline();
-    renderPage();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Switch output to Bijoy" }),
-    );
-    expect(
-      await screen.findByRole("button", { name: "Switch output to Unicode" }),
-    ).toHaveTextContent("বিজয়");
-    expect(invokeMock).toHaveBeenCalledWith("quickbar_cycle_encoding");
   });
 
   test("pause toggles capture with a toast", async () => {
@@ -200,28 +190,6 @@ describe("quick bar", () => {
     ).toBeInTheDocument();
   });
 
-  test("hide to tray and two-click quit call their commands", async () => {
-    mockOnline();
-    renderPage();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Hide quick bar to tray" }),
-    );
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("quickbar_hide"),
-    );
-
-    const quit = screen.getByRole("button", { name: "Quit Okkhor" });
-    fireEvent.click(quit);
-    // First click only arms the confirmation; the command is not called yet.
-    expect(invokeMock).not.toHaveBeenCalledWith("quickbar_quit");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Click again to quit Okkhor" }),
-    );
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("quickbar_quit"),
-    );
-  });
-
   test("settings button opens the settings window", async () => {
     mockOnline();
     renderPage();
@@ -233,25 +201,11 @@ describe("quick bar", () => {
     );
   });
 
-  test("keyboard button opens the on-screen keyboard", async () => {
-    mockOnline();
-    renderPage();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Open on-screen keyboard" }),
-    );
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("quickbar_open_keyboard"),
-    );
-  });
-
   test("unavailable daemon disables mode actions but keeps settings local", async () => {
     mockOnline({ ...ONLINE, available: false });
     renderPage();
     const mode = await screen.findByRole("button", { name: "Switch to English" });
     expect(mode).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Switch output to Bijoy" }),
-    ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Pause capture" }),
     ).toBeDisabled();
@@ -260,13 +214,7 @@ describe("quick bar", () => {
       screen.getByRole("button", { name: "Open settings" }),
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", { name: "Open on-screen keyboard" }),
-    ).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: "Hide quick bar to tray" }),
-    ).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: "Quit Okkhor" }),
+      screen.getByRole("button", { name: "Drag to move quick bar" }),
     ).toBeEnabled();
     expect(screen.getByLabelText("Daemon unavailable")).toBeInTheDocument();
   });
@@ -322,25 +270,32 @@ describe("quick bar", () => {
     expect(bar?.getAttribute("style")).toContain("opacity: 0.65");
   });
 
-  test("right-edge handle starts the native resize at the current width", async () => {
+  test("bar exposes only the five typing-surface controls", async () => {
     mockOnline();
-    renderPage();
-    const handle = await screen.findByRole("separator", { name: "Resize quick bar" });
-    fireEvent.pointerDown(handle, { button: 0, isPrimary: true });
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("quickbar_begin_resize", {
-        width: 460,
-      }),
+    const { container } = renderPage();
+    await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
+    const names = [...container.querySelectorAll("button")].map((button) =>
+      button.getAttribute("aria-label"),
     );
+    expect(names).toEqual([
+      "Switch to English",
+      "Pause capture",
+      "Add the last typed word to my dictionary",
+      "Open settings",
+    ]);
+    // The grip is a role=button div (it is also the drag surface).
+    expect(
+      screen.getByRole("button", { name: "Drag to move quick bar" }),
+    ).toBeInTheDocument();
   });
 
-  test("bar is full-width 60px with no clipping and no native drag regions", async () => {
+  test("bar is full-width 52px with no clipping and no native drag regions", async () => {
     mockOnline();
     const { container } = renderPage();
     const bar = await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
-    // Responsive canvas: fills the resizable window, never scrolls.
+    // Responsive canvas: fills the fixed 340x52 window, never scrolls.
     expect(bar.className).toContain("w-full");
-    expect(bar.className).toContain("h-[60px]");
+    expect(bar.className).toContain("h-[52px]");
     expect(bar.className).toContain("overflow-hidden");
     expect(bar.className).toContain("flex-nowrap");
     // Dragging is manual pointercapture; no button uses the Tauri drag region.

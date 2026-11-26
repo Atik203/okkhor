@@ -770,20 +770,6 @@ fn bar_is_on_screen(bar: &tauri::WebviewWindow) -> bool {
     })
 }
 
-/// Begin a native horizontal resize at the current logical width.
-#[tauri::command]
-async fn quickbar_begin_resize(app: AppHandle, width: u32) -> Result<(), UiError> {
-    let Some(bar) = app.get_webview_window("quickbar") else {
-        return Err(UiError::internal());
-    };
-    #[cfg(windows)]
-    if let Ok(hwnd) = bar.hwnd() {
-        quickbar::native::begin_resize(hwnd, width);
-    }
-    let _ = (&bar, width);
-    Ok(())
-}
-
 /// Persist the bar's current physical position after a drag.
 #[tauri::command]
 async fn quickbar_save_position(app: AppHandle) -> Result<(), UiError> {
@@ -1111,7 +1097,6 @@ fn main() {
             quickbar_expand,
             quickbar_hide,
             quickbar_show,
-            quickbar_begin_resize,
             quickbar_save_position,
             quickbar_quit
         ])

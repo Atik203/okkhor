@@ -15,9 +15,9 @@
 use serde::Serialize;
 
 /// Logical size of the expanded bar (matches `tauri.conf.json`).
-pub const QUICKBAR_LOGICAL_W: u32 = 460;
+pub const QUICKBAR_LOGICAL_W: u32 = 340;
 /// Logical height of the expanded bar (matches `tauri.conf.json`).
-pub const QUICKBAR_LOGICAL_H: u32 = 60;
+pub const QUICKBAR_LOGICAL_H: u32 = 52;
 /// Logical size of the collapsed orb (square).
 pub const ORB_LOGICAL: u32 = 44;
 /// Logical margin from the screen edges.
@@ -172,73 +172,6 @@ pub mod native {
         }
     }
 
-    /// Begins a native horizontal resize that follows the physical mouse even
-    /// when the pointer leaves this small window. Runs on a helper thread and
-    /// never activates the bar; ends on left-button release.
-    ///
-    /// `start_width_logical` is the bar's current logical width
-    /// (320-720); height is held at 60 logical.
-    pub fn begin_resize(hwnd: HWND, start_width_logical: u32) {
-        use std::time::Duration;
-        use windows::Win32::UI::HiDpi::GetDpiForWindow;
-        use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER,
-        };
-
-        let raw = hwnd.0 as isize;
-        let start_width = start_width_logical.clamp(320, 720);
-        std::thread::Builder::new()
-            .name("okkhor-quickbar-resize".to_owned())
-            .spawn(move || {
-                // SAFETY: the HWND was live when the command started and the
-                // bar outlives this 15 ms poll loop; pointer-sized handle
-                // round-trips through isize only to cross the thread boundary.
-                let hwnd = HWND(raw as *mut core::ffi::c_void);
-                let mut start = windows::Win32::Foundation::POINT::default();
-                // SAFETY: `start` is valid local storage.
-                unsafe {
-                    let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut start);
-                }
-                // SAFETY: the HWND is live; GetDpiForWindow only reads the
-                // window's DPI and never dereferences Rust memory.
-                let dpi = unsafe { GetDpiForWindow(hwnd) };
-                let scale = if dpi == 0 { 1.0 } else { f64::from(dpi) / 96.0 };
-                loop {
-                    std::thread::sleep(Duration::from_millis(15));
-                    // SAFETY: GetAsyncKeyState is a read-only query.
-                    let pressed = unsafe { GetAsyncKeyState(0x01) } < 0;
-                    if !pressed {
-                        break;
-                    }
-                    let mut point = windows::Win32::Foundation::POINT::default();
-                    // SAFETY: `point` is valid local storage.
-                    unsafe {
-                        let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point);
-                    }
-                    let dx = f64::from(point.x - start.x) / scale;
-                    let logical = (f64::from(start_width) + dx).round().clamp(320.0, 720.0);
-                    let physical_w = (logical * scale).round() as i32;
-                    let physical_h = (60.0 * scale).round() as i32;
-                    // SAFETY: the HWND is live; SetWindowPos with SWP_NOMOVE
-                    // and SWP_NOACTIVATE changes only the size and never takes
-                    // focus from the foreground app.
-                    unsafe {
-                        let _ = SetWindowPos(
-                            hwnd,
-                            None,
-                            0,
-                            0,
-                            physical_w,
-                            physical_h,
-                            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-                        );
-                    }
-                }
-            })
-            .ok();
-    }
-
     /// Hides the window natively (`SW_HIDE`).
     ///
     /// The bar is shown through raw `ShowWindow`, so Tauri's own visibility
@@ -298,7 +231,7 @@ mod tests {
             1.0,
             EDGE_MARGIN_LOGICAL,
         );
-        assert_eq!((x, y), (1920 - 460 - 12, 12));
+        assert_eq!((x, y), (1920 - 340 - 12, 12));
     }
 
     #[test]
@@ -331,7 +264,7 @@ mod tests {
             1.0,
             EDGE_MARGIN_LOGICAL,
         );
-        assert_eq!((x, y), (-1920 + 1920 - 460 - 12, 12));
+        assert_eq!((x, y), (-1920 + 1920 - 340 - 12, 12));
     }
 
     #[test]
@@ -344,7 +277,7 @@ mod tests {
                 scale,
                 EDGE_MARGIN_LOGICAL,
             );
-            assert_eq!((x, y), (1920 - 460 - 12, 12), "scale {scale}");
+            assert_eq!((x, y), (1920 - 340 - 12, 12), "scale {scale}");
         }
         // Tiny monitor: clamp onto the origin instead of going negative.
         let (x, y) = quickbar_top_right_physical(

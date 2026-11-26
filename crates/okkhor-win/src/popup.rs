@@ -45,7 +45,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
-use crate::caret::{CaretAnchor, PopupPlacement, place_popup};
+use crate::caret::{CaretAnchor, PopupPlacement, place_popup, popup_space};
 
 /// Maximum suggestion rows painted (and clickable) in one popup.
 ///
@@ -503,6 +503,14 @@ impl SuggestionPopup {
             inner.recreate_fonts(dpi);
             inner.theme = theme;
         }
+        // Never show more rows than the larger side of the caret can hold: a
+        // tail that does not fit would be clamped over the line being typed.
+        let (below_space, above_space) = popup_space(anchor);
+        let row_height = scale_for_dpi(ROW_HEIGHT_96, dpi);
+        let padding = scale_for_dpi(PADDING_96, dpi);
+        let usable = (below_space.max(above_space) - padding * 2).max(row_height);
+        let fit_rows = usize::try_from(usable / row_height).unwrap_or(1).max(1);
+        let rows = items.len().min(MAX_ITEMS).min(fit_rows);
         let selected = selected.min(rows - 1);
         // No-op fast path: a visible card whose rows, highlight and anchor are
         // unchanged needs no clone, no GDI text measurement, no SetWindowPos

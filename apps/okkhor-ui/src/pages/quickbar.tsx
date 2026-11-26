@@ -3,18 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import {
   PhysicalPosition,
-  LogicalSize,
   getCurrentWindow,
 } from "@tauri-apps/api/window";
 import {
-  Binary,
-  Keyboard,
   Languages,
-  Minimize2,
   Pause,
   Play,
   Plus,
-  Power,
   RotateCw,
   Settings,
 } from "lucide-react";
@@ -34,31 +29,6 @@ import { cn } from "../lib/utils";
  * activates the bar. Every control is a real button; only the grip and the
  * empty spacer start a drag.
  */
-
-const WIDTH_KEY = "okkhor.quickbar.width";
-const MIN_WIDTH = 320;
-const MAX_WIDTH = 720;
-const DEFAULT_WIDTH = 460;
-const COMPACT_WIDTH = 420;
-
-function clampWidth(value: number): number {
-  if (!Number.isFinite(value)) {
-    return DEFAULT_WIDTH;
-  }
-  return Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, value)));
-}
-
-function readStoredWidth(): number {
-  try {
-    const raw = window.localStorage.getItem(WIDTH_KEY);
-    if (raw == null || raw === "") {
-      return DEFAULT_WIDTH;
-    }
-    return clampWidth(Number(raw));
-  } catch {
-    return DEFAULT_WIDTH;
-  }
-}
 
 function useSnapshot() {
   const query = useQuery({
@@ -256,66 +226,6 @@ function useBarDrag() {
   return { dragging, begin, move, end, cancel };
 }
 
-/** Width state kept in localStorage, applied with a logical resize. */
-function useBarWidth(active: boolean) {
-  const win = React.useMemo(() => getCurrentWindow(), []);
-  const [width, setWidth] = React.useState(readStoredWidth);
-
-  React.useEffect(() => {
-    if (!active) {
-      return;
-    }
-    try {
-      window.localStorage.setItem(WIDTH_KEY, String(width));
-    } catch {
-      // Private/storage-disabled: width still applies for this session.
-    }
-    // Do not fight a native resize: only apply when the window differs (stored
-    // width on first mount, or a reset).
-    if (Math.abs(window.innerWidth - width) > 1) {
-      void win.setSize(new LogicalSize(width, 60)).catch(() => undefined);
-    }
-  }, [active, width, win]);
-
-  React.useEffect(() => {
-    if (!active) {
-      return;
-    }
-    const onResize = () => {
-      const actual = Math.round(window.innerWidth);
-      // WebView2 can report 0x0 for a frame while the window moves. Never
-      // adopt an out-of-range width or it would snap to the minimum.
-      if (actual < MIN_WIDTH || actual > MAX_WIDTH) {
-        return;
-      }
-      setWidth((current) => (Math.abs(actual - current) > 1 ? actual : current));
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [active]);
-
-  return [width, setWidth] as const;
-}
-
-/** Right-edge resize handle (320-720 logical px). Starts a native poll loop in
- * Rust so the cursor can leave the bar without losing the drag; the resize
- * listener updates the responsive layout and persists the width. */
-function useHorizontalResize(width: number) {
-  const begin = React.useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      if (event.button !== 0 || !event.isPrimary) {
-        return;
-      }
-      event.preventDefault();
-      void api
-        .quickbarBeginResize(Math.round(width))
-        .catch(() => undefined);
-    },
-    [width],
-  );
-
-  return { begin };
-}
 
 function Chip({
   label,
@@ -323,7 +233,6 @@ function Chip({
   onClick,
   disabled,
   active,
-  compact,
   icon,
 }: {
   label: string;
@@ -331,7 +240,6 @@ function Chip({
   onClick: () => void;
   disabled?: boolean;
   active?: boolean;
-  compact: boolean;
   icon: React.ReactNode;
 }) {
   return (
@@ -342,17 +250,16 @@ function Chip({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex h-8 shrink-0 items-center justify-center whitespace-nowrap rounded-full font-semibold",
+        "flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 font-semibold text-[13px]",
         "border border-neutral-300 bg-white text-neutral-800",
         "transition hover:bg-neutral-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
         "dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800",
-        compact ? "w-9 px-0" : "gap-1.5 px-3 text-[13px]",
         active &&
           "border-teal-600 bg-teal-50 text-teal-800 dark:border-teal-500 dark:bg-teal-950/60 dark:text-teal-100",
       )}
     >
       <span className="[&>svg]:size-4">{icon}</span>
-      {!compact && <span>{label}</span>}
+      <span>{label}</span>
     </button>
   );
 }
@@ -445,11 +352,7 @@ export default function QuickbarPage() {
   useLockCanvas();
   const barDrag = useBarDrag();
   const collapsed = snapshotQuery.data?.collapsed ?? false;
-  const [width] = useBarWidth(!collapsed);
-  const resize = useHorizontalResize(width);
-  const [confirmQuit, setConfirmQuit] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
-  const quitTimer = React.useRef<number | null>(null);
   const noticeTimer = React.useRef<number | null>(null);
 
   // Inline status text in the bar. A sonner toast would cover the controls in
@@ -505,9 +408,6 @@ export default function QuickbarPage() {
 
   React.useEffect(
     () => () => {
-      if (quitTimer.current != null) {
-        window.clearTimeout(quitTimer.current);
-      }
       if (noticeTimer.current != null) {
         window.clearTimeout(noticeTimer.current);
       }
@@ -519,11 +419,6 @@ export default function QuickbarPage() {
 
   const toggleMode = useMutation({
     mutationFn: () => api.quickbarToggleMode(),
-    onSuccess: applySnapshot,
-    onError: fail,
-  });
-  const cycleEncoding = useMutation({
-    mutationFn: () => api.quickbarCycleEncoding(),
     onSuccess: applySnapshot,
     onError: fail,
   });
@@ -552,24 +447,14 @@ export default function QuickbarPage() {
     onSuccess: applySnapshot,
     onError: fail,
   });
-  const hideToTray = useMutation({
-    mutationFn: () => api.quickbarHide(),
-    onError: fail,
-  });
   const openSettings = useMutation({
     mutationFn: () => api.quickbarOpenSettings(),
     onError: (error) => {
-      openFallback(error, "#/settings");
-    },
-  });
-  const openKeyboard = useMutation({
-    mutationFn: () => api.quickbarOpenKeyboard(),
-    onError: (error) => {
-      openFallback(error, "#/keyboard");
+      openFallback(error);
     },
   });
 
-  function openFallback(error: unknown, hash: "#/settings" | "#/keyboard") {
+  function openFallback(error: unknown) {
     // Outside Tauri (browser dev) there is no main window to show:
     // fall back to the in-page route instead of a dead button.
     if (isDaemonUnavailable(error)) {
@@ -577,30 +462,17 @@ export default function QuickbarPage() {
       return;
     }
     try {
-      window.location.hash = hash;
+      window.location.hash = "#/settings";
     } catch {
       fail(error);
     }
-  }
-
-  function requestQuit() {
-    if (confirmQuit) {
-      if (quitTimer.current != null) {
-        window.clearTimeout(quitTimer.current);
-      }
-      void api.quickbarQuit().catch(fail);
-      return;
-    }
-    setConfirmQuit(true);
-    showNotice("Quit Okkhor? Click power again to exit.");
-    quitTimer.current = window.setTimeout(() => setConfirmQuit(false), 3000);
   }
 
   if (snapshotQuery.isPending) {
     return (
       <div
         aria-label="Loading quick bar"
-        className="flex h-[60px] w-[460px] items-center overflow-hidden px-4"
+        className="flex h-[52px] w-[340px] items-center overflow-hidden px-4"
       >
         <div className="h-8 w-full animate-pulse rounded-full bg-neutral-200 dark:bg-neutral-800" />
       </div>
@@ -649,9 +521,7 @@ export default function QuickbarPage() {
   }
 
   const modeBangla = snapshot?.input_mode !== "english";
-  const encodingUnicode = snapshot?.output_encoding !== "bijoy";
   const paused = snapshot?.paused ?? false;
-  const compact = width < COMPACT_WIDTH;
 
   return (
     <div
@@ -659,11 +529,10 @@ export default function QuickbarPage() {
       aria-label="Okkhor quick bar"
       style={{ opacity }}
       className={cn(
-        "relative flex h-[60px] w-full flex-nowrap items-center gap-1.5 overflow-hidden rounded-xl",
+        "relative flex h-[52px] w-full flex-nowrap items-center gap-1.5 overflow-hidden rounded-xl px-2",
         "border border-neutral-300 bg-white text-neutral-800",
         "shadow-lg shadow-black/10",
         "dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-black/40",
-        compact ? "gap-1 px-1" : "px-2",
       )}
     >
       <DragGrip
@@ -694,7 +563,6 @@ export default function QuickbarPage() {
       </span>
 
       <Chip
-        compact={compact}
         icon={<Languages aria-hidden="true" />}
         label={modeBangla ? "বাংলা" : "EN"}
         title={
@@ -705,19 +573,6 @@ export default function QuickbarPage() {
         disabled={needsDaemon || toggleMode.isPending}
         onClick={() => void toggleMode.mutate()}
         active={modeBangla}
-      />
-      <Chip
-        compact={compact}
-        icon={<Binary aria-hidden="true" />}
-        label={encodingUnicode ? "ইউনিকোড" : "বিজয়"}
-        title={
-          encodingUnicode
-            ? "Switch output to Bijoy"
-            : "Switch output to Unicode"
-        }
-        disabled={needsDaemon || cycleEncoding.isPending}
-        onClick={() => void cycleEncoding.mutate()}
-        active={!encodingUnicode}
       />
       <IconButton
         title={paused ? "Resume capture" : "Pause capture"}
@@ -757,41 +612,11 @@ export default function QuickbarPage() {
         onPointerCancel={barDrag.cancel}
       />
       <IconButton
-        title="Hide quick bar to tray"
-        onClick={() => void hideToTray.mutate()}
-        disabled={hideToTray.isPending}
-      >
-        <Minimize2 aria-hidden="true" />
-      </IconButton>
-      <IconButton
-        title="Open on-screen keyboard"
-        onClick={() => void openKeyboard.mutate()}
-      >
-        <Keyboard aria-hidden="true" />
-      </IconButton>
-      <IconButton
         title="Open settings"
         onClick={() => void openSettings.mutate()}
       >
         <Settings aria-hidden="true" />
       </IconButton>
-      <IconButton
-        title={confirmQuit ? "Click again to quit Okkhor" : "Quit Okkhor"}
-        onClick={requestQuit}
-        danger={confirmQuit}
-      >
-        <Power aria-hidden="true" />
-      </IconButton>
-      <div
-        role="separator"
-        aria-label="Resize quick bar"
-        title="Drag to resize"
-        onPointerDown={resize.begin}
-        className={cn(
-          "absolute inset-y-2 right-0 w-1.5 touch-none cursor-ew-resize rounded-full",
-          "bg-neutral-300/0 transition hover:bg-teal-500/60 dark:bg-neutral-600/0",
-        )}
-      />
     </div>
   );
 }

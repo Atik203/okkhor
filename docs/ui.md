@@ -60,7 +60,7 @@ WebView (React) ──invoke──▶ src-tauri (Rust commands) ──named pipe
 | `#/settings` | Settings | every contract §2 field (incl. quickbar X/Y + Automatic toggle), live validation, dirty guard, Save/Reset, toasts |
 | `#/keyboard` | On-screen keyboard | layout selector, Unicode key table + Shift layer, reorderable groups, favorites, session recents, bundled emoji search |
 | `#/words` | Word manager | paginated table (50 default), search, add/remove, CSV/JSON import preview + export download |
-| `#/quickbar` | Quick bar | compact 460×60 bar (see below); also auto-hosted by the `quickbar` window with no nav chrome |
+| `#/quickbar` | Quick bar | compact 340×52 bar (see below); also auto-hosted by the `quickbar` window with no nav chrome |
 | `#/about` | About | versions, data locations, privacy summary, licenses pointer |
 
 Unknown hashes fall back to `#/` (status). First run shows no wizard and no
@@ -116,13 +116,12 @@ cargo test
   chips, pause, keyboard, settings, or collapse never activates the window.
   The bar is the single approved exception to contract §5's no-always-on-top
   rule (lead ruling, 2026-11-23); no other UI window may be always-on-top.
-- Geometry: 460×60 by default, resizable horizontally 320–720 px (right-edge
-  handle; width remembered in `localStorage`), collapsible to a 44×44 orb
-  (double-click the grip to collapse; click the orb to expand). Labels stay
-  visible down to 420 px and switch to icon-only chips below that, so 320 px
-  never clips. The bar starts top-right of the primary monitor with
-  per-monitor DPI scaling, or at the last saved drag position when it is still
-  on a monitor.
+- Geometry: fixed 340×52 (compact typing surface), collapsible to a 44×44 orb
+  (double-click the grip to collapse; click the orb to expand). The bar is not
+  resizable: a fixed size keeps the controls in one predictable place instead
+  of letting the window grow into a control panel. The bar starts top-right of
+  the primary monitor with per-monitor DPI scaling, or at the last saved drag
+  position when it is still on a monitor.
 - Moving: manual pointer-capture drag (`setPosition`) on the left grip and the
   empty spacer — *not* `data-tauri-drag-region`. Windows' modal move loop does
   not reliably start for a `WS_EX_NOACTIVATE` window; explicit positioning
@@ -131,29 +130,27 @@ cargo test
   While mounted, the bar locks `html`/`body`/`#root` to 100% with
   `overflow: hidden` and a transparent background, so no scrollbar or bottom
   line can appear.
-- Contents: mode chip (`বাংলা`/`EN`), encoding chip (`ইউনিকোড`/`বিজয়`),
-  pause, on-screen keyboard (opens `main` at `/keyboard`), settings,
-  hide-to-tray, and quit; status dot (text-announced, never color-only) for
-  daemon availability; success toast on pause toggle, error toasts otherwise.
-  No text capture: the view renders static labels and never reads keystrokes.
-  A short click plays on mode changes unless `toggle_sound` is off.
+- Contents: mode chip (`বাংলা`/`EN`), pause, add-last-word, and settings;
+  status dot (text-announced, never color-only) for daemon availability;
+  centered notice pill on pause/add/error, two-second snapshot timeout when the
+  daemon is unreachable. Everything rare (encoding, on-screen keyboard,
+  hide-to-tray, quit) lives in Settings or the tray, so the bar stays a typing
+  surface with five targets. Each notice renders exactly once and is announced
+  once (`role="status"`). No text capture: the view renders static labels and
+  never reads keystrokes. A short click plays on mode changes unless
+  `toggle_sound` is off.
 - Hide to tray: `quickbar_hide` hides the window and sets `quickbar_visible`
   to false; the process stays alive. The tray menu's **Show quick bar** signals
   a session-local named event (`Local\Okkhor.QuickBar.Show.v1`) so the running
   UI re-shows the bar no-activate (`quickbar_show`). If no UI is listening,
   the daemon launches the UI at the artifact root with `--quickbar` (sibling
   `okkhor-ui.exe` in dev/0.5.0 layouts).
-- Quit: the power button arms a confirmation on the first click and, on the
-  second, sends the authenticated IPC `shutdown` request (daemon exits
-  cleanly and removes the tray) then terminates the UI process. A 3-second
-  watchdog guarantees the bar closes even if the pipe stalls; when the daemon
-  is already down only the UI exits, so the bar can never become impossible to
-  close.
-- Resize: the right-edge handle starts a native poll loop in Rust that tracks
-  the physical cursor and calls `SetWindowPos` (no activation, height held at
-  60), so the pointer can leave the bar without losing the drag. The window
-  resize listener clamps to 320-720 px, switches between labelled and
-  icon-only chips at 420 px, and remembers the width locally.
+- Quit lives in the tray and Settings; the bar no longer carries a power
+  button next to the typing controls. The tray/quit path is unchanged:
+  authenticated IPC `shutdown`, then the UI exits.
+- Resize: removed. The bar is a fixed 340×52 compact surface; the old
+  right-edge handle and its native `SetWindowPos` poll loop are gone, so no
+  pointer loop can outlive the window.
 - Settings: "Show quick bar" toggle and the 0.5–1.0 opacity slider write
   the existing `quickbar_*` fields through `settings.update`. Daemon down:
   mode/encoding/pause return `daemon_unavailable` (chips disable, banner
@@ -193,11 +190,16 @@ window owns sizing, painting, placement, and click queuing.
 
 ### Placement rules
 
-- Below the caret with a 4–6px (DPI-scaled) gap; flips above when the card
-  would leave the monitor work area; clamps horizontally; per-monitor DPI via
-  the caret anchor (`crates/okkhor-win/src/caret.rs`, `place_popup`).
-- Never covers the caret line when avoidable; max height is 10 rows. The
-  window is `WS_POPUP | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`,
+- Below the caret with a 2px (DPI-scaled) gap; flips above when the card would
+  leave the monitor work area. When the caret is near the bottom of the screen
+  the card flips up, and the row count is capped to the larger side's available
+  height so the tail can never be clamped over the line being typed. If neither
+  side holds even one row (a tiny window), it takes the larger side and clamps.
+  Clamps horizontally; per-monitor DPI via the caret anchor
+  (`crates/okkhor-win/src/caret.rs`, `place_popup`, `popup_space`).
+- Never covers the caret line: `show_candidates` caps `rows` from
+  `popup_space` before layout, so the card shrinks instead of overlapping.
+  The window is `WS_POPUP | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`,
   the class registers once, `WM_MOUSEACTIVATE` returns `MA_NOACTIVATE`, and
   showing uses `SW_SHOWNOACTIVATE` — it never takes focus and never steals
   typing.
@@ -352,7 +354,7 @@ UI's own rendering; the native popup keeps the engine's 5-candidate cap.
   to one column (`xl:grid-cols-1`). Below `xl` everything stacks.
 - Keyboard: header card full width, key-group sections in `lg:grid-cols-2`;
   Favorites/Recents/Emoji stay full width below.
-- About stays `max-w-2xl`. The quickbar route/window keeps its fixed 460×60
+- About stays `max-w-2xl`. The quickbar route/window keeps its fixed 340×52
   layout — layout work must not touch it.
 
 ## Theme tokens

@@ -538,6 +538,33 @@ fn anchor_from_rect(rect: RECT, dpi: u32, work_area: RECT) -> CaretAnchor {
     }
 }
 
+/// Vertical gap between the caret and the card, in physical pixels.
+fn caret_gap(dpi: u32) -> i32 {
+    ((2_i64 * i64::from(dpi)) / 96).max(1) as i32
+}
+
+/// Vertical room for the card on each side of the caret, in physical pixels.
+///
+/// Returns `(below, above)`. The caller uses the larger side to decide how many
+/// rows can be shown: a card that does not fit either side must lose rows
+/// rather than cover the line being typed on.
+pub fn popup_space(anchor: &CaretAnchor) -> (i32, i32) {
+    let work = anchor.work_area;
+    let gap = caret_gap(anchor.dpi);
+    let below = work
+        .bottom
+        .saturating_sub(anchor.rect.bottom)
+        .saturating_sub(gap)
+        .max(0);
+    let above = anchor
+        .rect
+        .top
+        .saturating_sub(work.top)
+        .saturating_sub(gap)
+        .max(0);
+    (below, above)
+}
+
 /// Place a popup below the caret, flipping above or clamping when needed.
 pub fn place_popup(anchor: &CaretAnchor, width: i32, height: i32) -> PopupPlacement {
     let work = anchor.work_area;
@@ -548,14 +575,26 @@ pub fn place_popup(anchor: &CaretAnchor, width: i32, height: i32) -> PopupPlacem
     // Keep the card just under the caret: a small vertical gap and a small
     // leftward inset so the caret sits at the card's leading edge instead of
     // the card appearing further to the right of the typing position.
-    let gap = ((2_i64 * i64::from(anchor.dpi)) / 96).max(1) as i32;
-    let inset = ((2_i64 * i64::from(anchor.dpi)) / 96).max(1) as i32;
+    let gap = caret_gap(anchor.dpi);
+    let inset = gap;
 
     let below_y = anchor.rect.bottom.saturating_add(gap);
     let above_y = anchor.rect.top.saturating_sub(gap).saturating_sub(height);
-    let below_fits = below_y.saturating_add(height) <= work.bottom;
-    let above_fits = above_y >= work.top;
-    let above = !below_fits && above_fits;
+    let (below_space, above_space) = popup_space(anchor);
+    let below_fits = below_space >= height;
+    let above_fits = above_space >= height;
+    // Below is the stable default: it keeps the card in the same place for the
+    // whole line. Flip up only when below cannot hold it, and when neither
+    // side fits take the larger one — the smaller side would cover the word
+    // being typed. The card also caps its rows to the larger side, so this
+    // last case only happens in a tiny window.
+    let above = if below_fits {
+        false
+    } else if above_fits {
+        true
+    } else {
+        above_space > below_space
+    };
 
     let max_x = (work.right - width).max(work.left);
     let max_y = (work.bottom - height).max(work.top);
@@ -622,7 +661,7 @@ fn fallback_anchor() -> CaretAnchor {
 
 #[cfg(test)]
 mod tests {
-    use super::{CaretAnchor, CaretSample, CaretTracker, place_popup};
+    use super::{CaretAnchor, CaretSample, CaretTracker, place_popup, popup_space};
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
     use windows::Win32::Foundation::RECT;
@@ -837,5 +876,32 @@ mod tests {
         anchor.dpi = 192;
         let placement = place_popup(&anchor, 200, 100);
         assert_eq!(placement.y, 124);
+    }
+
+    #[test]
+    fn reports_room_on_both_sides_of_the_caret() {
+        let (below, above) = popup_space(&anchor(100, 550, 101, 580, work()));
+        // work bottom 600, caret bottom 580, 2px gap.
+        assert_eq!(below, 18);
+        // caret top 550, work top 0, 2px gap.
+        assert_eq!(above, 548);
+    }
+
+    #[test]
+    fn takes_the_larger_side_when_neither_fits() {
+        // 400px card in a 600px work area with the caret at 300: neither side
+        // holds it. It flips to the larger side (above) and clamps at the work
+        // top; the popup caps its rows so this clamp is the last resort.
+        let placement = place_popup(&anchor(100, 300, 101, 320, work()), 200, 400);
+        assert!(placement.above);
+        assert_eq!(placement.y, 0);
+    }
+
+    #[test]
+    fn a_card_sized_to_the_larger_side_never_covers_the_caret() {
+        // 296px fits above (298 available), so the card clears the caret line.
+        let placement = place_popup(&anchor(100, 300, 101, 320, work()), 200, 296);
+        assert!(placement.above);
+        assert!(placement.y + placement.height <= 298);
     }
 }

@@ -3,16 +3,38 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
-## [Unreleased]
+## [0.9.7] - 2026-11-26
 
 ### Added
 
 - **Mid-word editing shows where you are.** Left/Right inside a Bangla word
-  moves the composition point, and the caret is now projected into the rendered
+  moves the composition point, and the caret is projected into the rendered
   word instead of staying at its end. The caret is parked back before every
   rewrite, so erase counts stay measured from the word end; when a
   transliteration is not prefix-stable, the caret stays at the end rather than
   guessing an offset (ADR 0026, amending ADR 0022).
+
+### Changed
+
+- **The quick bar is a typing surface, not a control panel.** It shrinks from
+  460×60 to a fixed 340×52 and keeps five targets: drag grip, mode, pause,
+  add-last-word, settings. Encoding, the on-screen keyboard, hide-to-tray and
+  quit moved to Settings or the tray, and the drag-to-resize handle is gone.
+- **The toggle click is audible.** The embedded click peaked at 45 % of full
+  scale (−7 dBFS), which was faint next to system sounds. It is normalized to
+  92 % (+6.3 dB, RMS −12.9 dBFS) with the same 18 ms waveform;
+  `scripts/make-sounds.ps1` regenerates it.
+
+### Fixed
+
+- **The suggestion card no longer covers the line you are typing on.** Rows are
+  capped to the vertical room on the larger side of the caret before layout, so
+  a list near the bottom of the screen flips above and shrinks instead of
+  clamping over the text. Placement also takes the larger side when neither
+  side holds the card.
+- **Quick-bar notices are announced once.** The overlay pill and the old inline
+  label both rendered the same message in a `role="status"` region, so screen
+  readers read it twice. The stale inline copy is gone.
 
 ## [0.9.6] - 2026-11-25
 
