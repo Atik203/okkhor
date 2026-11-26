@@ -3,6 +3,31 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.11] - 2026-11-27
+
+### Added
+
+- **Exit in the quick bar.** A power button (two clicks) asks the daemon to
+  shut down, waits for the pipe to close, force-stops an unresponsive engine,
+  then exits the UI. The tray icon can no longer outlive an explicit exit.
+
+### Fixed
+
+- **Shortcuts stopped showing suggestions.** The worker re-read the modifier
+  state when it drained the queue, so a fast Ctrl+Shift+S could be processed
+  after Ctrl was released and start a composition. The hook now records
+  `chord` on the key event; a chorded key cancels the composition and is never
+  treated as a letter, digit, or commit.
+- **The next-word ghost no longer lingers on mouse clicks.** It only shows in
+  the window that received the commit and disappears after four seconds, so
+  clicking the tray or the browser address bar cannot leave it behind.
+- **Settings opens when Windows refuses focus.** The click used to fail
+  silently because `set_focus` returned an error; showing, unminimizing and
+  navigating now happen regardless.
+- **Add-last-word works with learning off.** The last (roman, Bangla) pair is
+  remembered for the explicit `+` action even when learning is disabled; it is
+  still memory-only and never written or logged.
+
 ## [0.9.10] - 2026-11-26
 
 ### Fixed
@@ -489,6 +514,31 @@ Versioning once it reaches 1.0.
   dictionary and the learned reranker are later milestones.
 - No speech/AI actions yet; no clipboard fallback or elevated-window injection.
 - Manual real-key QA remains owner-gated; see `docs/qa/`.
+
+## [0.9.11] - 2026-11-27
+
+### Added
+
+- **Exit in the quick bar.** A power button (two clicks) asks the daemon to
+  shut down, waits for the pipe to close, force-stops an unresponsive engine,
+  then exits the UI. The tray icon can no longer outlive an explicit exit.
+
+### Fixed
+
+- **Shortcuts stopped showing suggestions.** The worker re-read the modifier
+  state when it drained the queue, so a fast Ctrl+Shift+S could be processed
+  after Ctrl was released and start a composition. The hook now records
+  `chord` on the key event; a chorded key cancels the composition and is never
+  treated as a letter, digit, or commit.
+- **The next-word ghost no longer lingers on mouse clicks.** It only shows in
+  the window that received the commit and disappears after four seconds, so
+  clicking the tray or the browser address bar cannot leave it behind.
+- **Settings opens when Windows refuses focus.** The click used to fail
+  silently because `set_focus` returned an error; showing, unminimizing and
+  navigating now happen regardless.
+- **Add-last-word works with learning off.** The last (roman, Bangla) pair is
+  remembered for the explicit `+` action even when learning is disabled; it is
+  still memory-only and never written or logged.
 
 ## [0.9.10] - 2026-11-26
 

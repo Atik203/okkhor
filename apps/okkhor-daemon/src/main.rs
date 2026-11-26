@@ -807,6 +807,8 @@ fn same_target(pid: u32, hwnd: isize, current_pid: u32, current_hwnd: isize) -> 
 /// Ghost candidates offered after a commit. The hint shows one at a time and
 /// Up/Down cycles the list, so this is the reachable set.
 const GHOST_CANDIDATES: usize = 5;
+/// How long a next-word ghost stays on screen without a new commit.
+const GHOST_VISIBLE_MS: u64 = 4_000;
 
 /// One grey next-word hint after a commit.
 #[derive(Debug, Default)]
@@ -1146,16 +1148,21 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         } else {
             rendered
         };
+        // Remember the pair for the quick bar's "add word" action even when
+        // learning is off: the user asked for it explicitly, and the pair is
+        // memory-only (no store, no log). The Bangla guard still applies, so a
+        // Latin fallback is never offered as a mapping.
+        if has_bengali(&unicode_text)
+            && let Some(state) = ctx.state
+        {
+            state.remember_commit(&roman, &unicode_text);
+        }
         if !ctx.learning_enabled || !has_bengali(&unicode_text) {
             ctx.shown_words.clear();
             return;
         }
         emit_suggestion_accepted(ctx, &unicode_text, previous_word.clone());
         emit_correction(ctx, &unicode_text);
-        // Remember the pair for the quick bar's "add word" action.
-        if let Some(state) = ctx.state {
-            state.remember_commit(&roman, &unicode_text);
-        }
         *ctx.last_commit = Some((unicode_text.clone(), now_ms()));
         ctx.shown_words.clear();
         let event = LearningEvent::TransliterationCommitted {
@@ -1561,8 +1568,15 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn handle_key(
+    /// The two facts the hook knows about one key press.
+    struct KeyInput {
         vk: u16,
+        /// Ctrl/Alt/Win was held at hook time; shortcuts never compose.
+        chord: bool,
+    }
+
+    fn handle_key(
+        input: KeyInput,
         ctx: &mut CompositionCtx<'_>,
         fixed: Option<&FixedLayout>,
         fixed_composition: &mut FixedComposition,
@@ -1570,6 +1584,16 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         inline_enabled: bool,
         ghost: &mut GhostState,
     ) {
+        let KeyInput { vk, chord } = input;
+        // A shortcut chord must never start or grow a composition. The hook
+        // records the chord at key time, so a fast Ctrl+Shift+S cannot be
+        // mistaken for a plain letter after the modifiers are released.
+        if chord && !is_modifier_key(vk) {
+            if ctx.session.is_composing() {
+                cancel_composition(ctx);
+            }
+            return;
+        }
         if ghost.visible {
             match vk {
                 VK_TAB => {
@@ -2284,6 +2308,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
     let mut last_commit: Option<(String, u64)> = None;
     let mut pending_correction: Option<String> = None;
     let mut ghost = GhostState::default();
+    let mut ghost_until_ms: u64 = 0;
     let mut ghost_prev: Option<String> = None;
     let mut encoding = options.encoding;
     let mut mode = options.mode;
@@ -2884,9 +2909,24 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         if !session.is_composing() {
             shown_words.clear();
         }
-        // Next-word ghost: only after a commit, only while idle, and only for
-        // Bangla until the English learning events are wired.
-        if session.is_composing() || fixed_enabled || !mode.allows_composition() {
+        // Next-word ghost: only after a commit, only while idle, only for
+        // Bangla until the English learning events are wired, only in the same
+        // window that received the commit, and only for a short while. A click
+        // in the tray or the browser address bar changes focus or leaves the
+        // caret where the ghost would be wrong, so it must disappear.
+        let ghost_target = same_target(
+            compose_pid,
+            compose_window,
+            foreground_window_pid(),
+            foreground_window_id(),
+        );
+        let ghost_expired = ghost.visible && ghost_until_ms != 0 && now_ms() >= ghost_until_ms;
+        if session.is_composing()
+            || fixed_enabled
+            || !mode.allows_composition()
+            || !ghost_target
+            || ghost_expired
+        {
             if ghost.visible || !ghost.words.is_empty() {
                 ghost.hide();
                 if let Some(window) = popup.as_mut() {
@@ -2894,6 +2934,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 }
             }
             ghost_prev = None;
+            ghost_until_ms = 0;
         } else {
             let previous = session.previous_word().map(str::to_owned);
             if previous != ghost_prev {
@@ -2922,6 +2963,7 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                         .is_ok()
                     {
                         ghost.visible = true;
+                        ghost_until_ms = now_ms().saturating_add(GHOST_VISIBLE_MS);
                     }
                 }
             }
@@ -3024,7 +3066,10 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
                 caret_generation: &mut last_anchor_generation,
             };
             handle_key(
-                event.virtual_key,
+                KeyInput {
+                    vk: event.virtual_key,
+                    chord: event.chord,
+                },
                 &mut ctx,
                 fixed_layout.as_deref(),
                 &mut fixed_composition,

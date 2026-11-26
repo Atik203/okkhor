@@ -624,10 +624,12 @@ fn show_main_at(app: &AppHandle, route: &str) -> Result<(), UiError> {
     let Some(main) = app.get_webview_window("main") else {
         return Err(UiError::internal());
     };
-    main.show().map_err(|_| UiError::internal())?;
-    // Best-effort unminimize; a failure must not block showing the window.
+    // Show and navigate even if Windows refuses the focus request: the
+    // foreground lock can reject `set_focus` from a no-activate window, and
+    // failing here left the settings click doing nothing at all.
+    let _ = main.show();
     let _ = main.unminimize();
-    main.set_focus().map_err(|_| UiError::internal())?;
+    let _ = main.set_focus();
     main.emit("okkhor:navigate", route)
         .map_err(|_| UiError::internal())?;
     Ok(())
@@ -794,28 +796,48 @@ async fn quickbar_save_position(app: AppHandle) -> Result<(), UiError> {
     Ok(())
 }
 
-/// Quit Okkhor from the bar: ask the daemon to exit cleanly, then terminate
-/// this UI process. A watchdog guarantees the bar closes even if the IPC call
-/// stalls; works when the daemon is already down.
+/// Quit Okkhor from the bar: ask the daemon to exit cleanly, wait for it, force
+/// it down if the pipe still answers, then terminate this UI process.
+///
+/// The engine is spawned detached, so a failed IPC call used to leave the
+/// daemon (and its tray icon) running while only the bar disappeared. An
+/// explicit Exit must leave nothing behind.
 #[tauri::command]
-async fn quickbar_quit() -> Result<(), UiError> {
-    // Watchdog: a stuck pipe must never leave an unclosable bar behind.
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(3));
-        std::process::exit(0);
-    });
+async fn quickbar_quit(app: AppHandle) -> Result<(), UiError> {
     #[cfg(windows)]
-    std::thread::spawn(|| {
-        tauri::async_runtime::block_on(async {
-            if let Ok(mut client) = connect().await {
-                let _ = client.shutdown().await;
+    {
+        if let Ok(mut client) = connect().await {
+            let _ = client.shutdown().await;
+        }
+        // The daemon stops its hook, tray, and IPC server before exiting. Wait
+        // for the pipe to stop answering, up to ~2.5 s.
+        let mut gone = false;
+        for _ in 0..25 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if connect().await.is_err() {
+                gone = true;
+                break;
             }
-        });
-        std::process::exit(0);
-    });
-    #[cfg(not(windows))]
-    std::process::exit(0);
+        }
+        if !gone {
+            force_quit_engine();
+        }
+    }
+    app.exit(0);
     Ok(())
+}
+
+/// Last resort for an unresponsive daemon: terminate the engine process.
+#[cfg(windows)]
+fn force_quit_engine() {
+    let mut command = std::process::Command::new("taskkill");
+    command.args(["/IM", "okkhor-engine.exe", "/F"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let _ = command.status();
 }
 
 /// Resize the bar window. The resize always applies locally; persisting

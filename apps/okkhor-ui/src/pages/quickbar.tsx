@@ -11,6 +11,7 @@ import {
   Pause,
   Play,
   Plus,
+  Power,
   RotateCw,
   Settings,
 } from "lucide-react";
@@ -393,6 +394,8 @@ export default function QuickbarPage() {
   }, []);
   const collapsed = snapshotQuery.data?.collapsed ?? false;
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [confirmQuit, setConfirmQuit] = React.useState(false);
+  const quitTimer = React.useRef<number | null>(null);
   const noticeTimer = React.useRef<number | null>(null);
 
   // Inline status text in the bar. A sonner toast would cover the controls in
@@ -493,6 +496,19 @@ export default function QuickbarPage() {
       openFallback(error);
     },
   });
+
+  function requestQuit() {
+    if (confirmQuit) {
+      if (quitTimer.current != null) {
+        window.clearTimeout(quitTimer.current);
+      }
+      void api.quickbarQuit().catch(() => undefined);
+      return;
+    }
+    setConfirmQuit(true);
+    showNotice("Quit Okkhor? Click power again to exit.");
+    quitTimer.current = window.setTimeout(() => setConfirmQuit(false), 3000);
+  }
 
   function openFallback(error: unknown) {
     // Outside Tauri (browser dev) there is no main window to show:
@@ -656,6 +672,13 @@ export default function QuickbarPage() {
         onClick={() => void openSettings.mutate()}
       >
         <Settings aria-hidden="true" />
+      </IconButton>
+      <IconButton
+        title={confirmQuit ? "Click again to quit Okkhor" : "Quit Okkhor"}
+        onClick={requestQuit}
+        danger={confirmQuit}
+      >
+        <Power aria-hidden="true" />
       </IconButton>
       <div
         role="separator"

@@ -136,7 +136,7 @@ describe("quick bar", () => {
     expect(
       screen.queryByRole("button", { name: "Open on-screen keyboard" }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Quit Okkhor" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Quit Okkhor" })).toBeInTheDocument();
     // Resize is a window behavior, not a control button: it stays.
     expect(
       screen.getByRole("separator", { name: "Resize quick bar" }),
@@ -273,6 +273,20 @@ describe("quick bar", () => {
     expect(bar?.getAttribute("style")).toContain("opacity: 0.65");
   });
 
+  test("the exit button arms, then quits the whole app", async () => {
+    mockOnline();
+    renderPage();
+    const quit = await screen.findByRole("button", { name: "Quit Okkhor" });
+    fireEvent.click(quit);
+    // First click only arms the confirmation.
+    expect(invokeMock).not.toHaveBeenCalledWith("quickbar_quit");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Click again to quit Okkhor" }),
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quickbar_quit"),
+    );
+  });
   test("the right-edge handle starts a native resize drag", async () => {
     mockOnline();
     renderPage();
@@ -283,7 +297,7 @@ describe("quick bar", () => {
     fireEvent.pointerDown(handle, { button: 0, isPrimary: true });
     expect(startResizeMock).toHaveBeenCalledWith("East");
   });
-  test("bar exposes only the five typing-surface controls", async () => {
+  test("bar exposes only the six typing-surface controls", async () => {
     mockOnline();
     const { container } = renderPage();
     await screen.findByRole("toolbar", { name: "Okkhor quick bar" });
@@ -295,6 +309,7 @@ describe("quick bar", () => {
       "Pause capture",
       "Add the last typed word to my dictionary",
       "Open settings",
+      "Quit Okkhor",
     ]);
     // The grip is a role=button div (it is also the drag surface).
     expect(

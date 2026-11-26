@@ -293,6 +293,10 @@ pub struct KeyEvent {
     pub scan_code: u16,
     pub phase: KeyPhase,
     pub timestamp_ms: u64,
+    /// Ctrl/Alt/Win was held when the hook saw the key. Shortcuts must never
+    /// start or extend a composition; the hook is the only place this is
+    /// trustworthy, because the worker can read the queue after release.
+    pub chord: bool,
 }
 
 /// Lifecycle for a platform keyboard hook.
@@ -342,6 +346,7 @@ mod tests {
             scan_code: 0x1E,
             phase: KeyPhase::Down,
             timestamp_ms: 42,
+            chord: false,
         };
         let copy = event;
         assert_eq!(copy, event);

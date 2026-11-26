@@ -356,6 +356,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     scan_code: data.scanCode as u16,
                     phase,
                     timestamp_ms: u64::from(data.time),
+                    chord: ctrl_or_alt_pressed(),
                 });
             }
             // Commit keys (Space/Enter/digits/arrows) must not reach the
