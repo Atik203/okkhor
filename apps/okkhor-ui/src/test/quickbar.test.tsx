@@ -119,7 +119,7 @@ describe("quick bar", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "Add the last typed word to my dictionary",
+        name: "Add a word",
       }),
     ).toBeInTheDocument();
     expect(
@@ -136,7 +136,7 @@ describe("quick bar", () => {
     expect(
       screen.queryByRole("button", { name: "Open on-screen keyboard" }),
     ).toBeNull();
-    expect(screen.getByRole("button", { name: "Quit Okkhor" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exit Okkhor" })).toBeInTheDocument();
     // Resize is a window behavior, not a control button: it stays.
     expect(
       screen.getByRole("separator", { name: "Resize quick bar" }),
@@ -273,18 +273,21 @@ describe("quick bar", () => {
     expect(bar?.getAttribute("style")).toContain("opacity: 0.65");
   });
 
-  test("the exit button arms, then quits the whole app", async () => {
+  test("the exit button quits on a single click", async () => {
     mockOnline();
     renderPage();
-    const quit = await screen.findByRole("button", { name: "Quit Okkhor" });
-    fireEvent.click(quit);
-    // First click only arms the confirmation.
-    expect(invokeMock).not.toHaveBeenCalledWith("quickbar_quit");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Click again to quit Okkhor" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Exit Okkhor" }));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("quickbar_quit"),
+    );
+  });
+
+  test("the add button opens the add-word panel", async () => {
+    mockOnline();
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Add a word" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quickadd_open"),
     );
   });
   test("the right-edge handle starts a native resize drag", async () => {
@@ -307,9 +310,9 @@ describe("quick bar", () => {
     expect(names).toEqual([
       "Switch to English",
       "Pause capture",
-      "Add the last typed word to my dictionary",
+      "Add a word",
       "Open settings",
-      "Quit Okkhor",
+      "Exit Okkhor",
     ]);
     // The grip is a role=button div (it is also the drag surface).
     expect(

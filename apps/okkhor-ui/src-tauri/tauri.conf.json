@@ -1,6 +1,6 @@
 {
   "productName": "Okkhor",
-  "version": "0.9.12",
+  "version": "0.9.13",
   "identifier": "app.okkhor.ui",
   "build": {
     "frontendDist": "../dist",
@@ -36,6 +36,23 @@
         "skipTaskbar": true,
         "alwaysOnTop": true,
         "focus": false,
+        "visible": false
+      },
+      {
+        "label": "quickadd",
+        "title": "Add word",
+        "width": 340,
+        "height": 132,
+        "minWidth": 300,
+        "maxWidth": 560,
+        "minHeight": 60,
+        "maxHeight": 132,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
         "visible": false
       }
     ],

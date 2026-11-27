@@ -19,10 +19,11 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
-    GetGUIThreadInfo, GetMessageW, GetWindowThreadProcessId, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
-    PostMessageW, PostThreadMessageW, SetForegroundWindow, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    ShowWindow, SW_SHOW, WH_KEYBOARD_LL, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    BringWindowToTop, CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW,
+    GetForegroundWindow, GetGUIThreadInfo, GetMessageW, GetWindowThreadProcessId, HC_ACTION,
+    KBDLLHOOKSTRUCT, MSG, PostMessageW, PostThreadMessageW, SW_SHOW, SetForegroundWindow,
+    SetWindowsHookExW, ShowWindow, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_CHAR,
+    WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 use crate::clipboard::ClipboardGuard;

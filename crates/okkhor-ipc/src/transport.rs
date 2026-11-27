@@ -461,6 +461,19 @@ impl Client {
     }
 
     /// Add the last committed (roman, output) pair as a custom mapping.
+    /// Render `roman` as Bangla candidates for the add-word panel. The list is
+    /// advisory: the user can edit before saving.
+    pub async fn words_preview(&mut self, roman: &str) -> Result<Vec<String>, ClientError> {
+        let response = self
+            .call(&Request::WordsPreview(crate::protocol::WordsPreview {
+                roman: roman.to_owned(),
+            }))
+            .await?;
+        Self::lift(response, |response| match response {
+            Response::Preview(candidates) => Some(candidates.words),
+            _ => None,
+        })
+    }
     pub async fn words_add_last(&mut self) -> Result<crate::words::Word, ClientError> {
         let response = self
             .call(&Request::WordsAddLast(crate::protocol::NoArgs {}))

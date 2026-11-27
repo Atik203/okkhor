@@ -131,7 +131,15 @@ export const api = {
   addWord(roman: string, output: string, language: "bn" | "en"): Promise<Word> {
     return invoke<Word>("ipc_add_word", { roman, output, language });
   },
-  addLastWord(): Promise<Word> {
+  wordsPreview(roman: string): Promise<string[]> {
+    return invoke<string[]>("ipc_words_preview", { roman });
+  },
+  quickaddOpen(): Promise<void> {
+    return invoke<void>("quickadd_open");
+  },
+  quickaddClose(): Promise<void> {
+    return invoke<void>("quickadd_close");
+  },  addLastWord(): Promise<Word> {
     return invoke<Word>("ipc_add_last_word");
   },
   removeWord(id: number): Promise<boolean> {

@@ -394,8 +394,6 @@ export default function QuickbarPage() {
   }, []);
   const collapsed = snapshotQuery.data?.collapsed ?? false;
   const [notice, setNotice] = React.useState<string | null>(null);
-  const [confirmQuit, setConfirmQuit] = React.useState(false);
-  const quitTimer = React.useRef<number | null>(null);
   const noticeTimer = React.useRef<number | null>(null);
 
   // Inline status text in the bar. A sonner toast would cover the controls in
@@ -474,12 +472,7 @@ export default function QuickbarPage() {
     },
     onError: fail,
   });
-  const addLastWord = useMutation({
-    mutationFn: () => api.addLastWord(),
-    onSuccess: (word) => showNotice(`Added “${word.output}” to your words.`),
-    onError: () =>
-      showNotice("Type a word first, then add it from the bar."),
-  });
+
   const collapse = useMutation({
     mutationFn: () => api.quickbarCollapse(),
     onSuccess: applySnapshot,
@@ -497,18 +490,6 @@ export default function QuickbarPage() {
     },
   });
 
-  function requestQuit() {
-    if (confirmQuit) {
-      if (quitTimer.current != null) {
-        window.clearTimeout(quitTimer.current);
-      }
-      void api.quickbarQuit().catch(() => undefined);
-      return;
-    }
-    setConfirmQuit(true);
-    showNotice("Quit Okkhor? Click power again to exit.");
-    quitTimer.current = window.setTimeout(() => setConfirmQuit(false), 3000);
-  }
 
   function openFallback(error: unknown) {
     // Outside Tauri (browser dev) there is no main window to show:
@@ -643,9 +624,9 @@ export default function QuickbarPage() {
         )}
       </IconButton>
       <IconButton
-        title="Add the last typed word to my dictionary"
-        disabled={needsDaemon || addLastWord.isPending}
-        onClick={() => void addLastWord.mutate()}
+        title="Add a word"
+        disabled={needsDaemon}
+        onClick={() => void api.quickaddOpen().catch(() => undefined)}
       >
         <Plus aria-hidden="true" />
       </IconButton>
@@ -674,9 +655,9 @@ export default function QuickbarPage() {
         <Settings aria-hidden="true" />
       </IconButton>
       <IconButton
-        title={confirmQuit ? "Click again to quit Okkhor" : "Quit Okkhor"}
-        onClick={requestQuit}
-        danger={confirmQuit}
+        title="Exit Okkhor"
+        onClick={() => void api.quickbarQuit().catch(() => undefined)}
+        danger
       >
         <Power aria-hidden="true" />
       </IconButton>

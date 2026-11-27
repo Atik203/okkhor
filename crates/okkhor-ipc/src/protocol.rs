@@ -329,6 +329,8 @@ pub enum Request {
     WordsList(WordsListQuery),
     #[serde(rename = "words.add")]
     WordsAdd(WordAdd),
+    #[serde(rename = "words.preview")]
+    WordsPreview(WordsPreview),
     #[serde(rename = "words.add_last")]
     WordsAddLast(NoArgs),
     #[serde(rename = "words.remove")]
@@ -353,6 +355,18 @@ pub enum Request {
     AiStatus(NoArgs),
 }
 
+/// One preview query: roman text to render as Bangla for the add-word panel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WordsPreview {
+    pub roman: String,
+}
+
+/// Bangla candidates for a preview query, best first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviewCandidates {
+    pub words: Vec<String>,
+}
+
 /// Server replies, one per request frame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Response {
@@ -366,6 +380,8 @@ pub enum Response {
     Layouts(Vec<LayoutInfo>),
     #[serde(rename = "words")]
     Words(WordsPage),
+    #[serde(rename = "preview")]
+    Preview(PreviewCandidates),
     #[serde(rename = "word")]
     Word(Word),
     #[serde(rename = "removed")]

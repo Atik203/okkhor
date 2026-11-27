@@ -239,6 +239,9 @@ pub struct DaemonState<P> {
     store_failures: AtomicU64,
     /// (roman, output) of the last inline commit, for `words.add_last`.
     last_commit: Mutex<Option<(String, String)>>,
+    /// Lazily built suggestion engine for the add-word preview; the typing
+    /// path owns its own instance and never touches this one.
+    preview_engine: std::sync::OnceLock<Option<okkhor_engine::SuggestionEngine>>,
     ai: Arc<ai_proxy::AiProxy>,
 }
 
@@ -356,6 +359,7 @@ impl<P: Protector> DaemonState<P> {
             last_apply: Mutex::new(LiveApply::Applied),
             store_failures: AtomicU64::new(0),
             last_commit: Mutex::new(None),
+            preview_engine: std::sync::OnceLock::new(),
             ai,
         }
     }
@@ -368,6 +372,25 @@ impl<P: Protector> DaemonState<P> {
         }
     }
 
+    /// Bangla candidates for the add-word panel, best first.
+    ///
+    /// The engine is built on first use (the index is ~11 MB); a failure
+    /// returns an empty list so the panel can fall back to typing the Bangla
+    /// by hand. No user text is logged or stored here.
+    pub fn preview_words(&self, roman: &str) -> Vec<String> {
+        let Some(engine) = self
+            .preview_engine
+            .get_or_init(|| okkhor_engine::SuggestionEngine::from_embedded().ok())
+        else {
+            return Vec::new();
+        };
+        let smriti = okkhor_learn::Smriti::new();
+        engine
+            .suggest(&okkhor_engine::SuggestRequest::new(roman, 6), &smriti)
+            .into_iter()
+            .map(|row| row.text)
+            .collect()
+    }
     /// Take the remembered pair; a second call without a new commit is empty.
     pub fn take_last_commit(&self) -> Option<(String, String)> {
         self.last_commit
@@ -675,6 +698,10 @@ impl<P: Protector> DaemonState<P> {
                     Response::error(error.code())
                 }
             },
+            Request::WordsPreview(query) => {
+                let words = self.preview_words(&query.roman);
+                Response::Preview(okkhor_ipc::protocol::PreviewCandidates { words })
+            }
             Request::WordsAddLast(_) => match self.take_last_commit() {
                 Some((roman, output)) => {
                     let add = WordAdd {
@@ -1104,6 +1131,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn preview_renders_roman_as_bangla() {
+        let dir = temp_dir("preview");
+        let (state, _sink, _injection) = open_state(&dir, "preview");
+        let words = state.preview_words("dhonnobad");
+        assert!(
+            words.iter().any(|word| word.contains("ধন্য")),
+            "preview should render dhonnobad: {words:?}"
+        );
+        assert!(
+            state.preview_words("").is_empty(),
+            "empty input has no preview"
+        );
+    }
     #[test]
     fn add_last_needs_a_commit_and_adds_the_pair() {
         let dir = temp_dir("add-last");

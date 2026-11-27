@@ -122,6 +122,14 @@ impl Handler for MemoryHandler {
                 Response::Word(word)
             }
             Request::WordsAddLast(_) => Response::error(ErrorCode::InvalidRequest),
+            Request::WordsPreview(query) => {
+                let words = if query.roman == "amar" {
+                    vec!["আমার".to_owned()]
+                } else {
+                    Vec::new()
+                };
+                Response::Preview(okkhor_ipc::protocol::PreviewCandidates { words })
+            }
             Request::WordsRemove(remove) => {
                 let mut words = self.words.lock().expect("words");
                 let before = words.len();

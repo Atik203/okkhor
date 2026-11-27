@@ -24,6 +24,7 @@ const SettingsPage = React.lazy(() => import("./pages/settings"));
 const KeyboardPage = React.lazy(() => import("./pages/keyboard"));
 const WordsPage = React.lazy(() => import("./pages/words"));
 const QuickbarPage = React.lazy(() => import("./pages/quickbar"));
+const QuickaddPage = React.lazy(() => import("./pages/quickadd"));
 
 export type Route = "/" | "/settings" | "/keyboard" | "/words" | "/about" | "/quickbar";
 
@@ -59,12 +60,15 @@ export default function App() {
   // The `quickbar` Tauri window hosts only the bar: detect the window label
   // (outside Tauri — e.g. `npm run dev` in a browser — fall back to the hash).
   const [quickbarWindow, setQuickbarWindow] = React.useState(false);
+  const [quickaddWindow, setQuickaddWindow] = React.useState(false);
   React.useEffect(() => {
     let cancelled = false;
     try {
       const label = getCurrentWindow().label;
       if (!cancelled && label === "quickbar") {
         setQuickbarWindow(true);
+      } else if (!cancelled && label === "quickadd") {
+        setQuickaddWindow(true);
       }
     } catch {
       // Not running inside Tauri (browser dev): hash routing decides.
@@ -144,6 +148,13 @@ export default function App() {
 
   // The quick bar window renders only the bar — no nav, no banner chrome.
   // Reachable both as the `quickbar` window and, for browser dev, `#/quickbar`.
+  if (quickaddWindow) {
+    return (
+      <React.Suspense fallback={<div aria-label="Loading add panel" className="h-[132px] w-[340px]" />}>
+        <QuickaddPage />
+      </React.Suspense>
+    );
+  }
   if (quickbarWindow || route === "/quickbar") {
     return (
       <React.Suspense

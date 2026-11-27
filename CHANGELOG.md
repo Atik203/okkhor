@@ -3,6 +3,24 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.13] - 2026-11-27
+
+### Added
+
+- **Add-word panel from the quick bar.** The `+` button now opens a 340 px
+  panel just below the bar, growing out and collapsing back like a tray. It
+  takes banglish, shows the daemon's Bangla candidates live (same engine as
+  typing), lets you pick or edit the Bangla form, and Save stores the mapping
+  through `words.add`. The panel is a focused window by design: the bar is
+  no-activate, so typing inside it would go to the application behind.
+- `words.preview` IPC request and `ipc_words_preview` command back the live
+  preview; the daemon builds the engine lazily for it and never touches the
+  typing path.
+
+### Changed
+
+- **Exit is one click.** The power button no longer asks for a second click.
+
 ## [0.9.12] - 2026-11-27
 
 ### Fixed
@@ -529,6 +547,24 @@ Versioning once it reaches 1.0.
   dictionary and the learned reranker are later milestones.
 - No speech/AI actions yet; no clipboard fallback or elevated-window injection.
 - Manual real-key QA remains owner-gated; see `docs/qa/`.
+
+## [0.9.13] - 2026-11-27
+
+### Added
+
+- **Add-word panel from the quick bar.** The `+` button now opens a 340 px
+  panel just below the bar, growing out and collapsing back like a tray. It
+  takes banglish, shows the daemon's Bangla candidates live (same engine as
+  typing), lets you pick or edit the Bangla form, and Save stores the mapping
+  through `words.add`. The panel is a focused window by design: the bar is
+  no-activate, so typing inside it would go to the application behind.
+- `words.preview` IPC request and `ipc_words_preview` command back the live
+  preview; the daemon builds the engine lazily for it and never touches the
+  typing path.
+
+### Changed
+
+- **Exit is one click.** The power button no longer asks for a second click.
 
 ## [0.9.12] - 2026-11-27
 

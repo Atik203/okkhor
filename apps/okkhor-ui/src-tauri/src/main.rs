@@ -846,6 +846,83 @@ fn force_quit_engine() {
     let _ = command.status();
 }
 
+/// Render roman text as Bangla candidates for the add-word panel.
+#[tauri::command]
+async fn ipc_words_preview(roman: String) -> Result<Vec<String>, UiError> {
+    #[cfg(windows)]
+    {
+        let mut client = connect().await?;
+        client
+            .words_preview(&roman)
+            .await
+            .map_err(|error| map_client_error(&error))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = roman;
+        Err(UiError::daemon_unavailable())
+    }
+}
+
+/// Show the add-word panel just below the bar, growing out like a tray.
+#[tauri::command]
+async fn quickadd_open(app: AppHandle) -> Result<(), UiError> {
+    let panel = app
+        .get_webview_window("quickadd")
+        .ok_or_else(UiError::internal)?;
+    let scale = panel.scale_factor().unwrap_or(1.0);
+    let (x, y, width) = if let Some(bar) = app.get_webview_window("quickbar") {
+        let position = bar
+            .outer_position()
+            .unwrap_or(tauri::PhysicalPosition::new(0, 0));
+        let size = bar
+            .outer_size()
+            .unwrap_or(tauri::PhysicalSize::new((340.0 * scale) as u32, (52.0 * scale) as u32));
+        (
+            position.x,
+            position.y + size.height as i32 + (6.0 * scale).round() as i32,
+            size.width,
+        )
+    } else {
+        (
+            (340.0 * scale).round() as i32,
+            (120.0 * scale).round() as i32,
+            (340.0 * scale).round() as u32,
+        )
+    };
+    let target = (132.0 * scale).round().max(1.0) as u32;
+    let _ = panel.set_position(tauri::PhysicalPosition::new(x, y));
+    let _ = panel.set_size(tauri::PhysicalSize::new(width, 1));
+    let _ = panel.show();
+    for step in 1..=10u32 {
+        let height = (u64::from(target) * u64::from(step) / 10) as u32;
+        let _ = panel.set_size(tauri::PhysicalSize::new(width, height.max(1)));
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let _ = panel.set_focus();
+    let _ = panel.emit("okkhor:quickadd-focus", ());
+    Ok(())
+}
+
+/// Collapse the panel back into the bar and hide it.
+#[tauri::command]
+async fn quickadd_close(app: AppHandle) -> Result<(), UiError> {
+    let Some(panel) = app.get_webview_window("quickadd") else {
+        return Ok(());
+    };
+    let scale = panel.scale_factor().unwrap_or(1.0);
+    let size = panel.outer_size().unwrap_or(tauri::PhysicalSize::new(
+        (340.0 * scale) as u32,
+        (132.0 * scale) as u32,
+    ));
+    for step in (0..=10u32).rev() {
+        let height = (u64::from(size.height) * u64::from(step) / 10) as u32;
+        let _ = panel.set_size(tauri::PhysicalSize::new(size.width, height.max(1)));
+        tokio::time::sleep(std::time::Duration::from_millis(9)).await;
+    }
+    let _ = panel.hide();
+    Ok(())
+}
 /// Resize the bar window. The resize always applies locally; persisting
 /// `quickbar_collapsed` is best-effort so the orb still works while the
 /// daemon is down (shell stays read-only, chrome stays local).
@@ -1126,6 +1203,9 @@ fn main() {
             quickbar_hide,
             quickbar_show,
             quickbar_save_position,
+            quickadd_open,
+            quickadd_close,
+            ipc_words_preview,
             quickbar_quit
         ])
         .run(tauri::generate_context!())
