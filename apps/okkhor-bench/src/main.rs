@@ -11,6 +11,7 @@ mod nextword;
 mod output;
 mod parity;
 mod ranking;
+mod rerank;
 mod stats;
 mod suggestions;
 
@@ -114,6 +115,22 @@ fn run() -> Result<(), BenchError> {
         }
     }
 
+    if let Some(path) = options.rerank_dataset.as_deref() {
+        let sample = options.sample.unwrap_or(3_000);
+        let limit = 2_000;
+        let report = rerank::write_dataset(std::path::Path::new(path), sample, limit)
+            .map_err(BenchError::Failed)?;
+        println!(
+            "rerank dataset: {} cases, first {}, displaced {}, absent {} (opportunity {:.1}%, present {:.1}%)",
+            report.sampled,
+            report.first,
+            report.displaced,
+            report.absent,
+            report.displaced_percent(),
+            report.present_percent()
+        );
+        println!("wrote {path}");
+    }
     if options.alias_parity {
         let sample = options.sample.unwrap_or(2_000);
         let report = parity::run(sample).map_err(BenchError::Failed)?;
@@ -509,6 +526,7 @@ struct Options {
     candidates: bool,
     suggestions: bool,
     alias_parity: bool,
+    rerank_dataset: Option<String>,
     sample: Option<usize>,
     injection: bool,
     nextword: bool,
@@ -531,6 +549,7 @@ impl Default for Options {
             candidates: false,
             suggestions: false,
             alias_parity: false,
+            rerank_dataset: None,
             sample: None,
             injection: false,
             nextword: false,
@@ -558,6 +577,9 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
             "--candidates" => options.candidates = true,
             "--suggestions" => options.suggestions = true,
             "--alias-parity" => options.alias_parity = true,
+            "--rerank-dataset" => {
+                options.rerank_dataset = Some(take_value(&mut arguments, "--rerank-dataset")?);
+            }
             "--sample" => {
                 options.sample = Some(take_value(&mut arguments, "--sample")?.parse().map_err(
                     |_| BenchError::Usage("--sample expects a positive integer".to_owned()),
@@ -619,6 +641,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<Options, Be
         && !options.candidates
         && !options.suggestions
         && !options.alias_parity
+        && options.rerank_dataset.is_none()
         && !options.injection
         && !options.nextword
         && options.nextword_model.is_none()
