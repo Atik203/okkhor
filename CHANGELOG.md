@@ -3,6 +3,21 @@
 All notable changes to Okkhor are recorded here. The project follows Semantic
 Versioning once it reaches 1.0.
 
+## [0.9.12] - 2026-11-27
+
+### Fixed
+
+- **Settings really opens from the quick bar and the tray.** The window was
+  created but never shown: in a `--quickbar` launch Tauri's `show()` left the
+  hidden `main` webview invisible, so both the bar's gear and the tray's
+  Settings did nothing while the process answered IPC normally. The show path
+  now also calls Win32 `ShowWindow` + `BringWindowToTop` + `SetForegroundWindow`,
+  which is what actually makes the window visible; focus is still best-effort.
+- **A row picked below the first now counts against the auto-top.** The commit
+  carries its rank and the word that ranked first; choosing a deeper row adds
+  one correction to that word, the same counter a typed replacement uses, so a
+  repeated override sticks without a schema change.
+
 ## [0.9.11] - 2026-11-27
 
 ### Added
@@ -514,6 +529,21 @@ Versioning once it reaches 1.0.
   dictionary and the learned reranker are later milestones.
 - No speech/AI actions yet; no clipboard fallback or elevated-window injection.
 - Manual real-key QA remains owner-gated; see `docs/qa/`.
+
+## [0.9.12] - 2026-11-27
+
+### Fixed
+
+- **Settings really opens from the quick bar and the tray.** The window was
+  created but never shown: in a `--quickbar` launch Tauri's `show()` left the
+  hidden `main` webview invisible, so both the bar's gear and the tray's
+  Settings did nothing while the process answered IPC normally. The show path
+  now also calls Win32 `ShowWindow` + `BringWindowToTop` + `SetForegroundWindow`,
+  which is what actually makes the window visible; focus is still best-effort.
+- **A row picked below the first now counts against the auto-top.** The commit
+  carries its rank and the word that ranked first; choosing a deeper row adds
+  one correction to that word, the same counter a typed replacement uses, so a
+  repeated override sticks without a schema change.
 
 ## [0.9.11] - 2026-11-27
 

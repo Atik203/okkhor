@@ -1,7 +1,7 @@
 {
   "name": "okkhor-ui",
   "private": true,
-  "version": "0.9.11",
+  "version": "0.9.12",
   "type": "module",
   "description": "Okkhor settings UI (Tauri 2 + React 19). Separate process from the daemon; never touches settings.json directly.",
   "scripts": {

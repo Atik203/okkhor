@@ -19,10 +19,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
+    BringWindowToTop, CallNextHookEx, DispatchMessageW, GUITHREADINFO, GetClassNameW, GetForegroundWindow,
     GetGUIThreadInfo, GetMessageW, GetWindowThreadProcessId, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
-    PostMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WH_KEYBOARD_LL, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    PostMessageW, PostThreadMessageW, SetForegroundWindow, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    ShowWindow, SW_SHOW, WH_KEYBOARD_LL, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 use crate::clipboard::ClipboardGuard;
@@ -792,6 +792,23 @@ pub fn modifier_state() -> ModifierFlags {
             shift: GetAsyncKeyState(i32::from(VK_SHIFT.0)) < 0,
             altgr: altgr_pressed(),
         }
+    }
+}
+
+/// Show a window and bring it to the foreground through Win32.
+///
+/// Tauri's `show()` can leave a window that was created hidden (settings in a
+/// `--quickbar` launch) still invisible: the WebView exists and answers IPC,
+/// but no `ShowWindow` ever runs. This is the fallback the settings and tray
+/// paths call after the Tauri calls; failures are ignored because focus can be
+/// refused by the foreground lock without meaning the window is hidden.
+pub fn show_window_foreground(hwnd: HWND) {
+    // SAFETY: hwnd is a live top-level window owned by this process; ShowWindow
+    // only changes its visibility state.
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
     }
 }
 

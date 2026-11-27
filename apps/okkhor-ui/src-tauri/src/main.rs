@@ -630,6 +630,12 @@ fn show_main_at(app: &AppHandle, route: &str) -> Result<(), UiError> {
     let _ = main.show();
     let _ = main.unminimize();
     let _ = main.set_focus();
+    // Tauri's show() can no-op for a window created hidden at startup (a
+    // --quickbar launch); the native call is what actually makes it visible.
+    #[cfg(windows)]
+    if let Ok(hwnd) = main.hwnd() {
+        okkhor_win::show_window_foreground(hwnd);
+    }
     main.emit("okkhor:navigate", route)
         .map_err(|_| UiError::internal())?;
     Ok(())
