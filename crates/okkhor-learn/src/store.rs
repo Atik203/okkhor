@@ -283,10 +283,24 @@ impl Smriti {
                 language,
                 previous_word,
                 timestamp_ms,
+                rank,
+                auto_top,
             } => {
                 if let Some(key) = WordKey::new(language, &word) {
                     let stat = inner.words.entry(key).or_default();
                     stat.shown = stat.shown.saturating_add(1);
+                }
+                // Picking a row below the first is evidence that the auto-first
+                // was wrong for this context. It counts as one correction for
+                // that word, the same counter a typed replacement uses, so a
+                // repeated override sticks without a schema change.
+                let _ = rank;
+                if let Some(top) = auto_top.as_deref()
+                    && top != word
+                    && let Some(key) = WordKey::new(language, top)
+                {
+                    let stat = inner.words.entry(key).or_default();
+                    stat.corrections = stat.corrections.saturating_add(1);
                 }
                 record_word(
                     &mut inner,
@@ -771,6 +785,8 @@ mod tests {
             language: Language::Bangla,
             previous_word: None,
             timestamp_ms: 2_000,
+            rank: 0,
+            auto_top: None,
         });
 
         let ranked = smriti.rank(
@@ -875,6 +891,24 @@ mod tests {
         assert_eq!(ranked[0].text, "ভালো");
     }
 
+    #[test]
+    fn picking_a_deeper_row_demotes_the_auto_top() {
+        let smriti = Smriti::new();
+        // The user typed, saw both rows, and picked the second one.
+        smriti.observe(LearningEvent::SuggestionAccepted {
+            word: "খ".to_owned(),
+            language: Language::Bangla,
+            previous_word: None,
+            timestamp_ms: 1_000,
+            rank: 1,
+            auto_top: Some("ক".to_owned()),
+        });
+        let ranked = smriti.rank(
+            &request(2_000),
+            vec![bangla_candidate("ক", 0.0), bangla_candidate("খ", 0.0)],
+        );
+        assert_eq!(ranked[0].text, "খ");
+    }
     #[test]
     fn snapshots_restore_the_same_ranking() {
         let smriti = Smriti::new();

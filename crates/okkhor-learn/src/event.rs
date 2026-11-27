@@ -37,6 +37,10 @@ pub enum LearningEvent {
         language: Language,
         previous_word: Option<String>,
         timestamp_ms: u64,
+        /// Row the user committed; above zero means the auto-first was skipped.
+        rank: usize,
+        /// The auto-first row when it lost, so the learner can demote it.
+        auto_top: Option<String>,
     },
     Correction {
         from: String,

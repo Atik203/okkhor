@@ -50,6 +50,11 @@ pub struct Commit {
     pub text: String,
     /// Whether the commit was triggered by Space (inject one more space).
     pub trailing_space: bool,
+    /// Zero-based row the user committed. Above zero means the auto-first row
+    /// was skipped, which is the signal the learner uses to demote it.
+    pub rank: usize,
+    /// The row that ranked first, when `rank > 0 and it differs.
+    pub auto_top: Option<String>,
 }
 
 /// Outcome of a Backspace press.
@@ -455,6 +460,11 @@ impl<P: SuggestionProvider> InputSession<P> {
             erase_chars: self.buffer.len(),
             text: text.clone(),
             trailing_space,
+            rank: index,
+            auto_top: (index > 0)
+                .then(|| self.candidates.first().cloned())
+                .flatten()
+                .filter(|top| top != &text),
         };
         self.clear();
         self.previous_word = Some(text);

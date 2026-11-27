@@ -152,6 +152,8 @@ fn train(engine: &Smriti, words: &[String], language: Language) {
                 language,
                 previous_word: previous,
                 timestamp_ms: 1_000_600 + index as u64,
+                rank: 0,
+                auto_top: None,
             });
         }
 

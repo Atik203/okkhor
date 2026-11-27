@@ -1,3 +1,12 @@
+## Selection rank
+
+Up/Down (and digit) selection commits the highlighted row. The commit carries
+its zero-based `rank` and the row that ranked first (`auto_top`). When the user
+picks a row below the first, the auto-first word receives one correction count,
+the same counter a typed replacement uses. That makes a repeated override stick
+after one or two picks instead of only accumulating word frequency, and it needs
+no new persisted field. The choice itself is still recorded as an accepted
+suggestion with its previous-word pair, locally and encrypted.
 # Smriti: personal learning
 
 Smriti is Okkhor's on-device personalization engine. Its job is to make the

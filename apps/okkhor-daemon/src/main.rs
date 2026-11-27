@@ -1161,7 +1161,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             ctx.shown_words.clear();
             return;
         }
-        emit_suggestion_accepted(ctx, &unicode_text, previous_word.clone());
+        emit_suggestion_accepted(
+            ctx,
+            &unicode_text,
+            previous_word.clone(),
+            commit.rank,
+            commit.auto_top.clone(),
+        );
         emit_correction(ctx, &unicode_text);
         *ctx.last_commit = Some((unicode_text.clone(), now_ms()));
         ctx.shown_words.clear();
@@ -1310,6 +1316,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
         ctx: &mut CompositionCtx<'_>,
         word: &str,
         previous_word: Option<String>,
+        rank: usize,
+        auto_top: Option<String>,
     ) {
         if !ctx.learning_enabled || !has_bengali(word) || !ctx.shown_words.remove(word) {
             return;
@@ -1319,6 +1327,8 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             language: Language::Bangla,
             previous_word,
             timestamp_ms: now_ms(),
+            rank,
+            auto_top,
         };
         if ctx.learn_tx.try_send(event).is_err() {
             ctx.learn_dropped.fetch_add(1, Ordering::Relaxed);
@@ -1504,7 +1514,13 @@ fn run_daemon(options: DaemonOptions) -> Result<(), Box<dyn Error>> {
             ctx.shown_words.clear();
             return true;
         }
-        emit_suggestion_accepted(ctx, &unicode_text, previous_word.clone());
+        emit_suggestion_accepted(
+            ctx,
+            &unicode_text,
+            previous_word.clone(),
+            commit.rank,
+            commit.auto_top.clone(),
+        );
         emit_correction(ctx, &unicode_text);
         *ctx.last_commit = Some((unicode_text.clone(), now_ms()));
         ctx.shown_words.clear();
